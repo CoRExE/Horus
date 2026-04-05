@@ -1,0 +1,9 @@
+{
+  "name": "horus-monorepo",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {},
+  "engines": {
+    "node": ">=18"
+  }
+}
