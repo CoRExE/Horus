@@ -1,4 +1,4 @@
-# 🎬 Movie-TV-Ecosystem
+# 🎬 Horus Ecosystem
 
 > Le successeur spirituel de `movie-cli`, porté sur grand écran. Une solution de streaming auto-hébergée (sans serveur tiers) pour Android TV, pilotée par votre smartphone.
 
@@ -56,8 +56,8 @@ graph LR
 ### Setup
 1. **Cloner le projet :**
    ```bash
-   git clone [https://github.com/votre-pseudo/movie-tv-ecosystem.git](https://github.com/votre-pseudo/movie-tv-ecosystem.git)
-   cd movie-tv-ecosystem
+   git clone [https://github.com/CoRExE/Horus.git](https://github.com/CoRExE/Horus.git)
+   cd Horus
    ```
 2. **Installer les dépendances :**
    ```bash
