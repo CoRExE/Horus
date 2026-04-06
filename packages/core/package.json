@@ -11,6 +11,8 @@
     "cheerio": "1.0.0-rc.12"
   },
   "devDependencies": {
+    "@types/node": "^25.5.2",
+    "ts-node": "^10.9.2",
     "typescript": "^5.0.0"
   }
 }
