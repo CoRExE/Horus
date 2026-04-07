@@ -5,7 +5,7 @@ import * as cheerio from 'cheerio';
 
 export class FrenchStreamProvider implements HorusProvider {
   name = 'French-Stream';
-  private baseUrl = 'https://french-stream.lol'; // Fallback
+  private baseUrl = 'https://french-stream.lol';
   private http = HttpClient.create(this.baseUrl, 'https://fstream.info/');
 
   private async resolveBaseUrl() {
@@ -24,7 +24,6 @@ export class FrenchStreamProvider implements HorusProvider {
   async search(query: string): Promise<SearchResult[]> {
     await this.resolveBaseUrl();
     
-    // x-www-form-urlencoded format
     const formData = new URLSearchParams();
     formData.append('do', 'search');
     formData.append('subaction', 'search');
@@ -50,7 +49,6 @@ export class FrenchStreamProvider implements HorusProvider {
       }
 
       if (href) {
-        // extract ID: e.g. /38829-mr-peabody.html -> 38829
         const pathParts = href.split('/');
         const filePart = pathParts[pathParts.length - 1];
         const idMatch = filePart.match(/^(\d+)-/);
@@ -75,17 +73,13 @@ export class FrenchStreamProvider implements HorusProvider {
   async getEpisodes(mediaId: string): Promise<Episode[]> {
     await this.resolveBaseUrl();
 
-    // Check if it's a movie first
     const apiResponse = await this.http.get(`/engine/ajax/film_api.php?id=${mediaId}`);
     const apiData = typeof apiResponse.data === 'string' ? JSON.parse(apiResponse.data) : apiResponse.data;
 
-    // Check if players object has keys natively
     if (apiData && typeof apiData === 'object' && apiData.players && Object.keys(apiData.players).length > 0) {
-      // It's a movie
       return [{ id: `${mediaId}::movie`, number: 1, title: 'Film' }];
     }
 
-    // It's a series
     try {
       const epResponse = await this.http.get(`/ep-data.php?id=${mediaId}`, {
         headers: { 'X-Requested-With': 'XMLHttpRequest' }
@@ -94,7 +88,6 @@ export class FrenchStreamProvider implements HorusProvider {
       
       const episodesSet = new Set<string>();
 
-      // epData contains keys like 'vf', 'vostfr'
       for (const lang of Object.keys(epData)) {
          if (lang === 'info') continue;
          const langData = epData[lang];
@@ -103,15 +96,13 @@ export class FrenchStreamProvider implements HorusProvider {
          }
       }
 
-      const episodes: Episode[] = Array.from(episodesSet)
+      return Array.from(episodesSet)
         .sort((a, b) => parseInt(a) - parseInt(b))
         .map(ep => ({
            id: `${mediaId}::${ep}`,
            number: ep,
            title: `Épisode ${ep}`
         }));
-        
-      return episodes;
     } catch (e) {
       console.error(e);
       return [];
@@ -128,7 +119,7 @@ export class FrenchStreamProvider implements HorusProvider {
     if (epNo === 'movie') {
        const apiResponse = await this.http.get(`/engine/ajax/film_api.php?id=${mediaId}`);
        const apiData = typeof apiResponse.data === 'string' ? JSON.parse(apiResponse.data) : apiResponse.data;
-       
+
        if (apiData.players) {
           for (const providerName of Object.keys(apiData.players)) {
              for (const lang of Object.keys(apiData.players[providerName])) {
@@ -155,44 +146,50 @@ export class FrenchStreamProvider implements HorusProvider {
     }
 
     // Resolve direct links concurrently
-    await Promise.all(providersToScrape.map(async ({ lang, providerName, embedUrl }) => {
+    await Promise.allSettled(providersToScrape.map(async ({ lang, providerName, embedUrl }) => {
         try {
             const rawEmbedUrl = embedUrl.startsWith('//') ? `https:${embedUrl}` : embedUrl;
             let actualEmbed = rawEmbedUrl;
 
-            // Handle Kakaflix redirects
-            if (actualEmbed.includes('kakaflix.lol')) {
-                const initRes = await this.http.get(actualEmbed);
+            // Follow Kakaflix redirects (skip moon/bigwar = Doodstream)
+            if (actualEmbed.includes('kakaflix.lol') && !actualEmbed.includes('/moon') && !actualEmbed.includes('/bigwar')) {
+                const initRes = await this.http.get(actualEmbed, { timeout: 10000 });
                 const redirectMatch = initRes.data.match(/window\.location\.href\s*=\s*'([^']+)'/);
-                if (redirectMatch) actualEmbed = redirectMatch[1];
+                if (redirectMatch) {
+                    actualEmbed = redirectMatch[1];
+                } else {
+                    return;
+                }
             }
 
-            const { data: pageHtml } = await this.http.get(actualEmbed);
+            // Skip known unsupported providers (Cloudflare/WASM protected)
+            const unsupported = ['mixdrop', 'dood', 'dsvplay', 'kakaflix.lol/moon', 'kakaflix.lol//bigwar', 'filmoon'];
+            if (unsupported.some(p => actualEmbed.includes(p))) return;
+
+            const { data: pageHtml } = await this.http.get(actualEmbed, { timeout: 10000 });
 
             if (actualEmbed.includes('uqload')) {
                 const match = pageHtml.match(/sources:\s*\[\s*"([^"]+)"/);
                 if (match) {
-                    streams.push({ url: match[1], quality: lang.toUpperCase(), server: 'Uqload' });
+                    streams.push({ url: match[1], quality: lang.toUpperCase(), server: 'Uqload', headers: { 'Referer': 'https://uqload.is/' } });
                 }
             } else if (actualEmbed.includes('voe.') || actualEmbed.includes('sandratableother.com')) {
                 const m1 = pageHtml.match(/var source\s*=\s*'([^']+)'/);
                 const m2 = pageHtml.match(/(?:hls|mp4)':\s*'([^']+)'/);
-                let link = m1 ? m1[1] : (m2 ? m2[1] : null);
+                const link = m1 ? m1[1] : (m2 ? m2[1] : null);
                 if (link) {
-                   streams.push({ url: link, quality: lang.toUpperCase(), server: 'Voe' });
+                   streams.push({ url: link, quality: lang.toUpperCase(), server: 'Voe', headers: { 'Referer': 'https://voe.sx/' } });
                 }
             } else if (actualEmbed.includes('vidzy.live') || actualEmbed.includes('fsvid.lol')) {
                 if (pageHtml.includes('eval(function')) {
                     const decrypted = Unpacker.unpack(pageHtml);
                     const linkMatch = decrypted.match(/(http[^"']+m3u8[^"']*)/) || decrypted.match(/(?:file|src):\s*['"]([^'"]+)['"]/);
                     if (linkMatch && linkMatch[1]) {
-                        streams.push({ url: linkMatch[1], quality: lang.toUpperCase(), server: 'Vidzy' });
+                        streams.push({ url: linkMatch[1], quality: lang.toUpperCase(), server: 'Vidzy', headers: { 'Referer': 'https://french-stream.one/' } });
                     }
                 }
             }
-        } catch (e) {
-            console.warn(`Failed to resolve stream for ${providerName} (${lang})`, e);
-        }
+        } catch {}
     }));
 
     return streams;

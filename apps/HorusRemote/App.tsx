@@ -5,6 +5,9 @@ import React, { useState, useMemo, useEffect } from 'react';
 // Imports de notre librairie locale @horus/core
 import { AnimeSamaProvider, FrenchStreamProvider, AllAnimeProvider, SearchResult, Episode, Stream } from '@horus/core';
 
+// Composant Lecteur Vidéo Natif
+import VideoPlayer from './components/VideoPlayer';
+
 // Instanciation des providers de Scraping
 const animeSama = new AnimeSamaProvider();
 const allAnime = new AllAnimeProvider();
@@ -21,6 +24,11 @@ export default function App() {
   const [episodes, setEpisodes] = useState<Episode[]>([]);
   const [isLoadingEpisodes, setIsLoadingEpisodes] = useState(false);
   const [selectedSeason, setSelectedSeason] = useState<string>('');
+
+  // Video Player State
+  const [allStreams, setAllStreams] = useState<Stream[]>([]);
+  const [currentStreamIndex, setCurrentStreamIndex] = useState(0);
+  const [isExtracting, setIsExtracting] = useState(false);
 
   const handleSearch = async () => {
     if (!search.trim()) return;
@@ -70,17 +78,41 @@ export default function App() {
   };
 
   const extractStreamsAndCast = async (episode: Episode) => {
+     setIsExtracting(true);
      try {
        const provider = getProviderForMedia(selectedMedia!.id);
-       console.log(`📡 Extraction directe en cours via ${provider.name}...`);
+
        
        const streams = await provider.getStreams(episode.id);
-       console.log("🚀 URLS NATIVES TROUVÉES :", streams);
-       alert(`Trouvé ${streams.length} liens ! \nRegardez la console (Metro).`);
+
+
+       if (streams.length > 0) {
+         setAllStreams(streams);
+         setCurrentStreamIndex(0);
+       } else {
+         alert("Aucun lien de streaming trouvé pour cet épisode.");
+       }
      } catch (e) {
        console.error(e);
        alert("Erreur lors de l'extraction de la vidéo");
+     } finally {
+       setIsExtracting(false);
      }
+  };
+
+  const tryNextStream = () => {
+    if (currentStreamIndex + 1 < allStreams.length) {
+      setCurrentStreamIndex(currentStreamIndex + 1);
+    } else {
+      setAllStreams([]);
+      setCurrentStreamIndex(0);
+      alert("Aucun autre serveur disponible.");
+    }
+  };
+
+  const closePlayer = () => {
+    setAllStreams([]);
+    setCurrentStreamIndex(0);
   };
 
   // Grouper les épisodes par saisons
@@ -88,8 +120,9 @@ export default function App() {
     const groups: { [key: string]: Episode[] } = {};
     episodes.forEach((ep) => {
         let seasonName = 'Standard';
-        if (ep.title.includes(' - ')) {
-            seasonName = ep.title.split(' - ')[0].trim();
+        const title = ep.title || '';
+        if (title.includes(' - ')) {
+            seasonName = title.split(' - ')[0].trim();
         }
         if (!groups[seasonName]) groups[seasonName] = [];
         groups[seasonName].push(ep);
@@ -229,13 +262,13 @@ export default function App() {
                     {/* Liste des Épisodes de la Saison active */}
                     <ScrollView style={styles.episodesList} contentContainerStyle={{ paddingBottom: 40, paddingHorizontal: 20 }}>
                        {(seasonGroups[selectedSeason] || []).map((ep, idx) => {
-                          let displayTitle = ep.title;
+                          let displayTitle = ep.title || `Épisode ${ep.number}`;
                           if (displayTitle.includes(' - ')) {
                               displayTitle = displayTitle.split(' - ')[1] || displayTitle; // Affiche juste "Épisode X"
                           }
 
                           return (
-                            <TouchableOpacity key={ep.id + idx} style={styles.episodeCard} onPress={() => extractStreamsAndCast(ep)}>
+                            <TouchableOpacity key={ep.id + idx} style={styles.episodeCard} onPress={() => extractStreamsAndCast(ep)} disabled={isExtracting}>
                                <View style={styles.episodeNumber}>
                                   <Text style={styles.episodeNumberText}>{idx + 1}</Text>
                                </View>
@@ -243,7 +276,11 @@ export default function App() {
                                   <Text style={styles.episodeText}>{displayTitle}</Text>
                                </View>
                                <View style={styles.playIconBox}>
-                                  <Text style={styles.playIconText}>▶</Text>
+                                  {isExtracting ? (
+                                    <ActivityIndicator size="small" color="#A78BFA" />
+                                  ) : (
+                                    <Text style={styles.playIconText}>▶</Text>
+                                  )}
                                </View>
                             </TouchableOpacity>
                           )
@@ -258,6 +295,23 @@ export default function App() {
             </SafeAreaView>
          </View>
       </Modal>
+
+      {/* Lecteur Vidéo en plein écran */}
+      {allStreams.length > 0 && (
+        <Modal
+          visible={true}
+          animationType="fade"
+          supportedOrientations={['portrait', 'landscape']}
+          onRequestClose={closePlayer}
+        >
+          <VideoPlayer
+            key={currentStreamIndex}
+            stream={allStreams[currentStreamIndex]}
+            onClose={closePlayer}
+            onError={allStreams.length > 1 ? tryNextStream : undefined}
+          />
+        </Modal>
+      )}
 
     </SafeAreaView>
   );

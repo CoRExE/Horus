@@ -15,6 +15,7 @@ export interface Stream {
   url: string; // Direct stream URL (.m3u8, .mp4, etc.)
   quality: string; // "1080p", "720p", "auto"
   server: string; // "Sibnet", "Sendvid", "Voe", etc.
+  headers?: Record<string, string>; // HTTP headers needed for playback (e.g. Referer)
 }
 
 export interface HorusProvider {

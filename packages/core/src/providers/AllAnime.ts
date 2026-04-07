@@ -119,7 +119,7 @@ export class AllAnimeProvider implements HorusProvider {
 
           for (const linkObj of linksData) {
             let directUrl = linkObj.link;
-            // Sometimes it's inside `hls: { url: ... }`
+            // Sometimes it's inside `hls: { url: ... }` or `mp4: { url: ... }`
             if (linkObj.hls && linkObj.hls.url) {
               directUrl = linkObj.hls.url;
             } else if (linkObj.mp4 && linkObj.mp4.url) {
@@ -127,11 +127,28 @@ export class AllAnimeProvider implements HorusProvider {
             }
 
             if (directUrl && typeof directUrl === 'string') {
-              streams.push({
-                url: directUrl,
-                quality: linkObj.resolutionStr || 'auto',
-                server: sourceName
-              });
+              // Only keep URLs that are genuinely playable video streams
+              // Skip wixmp repackager URLs (they need complex m3u8 processing the CLI does via sed)
+              // Skip embed page URLs that aren't direct video files
+              const isPlayable = 
+                directUrl.includes('.mp4') ||
+                directUrl.includes('.m3u8') ||
+                directUrl.includes('fast4speed') ||
+                directUrl.includes('sharepoint') ||
+                directUrl.includes('akamai');
+
+              const isEmbed = 
+                directUrl.includes('repackager.wixmp.com') ||
+                directUrl.includes('embed') ||
+                directUrl.includes('/e/');
+
+              if (isPlayable && !isEmbed) {
+                streams.push({
+                  url: directUrl,
+                  quality: linkObj.resolutionStr || 'auto',
+                  server: sourceName
+                });
+              }
             }
           }
         }
