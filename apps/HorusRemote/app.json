@@ -33,8 +33,9 @@
     ],
     "extra": {
       "eas": {
-        "projectId": ""
+        "projectId": "434a6fd2-49b6-41f5-8df7-80f6a9a58d24"
       }
-    }
+    },
+    "owner": "ceestos"
   }
 }
