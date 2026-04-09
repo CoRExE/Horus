@@ -14,6 +14,7 @@
   "dependencies": {
     "@horus/core": "workspace:*",
     "expo": "~54.0.33",
+    "expo-navigation-bar": "~5.0.10",
     "expo-status-bar": "~3.0.9",
     "expo-video": "~3.0.16",
     "react": "19.1.0",

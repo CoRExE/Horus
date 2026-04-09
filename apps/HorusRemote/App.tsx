@@ -301,7 +301,6 @@ export default function App() {
         <Modal
           visible={true}
           animationType="fade"
-          supportedOrientations={['portrait', 'landscape']}
           onRequestClose={closePlayer}
         >
           <VideoPlayer

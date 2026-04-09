@@ -25,44 +25,41 @@ export class FrenchStreamProvider implements HorusProvider {
     await this.resolveBaseUrl();
     
     const formData = new URLSearchParams();
-    formData.append('do', 'search');
-    formData.append('subaction', 'search');
-    formData.append('search_start', '0');
-    formData.append('full_search', '0');
-    formData.append('result_from', '1');
-    formData.append('story', query);
+    formData.append('query', query);
 
-    const { data } = await this.http.get('/', {
-      params: formData
+    const { data } = await this.http.post('/engine/ajax/search.php', formData, {
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
     });
 
     const $ = cheerio.load(data);
     const results: SearchResult[] = [];
 
-    $('a.short-poster').each((_, el) => {
+    $('.search-item').each((_, el) => {
       const $el = $(el);
-      const href = $el.attr('href');
-      const title = $el.attr('alt') || $el.find('img').attr('alt') || $el.parent().text().trim();
-      let coverUrl = $el.find('img').attr('src');
+      const onclick = $el.attr('onclick');
+      if (!onclick) return;
+
+      const hrefMatch = onclick.match(/location\.href='([^']+)'/);
+      if (!hrefMatch) return;
+      const href = hrefMatch[1];
+
+      const title = $el.find('.search-title').text().trim();
+      let coverUrl = $el.find('.search-poster img').attr('src');
+      
       if (coverUrl && coverUrl.startsWith('/')) {
         coverUrl = `${this.baseUrl}${coverUrl}`;
       }
 
-      if (href) {
-        const pathParts = href.split('/');
-        const filePart = pathParts[pathParts.length - 1];
-        const idMatch = filePart.match(/^(\d+)-/);
-        
-        if (idMatch && title) {
-          const id = idMatch[1];
-          if (!results.find(r => r.id === id)) {
-            results.push({
-              id,
-              title,
-              coverUrl,
-              type: href.includes('film') ? 'movie' : 'series'
-            });
-          }
+      const idMatch = href.match(/\/(\d+)-/);
+      if (idMatch && title) {
+        const id = idMatch[1];
+        if (!results.find(r => r.id === id)) {
+          results.push({
+            id,
+            title,
+            coverUrl,
+            type: (href.includes('saison') || title.toLowerCase().includes('saison')) ? 'series' : 'movie'
+          });
         }
       }
     });

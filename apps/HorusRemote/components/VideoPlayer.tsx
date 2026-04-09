@@ -1,6 +1,7 @@
-import React, { useCallback, useState } from 'react';
-import { View, TouchableOpacity, Text, StyleSheet, StatusBar } from 'react-native';
+import React, { useCallback, useState, useEffect } from 'react';
+import { View, TouchableOpacity, Text, StyleSheet, StatusBar, Platform } from 'react-native';
 import { useVideoPlayer, VideoView } from 'expo-video';
+import * as NavigationBar from 'expo-navigation-bar';
 import { Stream } from '@horus/core';
 
 interface VideoPlayerProps {
@@ -12,6 +13,29 @@ interface VideoPlayerProps {
 export default function VideoPlayer({ stream, onClose, onError }: VideoPlayerProps) {
   const [hasError, setHasError] = useState(false);
 
+  // Configuration de l'immersion
+  useEffect(() => {
+    async function enterFullScreen() {
+      if (Platform.OS === 'android') {
+        // Masquer la barre de navigation (Immersive Mode)
+        await NavigationBar.setVisibilityAsync('hidden');
+        await NavigationBar.setBehaviorAsync('inset-touch');
+      }
+    }
+
+    async function exitFullScreen() {
+      if (Platform.OS === 'android') {
+        // Restaurer la barre de navigation
+        await NavigationBar.setVisibilityAsync('visible');
+      }
+    }
+
+    enterFullScreen();
+    return () => {
+      exitFullScreen();
+    };
+  }, []);
+
   const videoSource = stream.headers
     ? { uri: stream.url, headers: stream.headers }
     : stream.url;
@@ -20,13 +44,13 @@ export default function VideoPlayer({ stream, onClose, onError }: VideoPlayerPro
     p.play();
   });
 
-  React.useEffect(() => {
+  useEffect(() => {
     const subscription = player.addListener('statusChange', (newStatus: any) => {
       if (newStatus.status === 'error') {
         setHasError(true);
       }
     });
-    return () => { try { subscription.remove(); } catch {} };
+    return () => { try { subscription.remove(); } catch { } };
   }, [player]);
 
   const handleClose = useCallback(() => {
@@ -52,20 +76,22 @@ export default function VideoPlayer({ stream, onClose, onError }: VideoPlayerPro
         nativeControls
       />
 
-      {/* Overlay Header */}
-      <View style={styles.overlay}>
-        <TouchableOpacity onPress={handleClose} style={styles.closeBtn}>
-          <Text style={styles.closeBtnText}>✕</Text>
-        </TouchableOpacity>
-        <View style={styles.streamInfo}>
-          <Text style={styles.serverText}>{stream.server}</Text>
-          {stream.quality !== 'auto' && stream.quality !== 'unknown' && (
-            <View style={styles.qualityBadge}>
-              <Text style={styles.qualityText}>{stream.quality}</Text>
-            </View>
-          )}
+      {/* Overlay Header - Uniquement visible si pas d'erreur */}
+      {!hasError && (
+        <View style={styles.overlay}>
+          <TouchableOpacity onPress={handleClose} style={styles.closeBtn}>
+            <Text style={styles.closeBtnText}>✕</Text>
+          </TouchableOpacity>
+          <View style={styles.streamInfo}>
+            <Text style={styles.serverText}>{stream.server}</Text>
+            {stream.quality !== 'auto' && stream.quality !== 'unknown' && (
+              <View style={styles.qualityBadge}>
+                <Text style={styles.qualityText}>{stream.quality}</Text>
+              </View>
+            )}
+          </View>
         </View>
-      </View>
+      )}
 
       {/* Error Overlay */}
       {hasError && (
