@@ -1,6 +1,8 @@
 import { StatusBar } from 'expo-status-bar';
-import { StyleSheet, Text, View, TextInput, ScrollView, Image, TouchableOpacity, SafeAreaView, Platform, ActivityIndicator, Modal } from 'react-native';
+import { StyleSheet, Text, View, TextInput, ScrollView, Image, TouchableOpacity, Platform, ActivityIndicator, Modal } from 'react-native';
 import React, { useState, useMemo, useEffect } from 'react';
+import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
+import * as NavigationBar from 'expo-navigation-bar';
 
 // Imports de notre librairie locale @horus/core
 import { AnimeSamaProvider, FrenchStreamProvider, AllAnimeProvider, SearchResult, Episode, Stream } from '@horus/core';
@@ -29,6 +31,15 @@ export default function App() {
   const [allStreams, setAllStreams] = useState<Stream[]>([]);
   const [currentStreamIndex, setCurrentStreamIndex] = useState(0);
   const [isExtracting, setIsExtracting] = useState(false);
+
+  // Configuration de l'immersion Android au démarrage
+  useEffect(() => {
+    if (Platform.OS === 'android') {
+      NavigationBar.setBackgroundColorAsync('transparent');
+      NavigationBar.setVisibilityAsync('hidden');
+      NavigationBar.setBehaviorAsync('inset-touch');
+    }
+  }, []);
 
   const handleSearch = async () => {
     if (!search.trim()) return;
@@ -82,7 +93,7 @@ export default function App() {
      try {
        const provider = getProviderForMedia(selectedMedia!.id);
 
-       
+
        const streams = await provider.getStreams(episode.id);
 
 
@@ -139,185 +150,188 @@ export default function App() {
   }, [seasonKeys, selectedSeason]);
 
   return (
-    <SafeAreaView style={styles.container}>
-      <StatusBar style="light" />
-      
-      {/* HEADER / SEARCH */}
-      <View style={styles.header}>
-        <Text style={styles.appTitle}>Horus Remote</Text>
-        
-        {/* Pilules de Sélection de Type de Média */}
-        <View style={styles.pillsContainer}>
-          <TouchableOpacity 
-            style={[styles.pill, mediaType === 'anime' && styles.pillActive]} 
-            onPress={() => { setMediaType('anime'); setResults([]); }}
-          >
-            <Text style={[styles.pillText, mediaType === 'anime' && styles.pillTextActive]}>Anime</Text>
-          </TouchableOpacity>
-          <TouchableOpacity 
-            style={[styles.pill, mediaType === 'film_series' && styles.pillActive]} 
-            onPress={() => { setMediaType('film_series'); setResults([]); }}
-          >
-            <Text style={[styles.pillText, mediaType === 'film_series' && styles.pillTextActive]}>Films & Séries</Text>
-          </TouchableOpacity>
+    <SafeAreaProvider>
+      <SafeAreaView style={styles.container}>
+        <StatusBar style="light" />
+
+        {/* HEADER / SEARCH */}
+        <View style={styles.header}>
+          <Text style={styles.appTitle}>Horus Remote</Text>
+
+          {/* Pilules de Sélection de Type de Média */}
+          <View style={styles.pillsContainer}>
+            <TouchableOpacity 
+              style={[styles.pill, mediaType === 'anime' && styles.pillActive]} 
+              onPress={() => { setMediaType('anime'); setResults([]); }}
+            >
+              <Text style={[styles.pillText, mediaType === 'anime' && styles.pillTextActive]}>Anime</Text>
+            </TouchableOpacity>
+            <TouchableOpacity 
+              style={[styles.pill, mediaType === 'film_series' && styles.pillActive]} 
+              onPress={() => { setMediaType('film_series'); setResults([]); }}
+            >
+              <Text style={[styles.pillText, mediaType === 'film_series' && styles.pillTextActive]}>Films & Séries</Text>
+            </TouchableOpacity>
+          </View>
+
+          <TextInput 
+            style={styles.searchInput}
+            placeholder={mediaType === 'anime' ? "Rechercher un anime..." : "Rechercher un film ou une série..."}
+            placeholderTextColor="#94A3B8"
+            value={search}
+            onChangeText={setSearch}
+            onSubmitEditing={handleSearch}
+            returnKeyType="search"
+          />
         </View>
 
-        <TextInput 
-          style={styles.searchInput}
-          placeholder={mediaType === 'anime' ? "Rechercher un anime..." : "Rechercher un film ou une série..."}
-          placeholderTextColor="#94A3B8"
-          value={search}
-          onChangeText={setSearch}
-          onSubmitEditing={handleSearch}
-          returnKeyType="search"
-        />
-      </View>
-
-      <ScrollView contentContainerStyle={styles.scrollContent}>
-        {isSearching ? (
-          <ActivityIndicator size="large" color="#8B5CF6" style={{ marginTop: 50 }} />
-        ) : (
-          <View style={styles.grid}>
-            {results.map((item, idx) => (
-              <TouchableOpacity key={item.id + idx} style={styles.card} onPress={() => openMedia(item)}>
-                {item.coverUrl ? (
-                   <Image source={{ uri: item.coverUrl }} style={styles.cardImage} />
-                ) : (
-                   <View style={[styles.cardImage, { backgroundColor: '#2A3143', justifyContent: 'center', alignItems: 'center' }]}>
-                     <Text style={{color: '#94A3B8'}}>Pas de miniature</Text>
-                   </View>
-                )}
-                <View style={styles.cardInfo}>
-                  <Text style={styles.cardTitle} numberOfLines={2}>{item.title}</Text>
-                  <Text style={styles.cardSubtitle}>{item.type}</Text>
-                </View>
-              </TouchableOpacity>
-            ))}
-            
-            {results.length === 0 && search.length > 0 && !isSearching && (
-               <Text style={styles.emptyText}>Aucun résultat trouvé pour votre recherche.</Text>
-            )}
-            {results.length === 0 && search.length === 0 && !isSearching && (
-               <Text style={styles.emptyText}>
-                 Recherchez {mediaType === 'anime' ? 'un anime' : 'un film ou une série'} pour commencer.
-               </Text>
-            )}
-          </View>
-        )}
-      </ScrollView>
-
-      {/* Modal Détails du média (Liste des épisodes) */}
-      <Modal 
-        visible={!!selectedMedia} 
-        animationType="slide" 
-        transparent={true}
-        onRequestClose={() => { setSelectedMedia(null); setEpisodes([]); }}
-      >
-         <View style={{ flex: 1, backgroundColor: '#0B0F19' }}>
-            {/* Background premium avec flou de la vignette */}
-            {selectedMedia?.coverUrl && (
-               <Image 
-                   source={{ uri: selectedMedia.coverUrl }} 
-                   style={[StyleSheet.absoluteFillObject, { opacity: 0.3 }]} 
-                   blurRadius={20} 
-               />
-            )}
-            <View style={[StyleSheet.absoluteFillObject, { backgroundColor: 'rgba(11, 15, 25, 0.75)' }]} />
-            
-            <SafeAreaView style={{ flex: 1 }}>
-               <View style={styles.modalHeader}>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.modalTitle} numberOfLines={2}>{selectedMedia?.title}</Text>
-                    <Text style={styles.modalSubtitle}>{selectedMedia?.type.toUpperCase()}</Text>
+        <ScrollView contentContainerStyle={styles.scrollContent}>
+          {isSearching ? (
+            <ActivityIndicator size="large" color="#8B5CF6" style={{ marginTop: 50 }} />
+          ) : (
+            <View style={styles.grid}>
+              {results.map((item, idx) => (
+                <TouchableOpacity key={item.id + idx} style={styles.card} onPress={() => openMedia(item)}>
+                  {item.coverUrl ? (
+                    <Image source={{ uri: item.coverUrl }} style={styles.cardImage} />
+                  ) : (
+                    <View style={[styles.cardImage, { backgroundColor: '#2A3143', justifyContent: 'center', alignItems: 'center' }]}>
+                      <Text style={{color: '#94A3B8'}}>Pas de miniature</Text>
+                    </View>
+                  )}
+                  <View style={styles.cardInfo}>
+                    <Text style={styles.cardTitle} numberOfLines={2}>{item.title}</Text>
+                    <Text style={styles.cardSubtitle}>{item.type}</Text>
                   </View>
-                  <TouchableOpacity onPress={() => { setSelectedMedia(null); setEpisodes([]); }} style={styles.closeBtn}>
-                     <Text style={styles.closeBtnText}>✕</Text>
-                  </TouchableOpacity>
-               </View>
+                </TouchableOpacity>
+              ))}
 
-               {isLoadingEpisodes ? (
-                  <ActivityIndicator size="large" color="#8B5CF6" style={{ marginTop: 100 }} />
-               ) : (
-                  <>
-                    {/* Pilules de Sélections de Saisons */}
-                    {seasonKeys.length > 1 && (
-                       <View style={styles.seasonContainer}>
-                          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 20 }}>
-                              {seasonKeys.map(season => {
-                                   const isActive = season === selectedSeason;
-                                   return (
-                                     <TouchableOpacity 
-                                        key={season} 
-                                        style={[styles.seasonTab, isActive && styles.seasonTabActive]}
-                                        onPress={() => setSelectedSeason(season)}
-                                     >
-                                        <Text style={[styles.seasonTabText, isActive && styles.seasonTabTextActive]}>{season}</Text>
-                                     </TouchableOpacity>
-                                   )
-                              })}
-                          </ScrollView>
-                       </View>
-                    )}
+              {results.length === 0 && search.length > 0 && !isSearching && (
+                <Text style={styles.emptyText}>Aucun résultat trouvé pour votre recherche.</Text>
+              )}
+              {results.length === 0 && search.length === 0 && !isSearching && (
+                <Text style={styles.emptyText}>
+                  Recherchez {mediaType === 'anime' ? 'un anime' : 'un film ou une série'} pour commencer.
+                </Text>
+              )}
+            </View>
+          )}
+        </ScrollView>
 
-                    {/* Liste des Épisodes de la Saison active */}
-                    <ScrollView style={styles.episodesList} contentContainerStyle={{ paddingBottom: 40, paddingHorizontal: 20 }}>
-                       {(seasonGroups[selectedSeason] || []).map((ep, idx) => {
-                          let displayTitle = ep.title || `Épisode ${ep.number}`;
-                          if (displayTitle.includes(' - ')) {
-                              displayTitle = displayTitle.split(' - ')[1] || displayTitle; // Affiche juste "Épisode X"
-                          }
-
-                          return (
-                            <TouchableOpacity key={ep.id + idx} style={styles.episodeCard} onPress={() => extractStreamsAndCast(ep)} disabled={isExtracting}>
-                               <View style={styles.episodeNumber}>
-                                  <Text style={styles.episodeNumberText}>{idx + 1}</Text>
-                               </View>
-                               <View style={styles.episodeInfo}>
-                                  <Text style={styles.episodeText}>{displayTitle}</Text>
-                               </View>
-                               <View style={styles.playIconBox}>
-                                  {isExtracting ? (
-                                    <ActivityIndicator size="small" color="#A78BFA" />
-                                  ) : (
-                                    <Text style={styles.playIconText}>▶</Text>
-                                  )}
-                               </View>
-                            </TouchableOpacity>
-                          )
-                       })}
-                       
-                       {(seasonGroups[selectedSeason] || []).length === 0 && (
-                          <Text style={styles.emptyText}>Aucun épisode pour cette saison.</Text>
-                       )}
-                    </ScrollView>
-                  </>
-               )}
-            </SafeAreaView>
-         </View>
-      </Modal>
-
-      {/* Lecteur Vidéo en plein écran */}
-      {allStreams.length > 0 && (
-        <Modal
-          visible={true}
-          animationType="fade"
-          onRequestClose={closePlayer}
+        {/* Modal Détails du média (Liste des épisodes) */}
+        <Modal 
+          visible={!!selectedMedia} 
+          animationType="slide" 
+          transparent={true}
+          onRequestClose={() => { setSelectedMedia(null); setEpisodes([]); }}
         >
-          <VideoPlayer
-            key={currentStreamIndex}
-            stream={allStreams[currentStreamIndex]}
-            onClose={closePlayer}
-            onError={allStreams.length > 1 ? tryNextStream : undefined}
-          />
-        </Modal>
-      )}
+          <View style={{ flex: 1, backgroundColor: '#0B0F19' }}>
+              {/* Background premium avec flou de la vignette */}
+              {selectedMedia?.coverUrl && (
+                <Image 
+                    source={{ uri: selectedMedia.coverUrl }} 
+                    style={[StyleSheet.absoluteFillObject, { opacity: 0.3 }]} 
+                    blurRadius={20} 
+                />
+              )}
+              <View style={[StyleSheet.absoluteFillObject, { backgroundColor: 'rgba(11, 15, 25, 0.75)' }]} />
 
-    </SafeAreaView>
+              <SafeAreaView style={{ flex: 1 }} edges={['right', 'bottom', 'left']}>
+                <View style={styles.modalHeader}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.modalTitle} numberOfLines={2}>{selectedMedia?.title}</Text>
+                      <Text style={styles.modalSubtitle}>{selectedMedia?.type.toUpperCase()}</Text>
+                    </View>
+                    <TouchableOpacity onPress={() => { setSelectedMedia(null); setEpisodes([]); }} style={styles.closeBtn}>
+                      <Text style={styles.closeBtnText}>✕</Text>
+                    </TouchableOpacity>
+                </View>
+
+                {isLoadingEpisodes ? (
+                    <ActivityIndicator size="large" color="#8B5CF6" style={{ marginTop: 100 }} />
+                ) : (
+                    <>
+                      {/* Pilules de Sélections de Saisons */}
+                      {seasonKeys.length > 1 && (
+                        <View style={styles.seasonContainer}>
+                            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 20 }}>
+                                {seasonKeys.map(season => {
+                                    const isActive = season === selectedSeason;
+                                    return (
+                                      <TouchableOpacity 
+                                          key={season} 
+                                          style={[styles.seasonTab, isActive && styles.seasonTabActive]}
+                                          onPress={() => setSelectedSeason(season)}
+                                      >
+                                          <Text style={[styles.seasonTabText, isActive && styles.seasonTabTextActive]}>{season}</Text>
+                                      </TouchableOpacity>
+                                    )
+                                })}
+                            </ScrollView>
+                        </View>
+                      )}
+
+                      {/* Liste des Épisodes de la Saison active */}
+                      <ScrollView style={styles.episodesList} contentContainerStyle={{ paddingBottom: 40, paddingHorizontal: 20 }}>
+                        {(seasonGroups[selectedSeason] || []).map((ep, idx) => {
+                            let displayTitle = ep.title || `Épisode ${ep.number}`;
+                            if (displayTitle.includes(' - ')) {
+                                displayTitle = displayTitle.split(' - ')[1] || displayTitle; // Affiche juste "Épisode X"
+                            }
+
+                            return (
+                              <TouchableOpacity key={ep.id + idx} style={styles.episodeCard} onPress={() => extractStreamsAndCast(ep)} disabled={isExtracting}>
+                                <View style={styles.episodeNumber}>
+                                    <Text style={styles.episodeNumberText}>{idx + 1}</Text>
+                                </View>
+                                <View style={styles.episodeInfo}>
+                                    <Text style={styles.episodeText}>{displayTitle}</Text>
+                                </View>
+                                <View style={styles.playIconBox}>
+                                    {isExtracting ? (
+                                      <ActivityIndicator size="small" color="#A78BFA" />
+                                    ) : (
+                                      <Text style={styles.playIconText}>▶</Text>
+                                    )}
+                                </View>
+                              </TouchableOpacity>
+                            )
+                        })}
+
+                        {(seasonGroups[selectedSeason] || []).length === 0 && (
+                            <Text style={styles.emptyText}>Aucun épisode pour cette saison.</Text>
+                        )}
+                      </ScrollView>
+                    </>
+                )}
+              </SafeAreaView>
+          </View>
+        </Modal>
+
+        {/* Lecteur Vidéo en plein écran */}
+        {allStreams.length > 0 && (
+          <Modal
+            visible={true}
+            animationType="fade"
+            onRequestClose={closePlayer}
+          >
+            <VideoPlayer
+              key={currentStreamIndex}
+              stream={allStreams[currentStreamIndex]}
+              onClose={closePlayer}
+              onError={allStreams.length > 1 ? tryNextStream : undefined}
+            />
+          </Modal>
+        )}
+
+      </SafeAreaView>
+    </SafeAreaProvider>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#0B0F19', paddingTop: Platform.OS === 'android' ? 40 : 0 },
+  container: { flex: 1, backgroundColor: '#0B0F19' },
+
   header: { paddingHorizontal: 20, marginTop: 20, marginBottom: 20 },
   appTitle: { color: '#F8FAFC', fontSize: 28, fontWeight: 'bold', marginBottom: 15, letterSpacing: -0.5 },
   
