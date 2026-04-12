@@ -23,7 +23,7 @@ export class FrenchStreamProvider implements HorusProvider {
 
   async search(query: string): Promise<SearchResult[]> {
     await this.resolveBaseUrl();
-    
+
     const formData = new URLSearchParams();
     formData.append('query', query);
 
@@ -45,7 +45,7 @@ export class FrenchStreamProvider implements HorusProvider {
 
       const title = $el.find('.search-title').text().trim();
       let coverUrl = $el.find('.search-poster img').attr('src');
-      
+
       if (coverUrl && coverUrl.startsWith('/')) {
         coverUrl = `${this.baseUrl}${coverUrl}`;
       }
@@ -82,23 +82,23 @@ export class FrenchStreamProvider implements HorusProvider {
         headers: { 'X-Requested-With': 'XMLHttpRequest' }
       });
       const epData = typeof epResponse.data === 'string' ? JSON.parse(epResponse.data) : epResponse.data;
-      
+
       const episodesSet = new Set<string>();
 
       for (const lang of Object.keys(epData)) {
-         if (lang === 'info') continue;
-         const langData = epData[lang];
-         for (const ep_no of Object.keys(langData)) {
-            episodesSet.add(ep_no);
-         }
+        if (lang === 'info') continue;
+        const langData = epData[lang];
+        for (const ep_no of Object.keys(langData)) {
+          episodesSet.add(ep_no);
+        }
       }
 
       return Array.from(episodesSet)
         .sort((a, b) => parseInt(a) - parseInt(b))
         .map(ep => ({
-           id: `${mediaId}::${ep}`,
-           number: ep,
-           title: `Épisode ${ep}`
+          id: `${mediaId}::${ep}`,
+          number: ep,
+          title: `Épisode ${ep}`
         }));
     } catch (e) {
       console.error(e);
@@ -114,79 +114,79 @@ export class FrenchStreamProvider implements HorusProvider {
     let providersToScrape: { lang: string; providerName: string; embedUrl: string }[] = [];
 
     if (epNo === 'movie') {
-       const apiResponse = await this.http.get(`/engine/ajax/film_api.php?id=${mediaId}`);
-       const apiData = typeof apiResponse.data === 'string' ? JSON.parse(apiResponse.data) : apiResponse.data;
+      const apiResponse = await this.http.get(`/engine/ajax/film_api.php?id=${mediaId}`);
+      const apiData = typeof apiResponse.data === 'string' ? JSON.parse(apiResponse.data) : apiResponse.data;
 
-       if (apiData.players) {
-          for (const providerName of Object.keys(apiData.players)) {
-             for (const lang of Object.keys(apiData.players[providerName])) {
-                 const embedUrl = apiData.players[providerName][lang];
-                 if (embedUrl) providersToScrape.push({ lang, providerName, embedUrl });
-             }
+      if (apiData.players) {
+        for (const providerName of Object.keys(apiData.players)) {
+          for (const lang of Object.keys(apiData.players[providerName])) {
+            const embedUrl = apiData.players[providerName][lang];
+            if (embedUrl) providersToScrape.push({ lang, providerName, embedUrl });
           }
-       }
+        }
+      }
     } else {
-       const epResponse = await this.http.get(`/ep-data.php?id=${mediaId}`, {
-          headers: { 'X-Requested-With': 'XMLHttpRequest' }
-       });
-       const epData = typeof epResponse.data === 'string' ? JSON.parse(epResponse.data) : epResponse.data;
+      const epResponse = await this.http.get(`/ep-data.php?id=${mediaId}`, {
+        headers: { 'X-Requested-With': 'XMLHttpRequest' }
+      });
+      const epData = typeof epResponse.data === 'string' ? JSON.parse(epResponse.data) : epResponse.data;
 
-       for (const lang of Object.keys(epData)) {
-          if (lang === 'info') continue;
-          if (epData[lang][epNo]) {
-             for (const providerName of Object.keys(epData[lang][epNo])) {
-                const embedUrl = epData[lang][epNo][providerName];
-                if (embedUrl) providersToScrape.push({ lang, providerName, embedUrl });
-             }
+      for (const lang of Object.keys(epData)) {
+        if (lang === 'info') continue;
+        if (epData[lang][epNo]) {
+          for (const providerName of Object.keys(epData[lang][epNo])) {
+            const embedUrl = epData[lang][epNo][providerName];
+            if (embedUrl) providersToScrape.push({ lang, providerName, embedUrl });
           }
-       }
+        }
+      }
     }
 
     // Resolve direct links concurrently
     await Promise.allSettled(providersToScrape.map(async ({ lang, providerName, embedUrl }) => {
-        try {
-            const rawEmbedUrl = embedUrl.startsWith('//') ? `https:${embedUrl}` : embedUrl;
-            let actualEmbed = rawEmbedUrl;
+      try {
+        const rawEmbedUrl = embedUrl.startsWith('//') ? `https:${embedUrl}` : embedUrl;
+        let actualEmbed = rawEmbedUrl;
 
-            // Follow Kakaflix redirects (skip moon/bigwar = Doodstream)
-            if (actualEmbed.includes('kakaflix.lol') && !actualEmbed.includes('/moon') && !actualEmbed.includes('/bigwar')) {
-                const initRes = await this.http.get(actualEmbed, { timeout: 10000 });
-                const redirectMatch = initRes.data.match(/window\.location\.href\s*=\s*'([^']+)'/);
-                if (redirectMatch) {
-                    actualEmbed = redirectMatch[1];
-                } else {
-                    return;
-                }
+        // Follow Kakaflix redirects (skip moon/bigwar = Doodstream)
+        if (actualEmbed.includes('kakaflix.lol') && !actualEmbed.includes('/moon') && !actualEmbed.includes('/bigwar')) {
+          const initRes = await this.http.get(actualEmbed, { timeout: 10000 });
+          const redirectMatch = initRes.data.match(/window\.location\.href\s*=\s*'([^']+)'/);
+          if (redirectMatch) {
+            actualEmbed = redirectMatch[1];
+          } else {
+            return;
+          }
+        }
+
+        // Skip known unsupported providers (Cloudflare/WASM protected)
+        const unsupported = ['mixdrop', 'dood', 'dsvplay', 'kakaflix.lol/moon', 'kakaflix.lol//bigwar', 'filmoon'];
+        if (unsupported.some(p => actualEmbed.includes(p))) return;
+
+        const { data: pageHtml } = await this.http.get(actualEmbed, { timeout: 10000 });
+
+        if (actualEmbed.includes('uqload')) {
+          const match = pageHtml.match(/sources:\s*\[\s*"([^"]+)"/);
+          if (match) {
+            streams.push({ url: match[1], quality: lang.toUpperCase(), server: 'Uqload', headers: { 'Referer': 'https://uqload.is/' } });
+          }
+        } else if (actualEmbed.includes('voe.') || actualEmbed.includes('sandratableother.com')) {
+          const m1 = pageHtml.match(/var source\s*=\s*'([^']+)'/);
+          const m2 = pageHtml.match(/(?:hls|mp4)':\s*'([^']+)'/);
+          const link = m1 ? m1[1] : (m2 ? m2[1] : null);
+          if (link) {
+            streams.push({ url: link, quality: lang.toUpperCase(), server: 'Voe', headers: { 'Referer': 'https://voe.sx/' } });
+          }
+        } else if (actualEmbed.includes('vidzy.live') || actualEmbed.includes('fsvid.lol')) {
+          if (pageHtml.includes('eval(function')) {
+            const decrypted = Unpacker.unpack(pageHtml);
+            const linkMatch = decrypted.match(/(http[^"']+m3u8[^"']*)/) || decrypted.match(/(?:file|src):\s*['"]([^'"]+)['"]/);
+            if (linkMatch && linkMatch[1]) {
+              streams.push({ url: linkMatch[1], quality: lang.toUpperCase(), server: 'Vidzy', headers: { 'Referer': 'https://french-stream.one/' } });
             }
-
-            // Skip known unsupported providers (Cloudflare/WASM protected)
-            const unsupported = ['mixdrop', 'dood', 'dsvplay', 'kakaflix.lol/moon', 'kakaflix.lol//bigwar', 'filmoon'];
-            if (unsupported.some(p => actualEmbed.includes(p))) return;
-
-            const { data: pageHtml } = await this.http.get(actualEmbed, { timeout: 10000 });
-
-            if (actualEmbed.includes('uqload')) {
-                const match = pageHtml.match(/sources:\s*\[\s*"([^"]+)"/);
-                if (match) {
-                    streams.push({ url: match[1], quality: lang.toUpperCase(), server: 'Uqload', headers: { 'Referer': 'https://uqload.is/' } });
-                }
-            } else if (actualEmbed.includes('voe.') || actualEmbed.includes('sandratableother.com')) {
-                const m1 = pageHtml.match(/var source\s*=\s*'([^']+)'/);
-                const m2 = pageHtml.match(/(?:hls|mp4)':\s*'([^']+)'/);
-                const link = m1 ? m1[1] : (m2 ? m2[1] : null);
-                if (link) {
-                   streams.push({ url: link, quality: lang.toUpperCase(), server: 'Voe', headers: { 'Referer': 'https://voe.sx/' } });
-                }
-            } else if (actualEmbed.includes('vidzy.live') || actualEmbed.includes('fsvid.lol')) {
-                if (pageHtml.includes('eval(function')) {
-                    const decrypted = Unpacker.unpack(pageHtml);
-                    const linkMatch = decrypted.match(/(http[^"']+m3u8[^"']*)/) || decrypted.match(/(?:file|src):\s*['"]([^'"]+)['"]/);
-                    if (linkMatch && linkMatch[1]) {
-                        streams.push({ url: linkMatch[1], quality: lang.toUpperCase(), server: 'Vidzy', headers: { 'Referer': 'https://french-stream.one/' } });
-                    }
-                }
-            }
-        } catch {}
+          }
+        }
+      } catch { }
     }));
 
     return streams;

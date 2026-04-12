@@ -12,6 +12,9 @@
       "resizeMode": "contain",
       "backgroundColor": "#0a0a0a"
     },
+    "experiments": {
+      "autolinkingModuleResolution": true
+    },
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.horus.remote"
