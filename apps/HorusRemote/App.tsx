@@ -5,7 +5,7 @@ import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import * as NavigationBar from 'expo-navigation-bar';
 
 // Imports de notre librairie locale @horus/core
-import { AnimeSamaProvider, FrenchStreamProvider, AllAnimeProvider, SearchResult, Episode, Stream } from '@horus/core';
+import { AnimeSamaProvider, FrenchStreamProvider, AllAnimeProvider, SearchResult, Episode, Stream, groupStreamsByLanguage } from '@horus/core';
 
 // Composant Lecteur Vidéo Natif
 import VideoPlayer from './components/VideoPlayer';
@@ -31,6 +31,8 @@ export default function App() {
   const [allStreams, setAllStreams] = useState<Stream[]>([]);
   const [currentStreamIndex, setCurrentStreamIndex] = useState(0);
   const [isExtracting, setIsExtracting] = useState(false);
+  const [isLangModalVisible, setIsLangModalVisible] = useState(false);
+  const [availableLanguages, setAvailableLanguages] = useState<Record<string, Stream[]>>({});
 
   // Configuration de l'immersion Android au démarrage
   useEffect(() => {
@@ -98,8 +100,16 @@ export default function App() {
 
 
        if (streams.length > 0) {
-         setAllStreams(streams);
-         setCurrentStreamIndex(0);
+         const grouped = groupStreamsByLanguage(streams);
+         const langs = Object.keys(grouped);
+
+         if (langs.length === 1) {
+           setAllStreams(grouped[langs[0]]);
+           setCurrentStreamIndex(0);
+         } else if (langs.length > 1) {
+           setAvailableLanguages(grouped);
+           setIsLangModalVisible(true);
+         }
        } else {
          alert("Aucun lien de streaming trouvé pour cet épisode.");
        }
@@ -109,6 +119,12 @@ export default function App() {
      } finally {
        setIsExtracting(false);
      }
+  };
+
+  const handleLanguageSelect = (lang: string) => {
+    setIsLangModalVisible(false);
+    setAllStreams(availableLanguages[lang]);
+    setCurrentStreamIndex(0);
   };
 
   const tryNextStream = () => {
@@ -308,6 +324,40 @@ export default function App() {
           </View>
         </Modal>
 
+        {/* --- Modal de sélection de la langue (façon Bottom Sheet) --- */}
+        <Modal
+          visible={isLangModalVisible}
+          animationType="slide"
+          transparent={true}
+          onRequestClose={() => setIsLangModalVisible(false)}
+        >
+          <View style={styles.langModalOverlay}>
+            <View style={styles.langModalContent}>
+              <Text style={styles.langModalTitle}>Choisir la version</Text>
+              
+              {Object.keys(availableLanguages).map((lang) => (
+                <TouchableOpacity 
+                  key={lang} 
+                  style={styles.langButton}
+                  onPress={() => handleLanguageSelect(lang)}
+                >
+                  <Text style={styles.langButtonText}>{lang}</Text>
+                  <Text style={styles.langButtonSubtext}>
+                    {availableLanguages[lang].length} serveur(s)
+                  </Text>
+                </TouchableOpacity>
+              ))}
+
+              <TouchableOpacity 
+                style={styles.langCancelButton}
+                onPress={() => setIsLangModalVisible(false)}
+              >
+                <Text style={styles.langCancelText}>Annuler</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </Modal>
+
         {/* Lecteur Vidéo en plein écran */}
         {allStreams.length > 0 && (
           <Modal
@@ -375,5 +425,59 @@ const styles = StyleSheet.create({
   episodeInfo: { flex: 1, paddingHorizontal: 10 },
   episodeText: { color: '#FFF', fontSize: 15, fontWeight: '500' },
   playIconBox: { width: 36, height: 36, borderRadius: 18, backgroundColor: 'rgba(139, 92, 246, 0.2)', justifyContent: 'center', alignItems: 'center' },
-  playIconText: { color: '#A78BFA', fontSize: 12, marginLeft: 2 }
+  playIconText: { color: '#A78BFA', fontSize: 12, marginLeft: 2 },
+
+  // --- Modale Langues (Bottom Sheet) ---
+  langModalOverlay: { 
+    flex: 1, 
+    justifyContent: 'flex-end', 
+    backgroundColor: 'rgba(0,0,0,0.6)' 
+  },
+  langModalContent: { 
+    backgroundColor: '#1A1F2E', 
+    padding: 25, 
+    borderTopLeftRadius: 24, 
+    borderTopRightRadius: 24,
+    paddingBottom: Platform.OS === 'ios' ? 40 : 25
+  },
+  langModalTitle: { 
+    color: '#FFF', 
+    fontSize: 20, 
+    fontWeight: 'bold', 
+    marginBottom: 20, 
+    textAlign: 'center' 
+  },
+  langButton: { 
+    backgroundColor: '#2A3143', 
+    padding: 16, 
+    borderRadius: 14, 
+    marginBottom: 12, 
+    flexDirection: 'row', 
+    justifyContent: 'space-between', 
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.05)'
+  },
+  langButtonText: { 
+    color: '#F8FAFC', 
+    fontSize: 16, 
+    fontWeight: '600',
+    letterSpacing: 0.5
+  },
+  langButtonSubtext: { 
+    color: '#8B5CF6', 
+    fontSize: 12, 
+    fontWeight: '500' 
+  },
+  langCancelButton: { 
+    marginTop: 10, 
+    padding: 16, 
+    borderRadius: 14, 
+    alignItems: 'center' 
+  },
+  langCancelText: { 
+    color: '#94A3B8', 
+    fontSize: 16, 
+    fontWeight: '600' 
+  }
 });
