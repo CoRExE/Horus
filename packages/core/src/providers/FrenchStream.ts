@@ -168,21 +168,21 @@ export class FrenchStreamProvider implements HorusProvider {
         if (actualEmbed.includes('uqload')) {
           const match = pageHtml.match(/sources:\s*\[\s*"([^"]+)"/);
           if (match) {
-            streams.push({ url: match[1], quality: lang.toUpperCase(), server: 'Uqload', headers: { 'Referer': 'https://uqload.is/' } });
+            streams.push({ url: match[1], language: lang.toUpperCase(), server: 'Uqload', headers: { 'Referer': 'https://uqload.is/' } });
           }
         } else if (actualEmbed.includes('voe.') || actualEmbed.includes('sandratableother.com')) {
           const m1 = pageHtml.match(/var source\s*=\s*'([^']+)'/);
           const m2 = pageHtml.match(/(?:hls|mp4)':\s*'([^']+)'/);
           const link = m1 ? m1[1] : (m2 ? m2[1] : null);
           if (link) {
-            streams.push({ url: link, quality: lang.toUpperCase(), server: 'Voe', headers: { 'Referer': 'https://voe.sx/' } });
+            streams.push({ url: link, language: lang.toUpperCase(), server: 'Voe', headers: { 'Referer': 'https://voe.sx/' } });
           }
         } else if (actualEmbed.includes('vidzy.live') || actualEmbed.includes('fsvid.lol')) {
           if (pageHtml.includes('eval(function')) {
             const decrypted = Unpacker.unpack(pageHtml);
             const linkMatch = decrypted.match(/(http[^"']+m3u8[^"']*)/) || decrypted.match(/(?:file|src):\s*['"]([^'"]+)['"]/);
             if (linkMatch && linkMatch[1]) {
-              streams.push({ url: linkMatch[1], quality: lang.toUpperCase(), server: 'Vidzy', headers: { 'Referer': 'https://french-stream.one/' } });
+              streams.push({ url: linkMatch[1], language: lang.toUpperCase(), server: 'Vidzy', headers: { 'Referer': 'https://french-stream.one/' } });
             }
           }
         }
