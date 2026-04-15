@@ -7,10 +7,10 @@ import * as NavigationBar from 'expo-navigation-bar';
 // Imports de notre librairie locale @horus/core
 import { AnimeSamaProvider, FrenchStreamProvider, AllAnimeProvider, SearchResult, Episode, Stream, groupStreamsByLanguage } from '@horus/core';
 
-// Composant Lecteur Vidéo Natif
 import VideoPlayer from './components/VideoPlayer';
 import { HorusBootSequence } from './components/HorusBootSequence';
 import { HorusHeader } from './components/HorusHeader';
+import { HorusMediaCard } from './components/HorusMediaCard';
 
 // Instanciation des providers de Scraping
 const animeSama = new AnimeSamaProvider();
@@ -207,19 +207,14 @@ export default function App() {
           ) : (
             <View style={styles.grid}>
               {results.map((item, idx) => (
-                <TouchableOpacity key={item.id + idx} style={styles.card} onPress={() => openMedia(item)}>
-                  {item.coverUrl ? (
-                    <Image source={{ uri: item.coverUrl }} style={styles.cardImage} />
-                  ) : (
-                    <View style={[styles.cardImage, { backgroundColor: '#2A3143', justifyContent: 'center', alignItems: 'center' }]}>
-                      <Text style={{color: '#94A3B8'}}>Pas de miniature</Text>
-                    </View>
-                  )}
-                  <View style={styles.cardInfo}>
-                    <Text style={styles.cardTitle} numberOfLines={2}>{item.title}</Text>
-                    <Text style={styles.cardSubtitle}>{item.type}</Text>
-                  </View>
-                </TouchableOpacity>
+                <HorusMediaCard
+                  key={item.id + idx}
+                  title={item.title}
+                  subtitle={item.type}
+                  imageUrl={item.coverUrl}
+                  index={idx}
+                  onPress={() => openMedia(item)}
+                />
               ))}
 
               {results.length === 0 && search.length > 0 && !isSearching && (
