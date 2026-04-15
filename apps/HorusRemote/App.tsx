@@ -9,6 +9,7 @@ import { AnimeSamaProvider, FrenchStreamProvider, AllAnimeProvider, SearchResult
 
 // Composant Lecteur Vidéo Natif
 import VideoPlayer from './components/VideoPlayer';
+import { HorusBootSequence } from './components/HorusBootSequence';
 
 // Instanciation des providers de Scraping
 const animeSama = new AnimeSamaProvider();
@@ -16,6 +17,7 @@ const allAnime = new AllAnimeProvider();
 const frenchStream = new FrenchStreamProvider();
 
 export default function App() {
+  const [isBooting, setIsBooting] = useState(true);
   const [mediaType, setMediaType] = useState<'anime' | 'film_series'>('anime');
   const [search, setSearch] = useState('');
   const [isSearching, setIsSearching] = useState(false);
@@ -164,6 +166,10 @@ export default function App() {
          setSelectedSeason(seasonKeys[0]);
      }
   }, [seasonKeys, selectedSeason]);
+
+  if (isBooting) {
+    return <HorusBootSequence onBootComplete={() => setIsBooting(false)} />;
+  }
 
   return (
     <SafeAreaProvider>
