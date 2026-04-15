@@ -10,6 +10,7 @@ import { AnimeSamaProvider, FrenchStreamProvider, AllAnimeProvider, SearchResult
 // Composant Lecteur Vidéo Natif
 import VideoPlayer from './components/VideoPlayer';
 import { HorusBootSequence } from './components/HorusBootSequence';
+import { HorusHeader } from './components/HorusHeader';
 
 // Instanciation des providers de Scraping
 const animeSama = new AnimeSamaProvider();
@@ -177,34 +178,27 @@ export default function App() {
         <StatusBar style="light" />
 
         {/* HEADER / SEARCH */}
-        <View style={styles.header}>
-          <Text style={styles.appTitle}>Horus Remote</Text>
+        <HorusHeader 
+          value={search}
+          onChangeText={setSearch}
+          onSubmitEditing={handleSearch}
+          returnKeyType="search"
+        />
 
-          {/* Pilules de Sélection de Type de Média */}
-          <View style={styles.pillsContainer}>
-            <TouchableOpacity 
-              style={[styles.pill, mediaType === 'anime' && styles.pillActive]} 
-              onPress={() => { setMediaType('anime'); setResults([]); }}
-            >
-              <Text style={[styles.pillText, mediaType === 'anime' && styles.pillTextActive]}>Anime</Text>
-            </TouchableOpacity>
-            <TouchableOpacity 
-              style={[styles.pill, mediaType === 'film_series' && styles.pillActive]} 
-              onPress={() => { setMediaType('film_series'); setResults([]); }}
-            >
-              <Text style={[styles.pillText, mediaType === 'film_series' && styles.pillTextActive]}>Films & Séries</Text>
-            </TouchableOpacity>
-          </View>
-
-          <TextInput 
-            style={styles.searchInput}
-            placeholder={mediaType === 'anime' ? "Rechercher un anime..." : "Rechercher un film ou une série..."}
-            placeholderTextColor="#94A3B8"
-            value={search}
-            onChangeText={setSearch}
-            onSubmitEditing={handleSearch}
-            returnKeyType="search"
-          />
+        {/* Pilules de Sélection de Type de Média */}
+        <View style={[styles.pillsContainer, { paddingHorizontal: 20, marginBottom: 15 }]}>
+          <TouchableOpacity 
+            style={[styles.pill, mediaType === 'anime' && styles.pillActive]} 
+            onPress={() => { setMediaType('anime'); setResults([]); }}
+          >
+            <Text style={[styles.pillText, mediaType === 'anime' && styles.pillTextActive]}>Anime</Text>
+          </TouchableOpacity>
+          <TouchableOpacity 
+            style={[styles.pill, mediaType === 'film_series' && styles.pillActive]} 
+            onPress={() => { setMediaType('film_series'); setResults([]); }}
+          >
+            <Text style={[styles.pillText, mediaType === 'film_series' && styles.pillTextActive]}>Films & Séries</Text>
+          </TouchableOpacity>
         </View>
 
         <ScrollView contentContainerStyle={styles.scrollContent}>
