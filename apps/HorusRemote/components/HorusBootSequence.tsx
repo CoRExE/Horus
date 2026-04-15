@@ -1,182 +1,188 @@
 import React, { useEffect, useState } from 'react';
-import { StyleSheet, View } from 'react-native';
+import { StyleSheet, View, Text, Platform } from 'react-native';
 import { MotiView } from 'moti';
 import Svg, { Path, Circle, Defs, RadialGradient, Stop } from 'react-native-svg';
-import Animated, { 
-  useSharedValue, 
-  useAnimatedStyle, 
-  withRepeat, 
-  withTiming, 
-  Easing 
-} from 'react-native-reanimated';
 
 type HorusBootSequenceProps = {
   onBootComplete: () => void;
 };
 
-export const HorusBootSequence = ({ onBootComplete }: HorusBootSequenceProps) => {
-  // Séquencier : 1 = Assemblage | 2 = Pulse & Rotation | 3 = Glitch final
-  const [step, setStep] = useState<1 | 2 | 3>(1);
+// Séquence de lignes du Terminal 
+const SYSTEM_LINES = [
+  "HORUS KERNEL v9.0.1",
+  "INITIALIZING BOOT SEQUENCE...",
+  "MOUNTING /dev/sda1... OK",
+  "LOADING NEURAL NETWORKS... 100%",
+  "BYPASSING FIREWALL... DONE",
+  "CONNECTING TO DATASTREAM...",
+  "ANALYZING METADATA...",
+  "SYSTEM OVERLOAD WARNING",
+  "ATTEMPTING RECOVERY...",
+];
 
-  // Valeur partagée Reanimated pour une rotation infinie à 60fps
-  const rotation = useSharedValue(0);
+const ERROR_LINES = [
+  "FATAL EXCEPTION: 0x0000000000",
+  "SEGMENTATION FAULT",
+  "KERNEL PANIC: VFS UNABLE TO MOUNT",
+  "[FAILED] TO LOAD NVRAM",
+  "MEMORY CORRUPTION DETECTED",
+  "OVERRIDE DENIED",
+  "CORE TEMP CRITICAL: 98C",
+  "DATABUS ERROR TRACE",
+];
+
+export const HorusBootSequence = ({ onBootComplete }: HorusBootSequenceProps) => {
+  // Séquencier : 1 = Terminal | 2 = Error Code Spam | 3 = Eye Reveal
+  const [phase, setPhase] = useState<1 | 2 | 3>(1);
+  const [terminalLines, setTerminalLines] = useState<string[]>([]);
 
   useEffect(() => {
-    // Démarrage de la rotation continue des anneaux dès le montage
-    rotation.value = withRepeat(
-      withTiming(360, { duration: 6000, easing: Easing.linear }),
-      -1, // Infini
-      false
-    );
+    let currentLineIndex = 0;
+    let errorLineIndex = 0;
+    let activeInterval: NodeJS.Timeout;
+    
+    // 1. Spawner de texte Terminal 
+    activeInterval = setInterval(() => {
+      if (currentLineIndex < SYSTEM_LINES.length) {
+        setTerminalLines(prev => [...prev, SYSTEM_LINES[currentLineIndex]]);
+        currentLineIndex++;
+      }
+    }, 200);
 
-    // Orchestration par timeout pour coller exactement au scénario
-    const t1 = setTimeout(() => setStep(2), 1500); // 1.5s: Fin assemblage, pulse activé
-    const t2 = setTimeout(() => setStep(3), 3500); // 3.5s: Fin du boot, glitch trigger
-    const t3 = setTimeout(() => onBootComplete(), 4000); // 4.0s: Callback final
+    // 2. Erreur Système (Bug Rouge + Spam) à 2000ms
+    const t1 = setTimeout(() => {
+      setPhase(2);
+      clearInterval(activeInterval);
+      
+      activeInterval = setInterval(() => {
+        setTerminalLines(prev => {
+          const newLines = [...prev, ERROR_LINES[errorLineIndex % ERROR_LINES.length]];
+          // Limiter le nombre de lignes à 25 pour ne pas exploser la RAM avec le spam
+          return newLines.length > 25 ? newLines.slice(newLines.length - 25) : newLines;
+        });
+        errorLineIndex++;
+      }, 30); // 30ms = spam très rapide
+    }, 2000);
 
-    return () => { 
-      clearTimeout(t1); 
-      clearTimeout(t2); 
-      clearTimeout(t3); 
+    // 3. Apparition de l'OEil à 2800ms
+    const t2 = setTimeout(() => {
+      setPhase(3);
+      clearInterval(activeInterval);
+    }, 2800);
+
+    // Fin du composant à 4500ms
+    const t3 = setTimeout(() => {
+      onBootComplete(); 
+    }, 4500);
+
+    return () => {
+      clearInterval(activeInterval);
+      clearTimeout(t1);
+      clearTimeout(t2);
+      clearTimeout(t3);
     };
-  }, [onBootComplete, rotation]);
+  }, [onBootComplete]);
 
-  // Styles animés pour l'anneau fragmenté externe
-  const ringStyle = useAnimatedStyle(() => ({
-    transform: [{ rotate: `${rotation.value}deg` }]
-  }));
-
-  // Styles animés pour l'anneau fragmenté interne (tourne plus vite dans l'autre sens)
-  const reverseRingStyle = useAnimatedStyle(() => ({
-    transform: [{ rotate: `-${rotation.value * 1.5}deg` }]
-  }));
-
-  // --- Design System Constants ---
+  // Constantes de design
   const COLOR_BG = '#0B0F19';
-  const COLOR_PULSE = '#8B5CF6';
-  const COLOR_STREAM = '#00FFFF';
+  const COLOR_CYAN = '#00FFFF';
+  const COLOR_PURPLE = '#8B5CF6';
+  const COLOR_RED = '#EF4444';
 
-  const isGlitching = step === 3;
+  const isError = phase === 2;
+  const isRevealed = phase === 3;
+  const isErrorOrLater = phase >= 2;
+
+  const currentTextColor = isErrorOrLater ? COLOR_RED : COLOR_CYAN;
+  const currentTextShadow = isErrorOrLater ? 'rgba(239, 68, 68, 0.6)' : 'rgba(0, 255, 255, 0.4)';
 
   return (
     <View style={styles.container}>
-      {/* Conteneur Maitre : Fait le flicker glitch à la fin */}
+      
+      {/* PHASE 1 & 2 : Terminal Output & Spam */}
       <MotiView
-        style={styles.canvasContainer}
+        style={styles.terminalContainer}
         animate={{
-          opacity: isGlitching ? [1, 0.2, 0.9, 0, 1, 0.3, 1] : 1,
-          scale: isGlitching ? [1, 1.08, 0.95, 1.05, 1] : 1,
-          translateX: isGlitching ? [0, -6, 5, -3, 4, 0] : 0,
+          opacity: isRevealed ? 0.1 : 1, // Le terminal passe à 10% d'opacité en phase 3
         }}
-        transition={{ type: 'timing', duration: 80 }}
+        transition={{
+          type: 'timing',
+          duration: 800, // Fade out en douceur
+        }}
+        pointerEvents="none"
       >
-        <Svg viewBox="0 0 200 200" style={StyleSheet.absoluteFillObject}>
-          <Defs>
-             <RadialGradient id="pulseGlow" cx="50%" cy="50%" r="50%">
-               <Stop offset="0%" stopColor={COLOR_PULSE} stopOpacity="0.35" />
-               <Stop offset="100%" stopColor={COLOR_BG} stopOpacity="0" />
-             </RadialGradient>
-          </Defs>
-        </Svg>
-
-        {/* Lueur d'arrière-plan pulsante (Séquence 2) */}
-        <MotiView 
-             style={StyleSheet.absoluteFillObject}
-             animate={{ opacity: step >= 2 ? [0.2, 0.7, 0.2] : 0 }}
-             transition={{ loop: true, type: 'timing', duration: 2000 }}
-        >
-             <Svg viewBox="0 0 200 200">
-               <Circle cx="100" cy="100" r="80" fill="url(#pulseGlow)" />
-             </Svg>
-        </MotiView>
-
-        {/* Calque 1 : Anneaux de données (Data Stream Rings) */}
-        <Animated.View style={[StyleSheet.absoluteFillObject, ringStyle]}>
-          <Svg viewBox="0 0 200 200">
-            {/* Outer Data Ring */}
-            <Circle 
-              cx="100" cy="100" r="95" 
-              stroke={COLOR_STREAM} strokeWidth="1" strokeDasharray="30 15 5 10" 
-              fill="none" opacity={0.8} 
-            />
-          </Svg>
-        </Animated.View>
-        
-        <Animated.View style={[StyleSheet.absoluteFillObject, reverseRingStyle]}>
-          <Svg viewBox="0 0 200 200">
-            {/* Inner Fast Data Ring */}
-            <Circle 
-              cx="100" cy="100" r="85" 
-              stroke={COLOR_STREAM} strokeWidth="1.5" strokeDasharray="2 10" 
-              fill="none" opacity={0.5} 
-            />
-          </Svg>
-        </Animated.View>
-
-        {/* Calque 2 : Construct de la Pyramide (3 blocs disjoints formant un Y inversé vide au centre) */}
-        
-        {/* Composant Top */}
-        <MotiView
-          style={StyleSheet.absoluteFillObject}
-          from={{ translateY: -100, opacity: 0 }}
-          animate={{ translateY: 0, opacity: 1 }}
-          transition={{ type: 'spring', damping: 12, stiffness: 60, delay: 100 }}
-        >
-          <Svg viewBox="0 0 200 200">
-            <Path d="M 100 20 L 130 80 L 70 80 Z" fill="none" stroke={COLOR_STREAM} strokeWidth="2" />
-            <Path d="M 100 25 L 125 75 L 75 75 Z" fill={COLOR_STREAM} opacity={0.15} />
-          </Svg>
-        </MotiView>
-
-        {/* Composant Left Base */}
-        <MotiView
-          style={StyleSheet.absoluteFillObject}
-          from={{ translateX: -80, translateY: 60, opacity: 0 }}
-          animate={{ translateX: 0, translateY: 0, opacity: 1 }}
-          transition={{ type: 'spring', damping: 12, stiffness: 60, delay: 300 }}
-        >
-          <Svg viewBox="0 0 200 200">
-            <Path d="M 65 90 L 95 150 L 30 150 Z" fill="none" stroke={COLOR_STREAM} strokeWidth="2" />
-            <Path d="M 65 95 L 90 145 L 35 145 Z" fill={COLOR_STREAM} opacity={0.15} />
-          </Svg>
-        </MotiView>
-
-        {/* Composant Right Base */}
-        <MotiView
-          style={StyleSheet.absoluteFillObject}
-          from={{ translateX: 80, translateY: 60, opacity: 0 }}
-          animate={{ translateX: 0, translateY: 0, opacity: 1 }}
-          transition={{ type: 'spring', damping: 12, stiffness: 60, delay: 500 }}
-        >
-          <Svg viewBox="0 0 200 200">
-            <Path d="M 135 90 L 170 150 L 105 150 Z" fill="none" stroke={COLOR_STREAM} strokeWidth="2" />
-            <Path d="M 135 95 L 165 145 L 110 145 Z" fill={COLOR_STREAM} opacity={0.15} />
-          </Svg>
-        </MotiView>
-
-        {/* Calque 3 : La Pupille Centrale (Scanneur / Pulse) */}
-        <MotiView
-          style={StyleSheet.absoluteFillObject}
-          from={{ scale: 0, opacity: 0 }}
-          animate={{ 
-             scale: step >= 2 ? [1, 1.25, 1] : 1, 
-             opacity: step >= 2 ? [0.5, 1, 0.5] : 1 
-          }}
-          transition={
-            step >= 2 
-            ? { loop: true, type: 'timing', duration: 1200 }
-            : { type: 'spring', delay: 1000 } // S'affiche à la toute fin de l'assemblage
-          }
-        >
-          <Svg viewBox="0 0 200 200">
-             {/* Forme de la pupille (Losange géométrique) au centre exact */}
-             <Path d="M 100 85 L 115 105 L 100 125 L 85 105 Z" fill={COLOR_PULSE} />
-             {/* Fente cybernétique de la pupille */}
-             <Path d="M 100 95 L 100 115" stroke={COLOR_BG} strokeWidth="3" strokeLinecap="round" />
-          </Svg>
-        </MotiView>
-
+        <View style={styles.lineContainer}>
+          {terminalLines.map((line, index) => (
+            <Text 
+              key={`${index}-${line}`} 
+              style={[
+                styles.terminalLine, 
+                { color: currentTextColor, textShadowColor: currentTextShadow }
+              ]}
+            >
+              {isErrorOrLater ? '[ERR] ' : '> '} {line}
+            </Text>
+          ))}
+        </View>
       </MotiView>
+
+      {/* PHASE 3 : The Eye Reveal */}
+      {isRevealed && (
+        <MotiView
+          style={styles.eyeContainer}
+          from={{ opacity: 0, scale: 0.2 }}
+          animate={{ opacity: 1, scale: 1 }}
+          transition={{ type: 'spring', damping: 15, stiffness: 80 }}
+          pointerEvents="none"
+        >
+          {/* Lueur Pulsante de l'œil */}
+          <MotiView
+            style={StyleSheet.absoluteFillObject}
+            animate={{ scale: [1, 1.05, 1], opacity: [0.6, 1, 0.6] }}
+            transition={{ loop: true, type: 'timing', duration: 1500 }}
+          >
+            <Svg viewBox="0 0 200 200" style={StyleSheet.absoluteFillObject}>
+              <Defs>
+                <RadialGradient id="eyeGlow" cx="50%" cy="50%" r="50%">
+                  <Stop offset="0%" stopColor={COLOR_PURPLE} stopOpacity="0.5" />
+                  <Stop offset="100%" stopColor={COLOR_BG} stopOpacity="0" />
+                </RadialGradient>
+              </Defs>
+              <Circle cx="100" cy="100" r="70" fill="url(#eyeGlow)" />
+            </Svg>
+          </MotiView>
+
+          {/* Squelette SVG de l'OEil Cybernétique */}
+          <Svg viewBox="0 0 200 200" style={{ width: 200, height: 200, zIndex: 10 }}>
+            {/* Contour Externe principal (Losange effilé) */}
+            <Path 
+               d="M 10 100 Q 100 10 190 100 Q 100 190 10 100 Z" 
+               fill="none" 
+               stroke={COLOR_CYAN} 
+               strokeWidth="2" 
+            />
+            {/* Contour pointillé interne */}
+            <Path 
+               d="M 30 100 Q 100 40 170 100 Q 100 160 30 100 Z" 
+               fill="none" 
+               stroke={COLOR_CYAN} 
+               strokeWidth="1.5" 
+               strokeDasharray="4 6" 
+               opacity={0.6} 
+            />
+            
+            {/* Cercles concentriques de l'Iris */}
+            <Circle cx="100" cy="100" r="35" fill="none" stroke={COLOR_CYAN} strokeWidth="2" />
+            <Circle cx="100" cy="100" r="28" fill="none" stroke={COLOR_PURPLE} strokeWidth="1" strokeDasharray="2 4" />
+            <Circle cx="100" cy="100" r="22" fill="none" stroke={COLOR_PURPLE} strokeWidth="3" opacity={0.8} />
+
+            {/* Pupille Fendue Electronique */}
+            <Path d="M 100 70 L 112 100 L 100 130 L 88 100 Z" fill={COLOR_PURPLE} />
+            <Circle cx="100" cy="100" r="4" fill={COLOR_BG} />
+          </Svg>
+        </MotiView>
+      )}
+
     </View>
   );
 };
@@ -184,12 +190,36 @@ export const HorusBootSequence = ({ onBootComplete }: HorusBootSequenceProps) =>
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#0B0F19', // Arrière plan strict
+    backgroundColor: '#0B0F19',
     justifyContent: 'center',
     alignItems: 'center',
+    position: 'relative',
   },
-  canvasContainer: {
+  // --- TERMINAL ---
+  terminalContainer: {
+    ...StyleSheet.absoluteFillObject,
+    padding: 30,
+    paddingTop: 80,
+  },
+  lineContainer: {
+    justifyContent: 'flex-end',
+    flexDirection: 'column',
+  },
+  terminalLine: {
+    fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace',
+    fontSize: 14,
+    fontWeight: 'bold',
+    marginBottom: 8,
+    textShadowOffset: { width: 0, height: 0 },
+    textShadowRadius: 6,
+    letterSpacing: 1,
+  },
+  // --- EYE ---
+  eyeContainer: {
     width: 200,
     height: 200,
+    justifyContent: 'center',
+    alignItems: 'center',
+    position: 'absolute',
   }
 });

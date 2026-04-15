@@ -36,7 +36,7 @@ export const HorusMediaDetailsOverlay: React.FC<HorusMediaDetailsOverlayProps> =
         style={styles.overlay}
         from={{ opacity: 0 }}
         animate={{ opacity: 1 }}
-        transition={{ type: 'timing', duration: 300 }} 
+        transition={{ type: 'timing', duration: 150 }} 
       >
         <Pressable style={StyleSheet.absoluteFillObject} onPress={onClose} />
       </MotiView>
@@ -54,7 +54,7 @@ export const HorusMediaDetailsOverlay: React.FC<HorusMediaDetailsOverlayProps> =
           }}
           transition={{ 
             type: 'timing', 
-            duration: 350,   
+            duration: 180,   
           }}
         >
           <View style={styles.notchTopLeft} pointerEvents="none" />
