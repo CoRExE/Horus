@@ -322,10 +322,22 @@ const styles = StyleSheet.create({
   appTitle: { color: '#F8FAFC', fontSize: 28, fontWeight: 'bold', marginBottom: 15, letterSpacing: -0.5 },
 
   pillsContainer: { flexDirection: 'row', marginBottom: 15 },
-  pill: { paddingVertical: 8, paddingHorizontal: 16, borderRadius: 20, backgroundColor: '#1A1F2E', marginRight: 10, borderWidth: 1, borderColor: '#2A3143' },
-  pillActive: { backgroundColor: '#8B5CF6', borderColor: '#8B5CF6' },
-  pillText: { color: '#94A3B8', fontWeight: '600' },
-  pillTextActive: { color: '#FFFFFF' },
+  pill: { 
+    paddingVertical: 10, 
+    paddingHorizontal: 20, 
+    backgroundColor: '#0B0F19', 
+    marginRight: 12, 
+    borderWidth: 1, 
+    borderColor: '#1E293B',
+    borderLeftWidth: 3 // Cyber edge
+  },
+  pillActive: { 
+    backgroundColor: 'rgba(0, 255, 255, 0.05)', 
+    borderColor: '#00FFFF',
+    borderLeftColor: '#8B5CF6',
+  },
+  pillText: { color: '#475569', fontWeight: 'bold', letterSpacing: 1, fontSize: 12, textTransform: 'uppercase' },
+  pillTextActive: { color: '#00FFFF' },
 
   searchInput: { backgroundColor: '#1A1F2E', color: '#F8FAFC', paddingHorizontal: 20, paddingVertical: 15, borderRadius: 12, fontSize: 16, borderWidth: 1, borderColor: '#2A3143' },
 
