@@ -9,7 +9,9 @@
     "web": "expo start --web",
     "build:dev": "eas build --profile development --platform android",
     "build:preview": "eas build --profile preview --platform android",
-    "build:prod": "eas build --profile production --platform android"
+    "build:prod": "eas build --profile production --platform android",
+    "build:update": "eas update",
+    "release": "release-it"
   },
   "dependencies": {
     "@horus/core": "workspace:*",
@@ -17,6 +19,7 @@
     "expo-dev-client": "~6.0.20",
     "expo-navigation-bar": "~5.0.10",
     "expo-status-bar": "~3.0.9",
+    "expo-updates": "~29.0.16",
     "expo-video": "~3.0.16",
     "lucide-react-native": "^1.8.0",
     "moti": "^0.30.0",

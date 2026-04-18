@@ -1,0 +1,17 @@
+{
+  "git": {
+    "commitMessage": "chore(release): v${version}",
+    "tagName": "v${version}",
+    "push": false,
+    "requireBranch": [
+      "main",
+      "dev"
+    ]
+  },
+  "npm": {
+    "publish": false
+  },
+  "plugins": {
+    "@release-it/expo": {}
+  }
+}
