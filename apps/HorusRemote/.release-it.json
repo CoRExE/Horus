@@ -5,13 +5,14 @@
     "push": false,
     "requireBranch": [
       "main",
-      "dev"
+      "dev",
+      "alpha"
     ]
   },
   "npm": {
     "publish": false
   },
   "plugins": {
-    "@release-it/expo": {}
+    "@mwillbanks/release-it-expo-bumper-plugin": {}
   }
 }
