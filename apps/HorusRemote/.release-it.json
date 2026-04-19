@@ -1,0 +1,18 @@
+{
+  "git": {
+    "commitMessage": "chore(release): v${version}",
+    "tagName": "v${version}",
+    "push": false,
+    "requireBranch": [
+      "main",
+      "dev",
+      "alpha"
+    ]
+  },
+  "npm": {
+    "publish": false
+  },
+  "plugins": {
+    "@mwillbanks/release-it-expo-bumper-plugin": {}
+  }
+}

@@ -2,7 +2,7 @@
   "expo": {
     "name": "HorusRemote",
     "slug": "HorusRemote",
-    "version": "1.0.0",
+    "version": "1.1.0-0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
@@ -12,12 +12,19 @@
       "resizeMode": "contain",
       "backgroundColor": "#0a0a0a"
     },
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/434a6fd2-49b6-41f5-8df7-80f6a9a58d24"
+    },
     "experiments": {
       "autolinkingModuleResolution": true
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.horus.remote"
+      "bundleIdentifier": "com.horus.remote",
+      "buildNumber": "2"
     },
     "android": {
       "package": "com.horus.remote",
@@ -26,7 +33,8 @@
         "backgroundColor": "#0a0a0a"
       },
       "edgeToEdgeEnabled": true,
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "versionCode": 1
     },
     "web": {
       "favicon": "./assets/favicon.png"
