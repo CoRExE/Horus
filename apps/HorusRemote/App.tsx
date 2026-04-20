@@ -13,6 +13,7 @@ import { HorusHeader } from './components/HorusHeader';
 import { HorusMediaCard } from './components/HorusMediaCard';
 import { HorusMediaDetailsOverlay } from './components/HorusMediaDetailsOverlay';
 import { HorusEpisodeList } from './components/HorusEpisodeList';
+import { useUserStore } from './store/useUserStore';
 
 // Instanciation des providers de Scraping
 const animeSama = new AnimeSamaProvider();
@@ -21,10 +22,14 @@ const frenchStream = new FrenchStreamProvider();
 
 export default function App() {
   const [isBooting, setIsBooting] = useState(true);
-  const [mediaType, setMediaType] = useState<'anime' | 'film_series'>('anime');
+  const [mediaType, setMediaType] = useState<'anime' | 'film_series' | 'wishlist' | 'history'>('anime');
   const [search, setSearch] = useState('');
   const [isSearching, setIsSearching] = useState(false);
   const [results, setResults] = useState<SearchResult[]>([]);
+
+  const wishlist = useUserStore(state => state.wishlist);
+  const history = useUserStore(state => state.history);
+  const addToHistory = useUserStore(state => state.addToHistory);
 
   // Modal State pour voir les épisodes d'un média cliqué
   const [selectedMedia, setSelectedMedia] = useState<SearchResult | null>(null);
@@ -97,10 +102,20 @@ export default function App() {
     }
   };
 
-  const extractStreamsAndCast = async (episode: Episode) => {
+  const extractStreamsAndCast = async (episode: Episode, overrideMedia?: SearchResult) => {
+    const targetMedia = overrideMedia || selectedMedia;
+    if (targetMedia) {
+      addToHistory({
+        id: targetMedia.id,
+        title: targetMedia.title,
+        imageUrl: targetMedia.coverUrl || '',
+        type: targetMedia.type === 'anime' ? 'series' : targetMedia.type as 'movie' | 'series'
+      }, { lastEpisode: episode });
+    }
+
     setIsExtracting(true);
     try {
-      const provider = getProviderForMedia(selectedMedia!.id);
+      const provider = getProviderForMedia(targetMedia!.id);
 
 
       const streams = await provider.getStreams(episode.id);
@@ -187,48 +202,87 @@ export default function App() {
           onChangeText={setSearch}
           onSubmitEditing={handleSearch}
           returnKeyType="search"
+          hideSearch={mediaType === 'wishlist' || mediaType === 'history'}
         />
 
         {/* Pilules de Sélection de Type de Média */}
-        <View style={[styles.pillsContainer, { paddingHorizontal: 20, marginBottom: 15 }]}>
-          <TouchableOpacity
-            style={[styles.pill, mediaType === 'anime' && styles.pillActive]}
-            onPress={() => { setMediaType('anime'); setResults([]); }}
-          >
-            <Text style={[styles.pillText, mediaType === 'anime' && styles.pillTextActive]}>Anime</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.pill, mediaType === 'film_series' && styles.pillActive]}
-            onPress={() => { setMediaType('film_series'); setResults([]); }}
-          >
-            <Text style={[styles.pillText, mediaType === 'film_series' && styles.pillTextActive]}>Films & Séries</Text>
-          </TouchableOpacity>
+        <View style={[styles.pillsContainer, { paddingHorizontal: 20, marginBottom: 15, marginTop: (mediaType === 'wishlist' || mediaType === 'history') ? 20 : 0 }]}>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ alignItems: 'center' }}>
+            <TouchableOpacity
+              style={[styles.pill, mediaType === 'anime' && styles.pillActive]}
+              onPress={() => { setMediaType('anime'); }}
+            >
+              <Text style={[styles.pillText, mediaType === 'anime' && styles.pillTextActive]}>Anime</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.pill, mediaType === 'film_series' && styles.pillActive]}
+              onPress={() => { setMediaType('film_series'); }}
+            >
+              <Text style={[styles.pillText, mediaType === 'film_series' && styles.pillTextActive]}>Films & Séries</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.pill, mediaType === 'wishlist' && styles.pillActive]}
+              onPress={() => { setMediaType('wishlist'); }}
+            >
+              <Text style={[styles.pillText, mediaType === 'wishlist' && styles.pillTextActive]}>Wishlist</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.pill, mediaType === 'history' && styles.pillActive]}
+              onPress={() => { setMediaType('history'); }}
+            >
+              <Text style={[styles.pillText, mediaType === 'history' && styles.pillTextActive]}>Historique</Text>
+            </TouchableOpacity>
+          </ScrollView>
         </View>
 
         <ScrollView contentContainerStyle={styles.scrollContent}>
-          {isSearching ? (
+          {isSearching && (mediaType === 'anime' || mediaType === 'film_series') ? (
             <ActivityIndicator size="large" color="#8B5CF6" style={{ marginTop: 50 }} />
           ) : (
             <View style={styles.grid}>
-              {results.map((item, idx) => (
-                <HorusMediaCard
-                  key={item.id + idx}
-                  title={item.title}
-                  subtitle={item.type}
-                  imageUrl={item.coverUrl}
-                  index={idx}
-                  onPress={() => openMedia(item)}
-                />
-              ))}
+              {(() => {
+                const dataToDisplay = (mediaType === 'wishlist') ? wishlist.map(item => ({ id: String(item.id), title: item.title, coverUrl: item.imageUrl, type: item.type === 'movie' ? 'movie' : 'series', sourceItem: item })) as any[]
+                                      : (mediaType === 'history') ? history.map(item => ({ id: String(item.id), title: item.title, coverUrl: item.imageUrl, type: item.type === 'movie' ? 'movie' : 'series', sourceItem: item })) as any[]
+                                      : results;
 
-              {results.length === 0 && search.length > 0 && !isSearching && (
-                <Text style={styles.emptyText}>Aucun résultat trouvé pour votre recherche.</Text>
-              )}
-              {results.length === 0 && search.length === 0 && !isSearching && (
-                <Text style={styles.emptyText}>
-                  Recherchez {mediaType === 'anime' ? 'un anime' : 'un film ou une série'} pour commencer.
-                </Text>
-              )}
+                if (dataToDisplay.length === 0) {
+                  if (mediaType === 'wishlist') {
+                     return <Text style={styles.emptyText}>Votre Wishlist est vide. Ajoutez des médias pour les retrouver ici.</Text>;
+                  }
+                  if (mediaType === 'history') {
+                     return <Text style={styles.emptyText}>Votre Historique est vide.</Text>;
+                  }
+                  if (search.length > 0) {
+                     return <Text style={styles.emptyText}>Aucun résultat trouvé pour votre recherche.</Text>;
+                  }
+                  return (
+                     <Text style={styles.emptyText}>
+                       Recherchez {mediaType === 'anime' ? 'un anime' : 'un film ou une série'} pour commencer.
+                     </Text>
+                  );
+                }
+
+                return dataToDisplay.map((item, idx) => (
+                  <HorusMediaCard
+                    key={item.id + idx}
+                    title={item.title}
+                    subtitle={item.type}
+                    highlightText={mediaType === 'history' && item.sourceItem?.lastEpisode?.number ? `ÉPISODE ${item.sourceItem.lastEpisode.number}` : undefined}
+                    imageUrl={item.coverUrl}
+                    index={idx}
+                    onPress={() => {
+                      if (mediaType === 'history' && item.sourceItem?.lastEpisode) {
+                        // Reprise directe de l'épisode sans passer par l'overlay de détails
+                        setSelectedMedia(item as SearchResult);
+                        extractStreamsAndCast(item.sourceItem.lastEpisode, item as SearchResult);
+                      } else {
+                        // Comportement normal pour la recherche ou la wishlist
+                        openMedia(item as SearchResult);
+                      }
+                    }}
+                  />
+                ));
+              })()}
             </View>
           )}
         </ScrollView>
@@ -237,8 +291,13 @@ export default function App() {
         <HorusMediaDetailsOverlay
           visible={!!selectedMedia && !isEpisodeListVisible}
           onClose={() => { setSelectedMedia(null); setEpisodes([]); }}
-          title={selectedMedia?.title || ''}
-          imageUrl={selectedMedia?.coverUrl}
+          // @ts-ignore : selectedMedia type from Core could be 'anime' instead of 'series'
+          media={selectedMedia ? {
+            id: selectedMedia.id,
+            title: selectedMedia.title,
+            imageUrl: selectedMedia.coverUrl || '',
+            type: selectedMedia.type === 'anime' ? 'series' : selectedMedia.type
+          } : null}
           onInitStream={() => {
             if (seasonKeys.length === 1 && seasonGroups[seasonKeys[0]].length === 1) {
               extractStreamsAndCast(seasonGroups[seasonKeys[0]][0]);
