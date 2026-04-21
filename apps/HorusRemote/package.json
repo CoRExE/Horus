@@ -15,6 +15,7 @@
   },
   "dependencies": {
     "@horus/core": "workspace:*",
+    "@react-native-async-storage/async-storage": "^3.0.2",
     "expo": "~54.0.33",
     "expo-dev-client": "~6.0.20",
     "expo-navigation-bar": "~5.0.10",
@@ -28,7 +29,8 @@
     "react-native-reanimated": "~4.1.1",
     "react-native-safe-area-context": "^5.7.0",
     "react-native-svg": "15.12.1",
-    "react-native-worklets": "0.5.1"
+    "react-native-worklets": "0.5.1",
+    "zustand": "^5.0.12"
   },
   "devDependencies": {
     "@mwillbanks/release-it-expo-bumper-plugin": "^1.0.0",

@@ -1,12 +1,13 @@
 import React from 'react';
 import { View, Text, Image, StyleSheet, Modal, Pressable, TouchableOpacity } from 'react-native';
 import { MotiView } from 'moti';
+import { Bookmark } from 'lucide-react-native';
+import { useUserStore, MediaItem } from '../store/useUserStore';
 
 export interface HorusMediaDetailsOverlayProps {
   visible: boolean;
   onClose: () => void;
-  title: string;
-  imageUrl?: string;
+  media: MediaItem;
   onInitStream: () => void;
 }
 
@@ -20,10 +21,23 @@ const COLOR_TEXT = '#F8FAFC';
 export const HorusMediaDetailsOverlay: React.FC<HorusMediaDetailsOverlayProps> = ({
   visible,
   onClose,
-  title,
-  imageUrl,
+  media,
   onInitStream,
 }) => {
+  const toggleWishlist = useUserStore((state) => state.toggleWishlist);
+  const addToHistory = useUserStore((state) => state.addToHistory);
+  const wishlist = useUserStore((state) => state.wishlist);
+
+  // Sécurité si media est indéfini
+  if (!media) return null;
+
+  const isInWishlist = wishlist.some((item) => item.id === media.id);
+
+  const handleInitStream = () => {
+    addToHistory(media);
+    onInitStream();
+  };
+
   return (
     <Modal
       visible={visible}
@@ -61,8 +75,8 @@ export const HorusMediaDetailsOverlay: React.FC<HorusMediaDetailsOverlayProps> =
           <View style={styles.notchBottomRight} pointerEvents="none" />
 
           <View style={styles.content}>
-            {imageUrl ? (
-              <Image source={{ uri: imageUrl }} style={styles.image} />
+            {media.imageUrl ? (
+              <Image source={{ uri: media.imageUrl }} style={styles.image} />
             ) : (
               <View style={styles.imagePlaceholder}>
                 <Text style={{ color: '#475569', letterSpacing: 2 }}>NO SIGNAL</Text>
@@ -70,16 +84,33 @@ export const HorusMediaDetailsOverlay: React.FC<HorusMediaDetailsOverlayProps> =
             )}
 
             <Text style={styles.title} numberOfLines={2}>
-              {title}
+              {media.title}
             </Text>
 
-            <TouchableOpacity 
-               style={styles.actionButton} 
-               activeOpacity={0.7} 
-               onPress={onInitStream}
-            >
-              <Text style={styles.actionButtonText}>INITIALIZE STREAM</Text>
-            </TouchableOpacity>
+            <View style={styles.actionsContainer}>
+              <TouchableOpacity 
+                style={styles.actionButton} 
+                activeOpacity={0.7} 
+                onPress={handleInitStream}
+              >
+                <Text style={styles.actionButtonText}>INITIALIZE STREAM</Text>
+              </TouchableOpacity>
+              
+              <TouchableOpacity
+                style={[
+                  styles.wishlistButton,
+                  isInWishlist && styles.wishlistButtonActive
+                ]}
+                activeOpacity={0.7}
+                onPress={() => toggleWishlist(media)}
+              >
+                <Bookmark 
+                  color={isInWishlist ? COLOR_ACCENT_PURPLE : COLOR_ACCENT_CYAN} 
+                  fill={isInWishlist ? COLOR_ACCENT_PURPLE : 'transparent'}
+                  size={24}
+                />
+              </TouchableOpacity>
+            </View>
           </View>
         </MotiView>
       </View>
@@ -159,15 +190,20 @@ const styles = StyleSheet.create({
     letterSpacing: 0.5,
     marginBottom: 30,
   },
+  actionsContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    width: '100%',
+    gap: 12,
+  },
   actionButton: {
+    flex: 1,
     backgroundColor: 'rgba(139, 92, 246, 0.1)', 
     borderWidth: 1,
     borderColor: COLOR_ACCENT_PURPLE,
     paddingVertical: 16,
     paddingHorizontal: 20,
-    width: '100%',
     alignItems: 'center',
-    flexDirection: 'row',
     justifyContent: 'center',
   },
   actionButtonText: {
@@ -175,5 +211,18 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: 'bold',
     letterSpacing: 2,
+  },
+  wishlistButton: {
+    width: 52,
+    height: 52,
+    borderWidth: 1,
+    borderColor: COLOR_ACCENT_CYAN,
+    backgroundColor: 'rgba(0, 255, 255, 0.05)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  wishlistButtonActive: {
+    borderColor: COLOR_ACCENT_PURPLE,
+    backgroundColor: 'rgba(139, 92, 246, 0.1)',
   },
 });

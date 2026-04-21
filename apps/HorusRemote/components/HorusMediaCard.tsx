@@ -5,6 +5,7 @@ import { MotiView } from 'moti';
 export interface HorusMediaCardProps {
   title: string;
   subtitle?: string; // Type de média (ex: 'anime', 'movie')
+  highlightText?: string; // Text to highlight, ex: episode name
   imageUrl?: string;
   index: number;
   onPress: () => void;
@@ -15,6 +16,7 @@ const CARD_IMAGE_HEIGHT = 220; // Utilisé pour définir l'amplitude du balayage
 export const HorusMediaCard: React.FC<HorusMediaCardProps> = ({ 
   title, 
   subtitle, 
+  highlightText,
   imageUrl, 
   index, 
   onPress 
@@ -75,11 +77,18 @@ export const HorusMediaCard: React.FC<HorusMediaCardProps> = ({
           <Text style={styles.title} numberOfLines={1}>
             {title}
           </Text>
-          {subtitle && (
-             <Text style={styles.subtitle} numberOfLines={1}>
-               {subtitle.toUpperCase()}
-             </Text>
-          )}
+          <View style={styles.subtitleRow}>
+            {subtitle && (
+               <Text style={styles.subtitle} numberOfLines={1}>
+                 {subtitle.toUpperCase()}
+               </Text>
+            )}
+            {highlightText && (
+               <Text style={[styles.subtitle, styles.highlightText]} numberOfLines={1}>
+                 {highlightText.toUpperCase()}
+               </Text>
+            )}
+          </View>
         </View>
 
         {/* -- Encoches asymétriques Cyberpunk -- */}
@@ -163,11 +172,21 @@ const styles = StyleSheet.create({
     letterSpacing: 0.5,
     marginBottom: 4,
   },
+  subtitleRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
   subtitle: {
     color: '#00FFFF',
     fontSize: 10,
     fontWeight: '700',
     letterSpacing: 1.5,
+    flex: 1,
+  },
+  highlightText: {
+    color: '#8B5CF6',
+    textAlign: 'right',
   },
   // --- Encoches Graphiques Accent / Scan ---
   notchTopRight: {

@@ -5,9 +5,10 @@ import { Search } from 'lucide-react-native';
 
 interface HorusHeaderProps extends TextInputProps {
   title?: string;
+  hideSearch?: boolean;
 }
 
-export const HorusHeader: React.FC<HorusHeaderProps> = ({ title = "HORUS", ...props }) => {
+export const HorusHeader: React.FC<HorusHeaderProps> = ({ title = "HORUS", hideSearch = false, ...props }) => {
   const [isFocused, setIsFocused] = useState(false);
 
   // --- Palette de Couleurs Strictes ---
@@ -63,40 +64,42 @@ export const HorusHeader: React.FC<HorusHeaderProps> = ({ title = "HORUS", ...pr
       </View>
 
       {/* 2. Barre de Recherche "Cyber" */}
-      <View 
-        style={[
-          styles.searchContainer, 
-          { 
-            borderBottomColor: currentBorderColor,
-            borderLeftColor: currentBorderColor,
-            // Applique un très léger fond tinté si actif
-            backgroundColor: isFocused ? 'rgba(0, 255, 255, 0.03)' : 'rgba(71, 85, 105, 0.05)'
-          }
-        ]}
-      >
-        <Search color={currentBorderColor} size={20} style={styles.searchIcon} />
-        
-        <TextInput
-          style={styles.input}
-          placeholder="Trace Media Stream..."
-          placeholderTextColor={COLOR_TEXT_DIM}
-          selectionColor={COLOR_FOCUS} // Couleur de surlignage/curseur native
-          onFocus={(e) => {
-             setIsFocused(true);
-             if (props.onFocus) props.onFocus(e);
-          }}
-          onBlur={(e) => {
-             setIsFocused(false);
-             if (props.onBlur) props.onBlur(e);
-          }}
-          {...props}
-        />
+      {!hideSearch && (
+        <View 
+          style={[
+            styles.searchContainer, 
+            { 
+              borderBottomColor: currentBorderColor,
+              borderLeftColor: currentBorderColor,
+              // Applique un très léger fond tinté si actif
+              backgroundColor: isFocused ? 'rgba(0, 255, 255, 0.03)' : 'rgba(71, 85, 105, 0.05)'
+            }
+          ]}
+        >
+          <Search color={currentBorderColor} size={20} style={styles.searchIcon} />
+          
+          <TextInput
+            style={styles.input}
+            placeholder="Trace Media Stream..."
+            placeholderTextColor={COLOR_TEXT_DIM}
+            selectionColor={COLOR_FOCUS} // Couleur de surlignage/curseur native
+            onFocus={(e) => {
+               setIsFocused(true);
+               if (props.onFocus) props.onFocus(e);
+            }}
+            onBlur={(e) => {
+               setIsFocused(false);
+               if (props.onBlur) props.onBlur(e);
+            }}
+            {...props}
+          />
 
-        {/* Détails fragmentés : Les encoches Cyber aux extrémités non-bordées */}
-        <View style={[styles.notchTopRight, { backgroundColor: currentBorderColor }]} />
-        <View style={[styles.notchBottomRight, { backgroundColor: currentBorderColor }]} />
-        <View style={[styles.notchTopLeft, { backgroundColor: currentBorderColor }]} />
-      </View>
+          {/* Détails fragmentés : Les encoches Cyber aux extrémités non-bordées */}
+          <View style={[styles.notchTopRight, { backgroundColor: currentBorderColor }]} />
+          <View style={[styles.notchBottomRight, { backgroundColor: currentBorderColor }]} />
+          <View style={[styles.notchTopLeft, { backgroundColor: currentBorderColor }]} />
+        </View>
+      )}
 
     </View>
   );
