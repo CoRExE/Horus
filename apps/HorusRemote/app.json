@@ -2,7 +2,7 @@
   "expo": {
     "name": "HorusRemote",
     "slug": "HorusRemote",
-    "version": "1.1.0",
+    "version": "1.1.1",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
@@ -24,7 +24,7 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.horus.remote",
-      "buildNumber": "3"
+      "buildNumber": "4"
     },
     "android": {
       "package": "com.horus.remote",
@@ -34,7 +34,7 @@
       },
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false,
-      "versionCode": 2
+      "versionCode": 3
     },
     "web": {
       "favicon": "./assets/favicon.png"
