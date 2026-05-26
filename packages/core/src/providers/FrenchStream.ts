@@ -163,7 +163,10 @@ export class FrenchStreamProvider implements HorusProvider {
         const unsupported = ['mixdrop', 'dood', 'dsvplay', 'kakaflix.lol/moon', 'kakaflix.lol//bigwar', 'filmoon'];
         if (unsupported.some(p => actualEmbed.includes(p))) return;
 
-        const { data: pageHtml } = await this.http.get(actualEmbed, { timeout: 10000 });
+        const { data: pageHtml } = await this.http.get(actualEmbed, { 
+          timeout: 10000,
+          headers: { 'Referer': this.baseUrl }
+        });
 
         if (actualEmbed.includes('uqload')) {
           const match = pageHtml.match(/sources:\s*\[\s*"([^"]+)"/);
