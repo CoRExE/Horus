@@ -9,7 +9,9 @@
     "web": "expo start --web",
     "build:dev": "eas build --profile development --platform android",
     "build:preview": "eas build --profile preview --platform android",
-    "build:prod": "eas build --profile production --platform android",
+    "build:prod:android": "eas build --profile production --platform android",
+    "build:prod:ios": "eas build --profile production --platform ios",
+    "build:prod:all": "eas build --profile production platform --all",
     "build:update": "eas update",
     "release": "release-it"
   },

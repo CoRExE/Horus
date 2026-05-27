@@ -1,4 +1,4 @@
-import { AllAnimeProvider } from './src/providers/AllAnime';
+import { AllAnimeProvider } from '../src/providers/AllAnime';
 
 async function run() {
   const provider = new AllAnimeProvider();

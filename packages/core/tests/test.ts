@@ -1,4 +1,4 @@
-import { AnimeSamaProvider } from './src/providers/AnimeSama';
+import { AnimeSamaProvider } from '../src/providers/AnimeSama';
 
 async function run() {
     const provider = new AnimeSamaProvider();
