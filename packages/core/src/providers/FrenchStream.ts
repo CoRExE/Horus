@@ -169,8 +169,18 @@ export class FrenchStreamProvider implements HorusProvider {
         });
 
         if (actualEmbed.includes('uqload')) {
-          const match = pageHtml.match(/sources:\s*\[\s*"([^"]+)"/);
-          if (match) {
+          let uqHtml = pageHtml;
+          if (uqHtml.includes('eval(function')) {
+            const unpackMatch = uqHtml.match(/eval\(function[\s\S]*?\n<\/script>/) || uqHtml.match(/eval\(function.*?\)\)/);
+            if (unpackMatch) {
+              uqHtml = Unpacker.unpack(unpackMatch[0]);
+            }
+          }
+          let match = uqHtml.match(/sources:\s*\[\s*"([^"]+)"/);
+          if (!match) match = uqHtml.match(/(http[^"']+m3u8[^"']*)/);
+          if (!match) match = uqHtml.match(/(?:file|src):\s*['"]([^'"]+)['"]/);
+          
+          if (match && match[1]) {
             streams.push({ url: match[1], language: lang.toUpperCase(), server: 'Uqload', headers: { 'Referer': 'https://uqload.is/' } });
           }
         } else if (actualEmbed.includes('voe.') || actualEmbed.includes('sandratableother.com')) {
