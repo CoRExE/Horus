@@ -14,6 +14,13 @@ import { HorusMediaCard } from './components/HorusMediaCard';
 import { HorusMediaDetailsOverlay } from './components/HorusMediaDetailsOverlay';
 import { HorusEpisodeList } from './components/HorusEpisodeList';
 import { useUserStore } from './store/useUserStore';
+import { useCastSession, CastContext } from 'react-native-google-cast';
+import { CastController } from './components/CastController';
+import { UnifiedCastModal } from './components/UnifiedCastModal';
+import { DisconnectModal } from './components/DisconnectModal';
+import { DlnaDevice } from './hooks/useDlnaDiscovery';
+import { dlnaController } from './services/dlnaController';
+import LocalVideoProxy from './modules/local-video-proxy/src/LocalVideoProxyModule';
 
 // Instanciation des providers de Scraping
 const animeSama = new AnimeSamaProvider();
@@ -44,6 +51,16 @@ export default function App() {
   const [isExtracting, setIsExtracting] = useState(false);
   const [isLangModalVisible, setIsLangModalVisible] = useState(false);
   const [availableLanguages, setAvailableLanguages] = useState<Record<string, Stream[]>>({});
+
+  // Cast State
+  const castSession = useCastSession();
+  const [isCastRemoteVisible, setIsCastRemoteVisible] = useState(false);
+  const [pendingCastInfo, setPendingCastInfo] = useState<{title: string, imageUrl: string} | null>(null);
+
+  // Unified Cast Modal State
+  const [isUnifiedCastModalVisible, setIsUnifiedCastModalVisible] = useState(false);
+  const [isDisconnectModalVisible, setIsDisconnectModalVisible] = useState(false);
+  const [activeDlnaDevice, setActiveDlnaDevice] = useState<DlnaDevice | null>(null);
 
   // Configuration de l'immersion Android au démarrage
   useEffect(() => {
@@ -125,9 +142,32 @@ export default function App() {
         const grouped = groupStreamsByLanguage(streams);
         const langs = Object.keys(grouped);
 
+        const castTitle = targetMedia!.title + (episode.number ? ` - Ep ${episode.number}` : '');
+        const castImage = targetMedia!.coverUrl || '';
+        setPendingCastInfo({ title: castTitle, imageUrl: castImage });
+
         if (langs.length === 1) {
-          setAllStreams(grouped[langs[0]]);
-          setCurrentStreamIndex(0);
+          const streamList = grouped[langs[0]];
+          if (castSession) {
+            castSession.client.loadMedia({
+              mediaInfo: {
+                contentUrl: streamList[0].url,
+                contentType: 'video/mp4',
+                metadata: {
+                  type: 'generic',
+                  title: castTitle,
+                  images: [{ url: castImage }]
+                }
+              }
+            }).catch(console.error);
+            setIsCastRemoteVisible(true);
+          } else if (activeDlnaDevice) {
+            dlnaController.castVideo(activeDlnaDevice.controlUrl, streamList[0].url, castTitle, streamList[0].headers).catch(console.error);
+            setIsCastRemoteVisible(true);
+          } else {
+            setAllStreams(streamList);
+            setCurrentStreamIndex(0);
+          }
         } else if (langs.length > 1) {
           setAvailableLanguages(grouped);
           setIsLangModalVisible(true);
@@ -145,8 +185,27 @@ export default function App() {
 
   const handleLanguageSelect = (lang: string) => {
     setIsLangModalVisible(false);
-    setAllStreams(availableLanguages[lang]);
-    setCurrentStreamIndex(0);
+    const selectedStreams = availableLanguages[lang];
+    if (castSession && pendingCastInfo) {
+      castSession.client.loadMedia({
+        mediaInfo: {
+          contentUrl: selectedStreams[0].url,
+          contentType: 'video/mp4',
+          metadata: {
+            type: 'generic',
+            title: pendingCastInfo.title,
+            images: [{ url: pendingCastInfo.imageUrl }]
+          }
+        }
+      }).catch(console.error);
+      setIsCastRemoteVisible(true);
+    } else if (activeDlnaDevice && pendingCastInfo) {
+      dlnaController.castVideo(activeDlnaDevice.controlUrl, selectedStreams[0].url, pendingCastInfo.title, selectedStreams[0].headers).catch(console.error);
+      setIsCastRemoteVisible(true);
+    } else {
+      setAllStreams(selectedStreams);
+      setCurrentStreamIndex(0);
+    }
   };
 
   const tryNextStream = () => {
@@ -203,6 +262,14 @@ export default function App() {
           onSubmitEditing={handleSearch}
           returnKeyType="search"
           hideSearch={mediaType === 'wishlist' || mediaType === 'history'}
+          onPressCast={() => {
+            if (castSession || activeDlnaDevice) {
+              setIsDisconnectModalVisible(true);
+            } else {
+              setIsUnifiedCastModalVisible(true);
+            }
+          }}
+          isCasting={!!castSession || !!activeDlnaDevice}
         />
 
         {/* Pilules de Sélection de Type de Média */}
@@ -368,6 +435,46 @@ export default function App() {
             />
           </Modal>
         )}
+
+        {/* Modale de Sélection Cast / DLNA */}
+        <UnifiedCastModal
+          visible={isUnifiedCastModalVisible}
+          onClose={() => setIsUnifiedCastModalVisible(false)}
+          onSelectDlna={(device) => {
+            setActiveDlnaDevice(device);
+          }}
+        />
+
+        {/* Télécommande Cast */}
+        {isCastRemoteVisible && (
+          <Modal visible={true} animationType="slide" transparent={false} onRequestClose={() => setIsCastRemoteVisible(false)}>
+            <CastController 
+              onClose={() => {
+                setIsCastRemoteVisible(false);
+              }}
+              dlnaDevice={activeDlnaDevice}
+            />
+          </Modal>
+        )}
+
+        {/* Modale de déconnexion */}
+        <DisconnectModal
+          visible={isDisconnectModalVisible}
+          deviceName={activeDlnaDevice ? activeDlnaDevice.name : 'Chromecast'}
+          onClose={() => setIsDisconnectModalVisible(false)}
+          onConfirm={() => {
+            if (activeDlnaDevice) {
+              dlnaController.stop(activeDlnaDevice.controlUrl).catch(() => {});
+              setActiveDlnaDevice(null);
+              LocalVideoProxy.stopServer().catch(console.error);
+            }
+            if (castSession) {
+              CastContext.getInstance().getSessionManager().endCurrentSession(true);
+            }
+            setIsCastRemoteVisible(false);
+            setIsDisconnectModalVisible(false);
+          }}
+        />
 
       </SafeAreaView>
     </SafeAreaProvider>

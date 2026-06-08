@@ -1,11 +1,13 @@
 import React, { useState } from 'react';
-import { View, StyleSheet, TextInput, TextInputProps } from 'react-native';
+import { View, StyleSheet, TextInput, TextInputProps, TouchableOpacity } from 'react-native';
 import { MotiText, MotiView } from 'moti';
-import { Search } from 'lucide-react-native';
+import { Search, Cast } from 'lucide-react-native';
 
 interface HorusHeaderProps extends TextInputProps {
   title?: string;
   hideSearch?: boolean;
+  onPressCast?: () => void;
+  isCasting?: boolean;
 }
 
 export const HorusHeader: React.FC<HorusHeaderProps> = ({ title = "HORUS", hideSearch = false, ...props }) => {
@@ -52,15 +54,21 @@ export const HorusHeader: React.FC<HorusHeaderProps> = ({ title = "HORUS", hideS
           {title}
         </MotiText>
 
-        {/* Indicateur d'état système animé (Pulsation lente) */}
-        <MotiView 
-          style={styles.systemStatus}
-          animate={{ opacity: [0.4, 1, 0.4] }}
-          transition={{ loop: true, type: 'timing', duration: 2000 }}
-        >
-          <View style={styles.statusDot} />
-          <MotiText style={styles.statusText}>SYS.ONLINE</MotiText>
-        </MotiView>
+        {/* Actions à droite (Cast + Statut Système) */}
+        <View style={styles.rightActions}>
+          <TouchableOpacity style={styles.castButton} onPress={props.onPressCast}>
+            <Cast color={COLOR_ACCENT} size={24} fill={props.isCasting ? COLOR_ACCENT : 'transparent'} />
+          </TouchableOpacity>
+          {/* Indicateur d'état système animé (Pulsation lente) */}
+          <MotiView 
+            style={styles.systemStatus}
+            animate={{ opacity: [0.4, 1, 0.4] }}
+            transition={{ loop: true, type: 'timing', duration: 2000 }}
+          >
+            <View style={styles.statusDot} />
+            <MotiText style={styles.statusText}>SYS.ONLINE</MotiText>
+          </MotiView>
+        </View>
       </View>
 
       {/* 2. Barre de Recherche "Cyber" */}
@@ -135,6 +143,14 @@ const styles = StyleSheet.create({
     opacity: 0,
     zIndex: -1, // Derrière le texte principal
     textShadowRadius: 0,
+  },
+  rightActions: {
+    alignItems: 'flex-end',
+  },
+  castButton: {
+    width: 24,
+    height: 24,
+    marginBottom: 8,
   },
   systemStatus: {
     flexDirection: 'row',
