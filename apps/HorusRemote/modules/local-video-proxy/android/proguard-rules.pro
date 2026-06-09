@@ -1,12 +1,14 @@
-# Custom ProGuard Rules for HorusRemote
+# 1. Conserver ABSOLUMENT tous les modules Expo et leurs définitions de fonctions
+-keep class expo.modules.** { *; }
+-keep class * extends expo.modules.core.interfaces.Module { *; }
+-keep interface expo.modules.** { *; }
 
-# Preserve local-video-proxy native module and NanoHTTPD
--keep class fi.iki.elonen.** { *; }
+# 2. Conserver spécifiquement notre module local (au cas où)
 -keep class expo.modules.localvideoproxy.** { *; }
 
-# Preserve react-native-udp (often broken by R8 in release)
--keep class com.tradle.react.** { *; }
+# 3. Conserver intégralement le serveur HTTP NanoHTTPD
+-keep class fi.iki.elonen.** { *; }
+-keep class fi.iki.elonen.NanoHTTPD$** { *; }
 
-# Preserve Google Cast (usually handled by its own AAR consumer rules, but added for safety)
--keep class com.google.android.gms.cast.** { *; }
--keep class com.reactnative.googlecast.** { *; }
+# 4. Conserver la librairie d'UDP Sockets
+-keep class com.tradle.react.** { *; }
