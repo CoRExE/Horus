@@ -252,18 +252,31 @@ class LocalVideoProxyModule : Module() {
         AsyncFunction("acquireMulticastLock") { promise: Promise ->
             try {
                 val context = appContext.reactContext
-                if (context != null) {
-                    val wifiManager = context.applicationContext.getSystemService(android.content.Context.WIFI_SERVICE) as android.net.wifi.WifiManager
-                    if (multicastLock == null) {
-                        multicastLock = wifiManager.createMulticastLock("HorusDLNALock")
-                        multicastLock?.setReferenceCounted(true)
-                    }
-                    if (multicastLock?.isHeld == false) {
-                        multicastLock?.acquire()
-                        Log.d("LocalVideoProxy", "MulticastLock acquired")
-                    }
+                if (context == null) {
+                    promise.reject("ERR_NO_CONTEXT", "ReactContext is null, cannot acquire MulticastLock", null)
+                    return@AsyncFunction
+                }
+                
+                val wifiManager = context.applicationContext.getSystemService(android.content.Context.WIFI_SERVICE) as? android.net.wifi.WifiManager
+                if (wifiManager == null) {
+                    promise.reject("ERR_NO_WIFI_MANAGER", "WifiManager is null", null)
+                    return@AsyncFunction
+                }
+
+                if (multicastLock == null) {
+                    multicastLock = wifiManager.createMulticastLock("HorusDLNALock")
+                    // Très important pour éviter les crashs natifs si appelé de manière asynchrone concurrente
+                    multicastLock?.setReferenceCounted(false)
+                }
+                
+                if (multicastLock?.isHeld == false) {
+                    multicastLock?.acquire()
+                    Log.d("LocalVideoProxy", "MulticastLock acquired")
                 }
                 promise.resolve(null)
+            } catch (e: SecurityException) {
+                Log.e("LocalVideoProxy", "Security exception acquiring MulticastLock (missing permission?)", e)
+                promise.reject("ERR_MULTICAST_SEC", "Missing permission for MulticastLock", e)
             } catch (e: Exception) {
                 Log.e("LocalVideoProxy", "Error acquiring MulticastLock", e)
                 promise.reject("ERR_MULTICAST_LOCK", "Failed to acquire MulticastLock", e)
@@ -272,7 +285,7 @@ class LocalVideoProxyModule : Module() {
 
         AsyncFunction("releaseMulticastLock") { promise: Promise ->
             try {
-                if (multicastLock?.isHeld == true) {
+                if (multicastLock != null && multicastLock?.isHeld == true) {
                     multicastLock?.release()
                     Log.d("LocalVideoProxy", "MulticastLock released")
                 }

@@ -2,7 +2,7 @@
 
 # Preserve local-video-proxy native module and NanoHTTPD
 -keep class fi.iki.elonen.** { *; }
--keep class expo.modules.mymodule.** { *; }
+-keep class expo.modules.localvideoproxy.** { *; }
 
 # Preserve react-native-udp (often broken by R8 in release)
 -keep class com.tradle.react.** { *; }
