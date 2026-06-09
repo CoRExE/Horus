@@ -38,7 +38,7 @@ export const useDlnaDiscovery = () => {
       
       if (Platform.OS === 'android') {
         try {
-          await LocalVideoProxy.acquireMulticastLock();
+          await LocalVideoProxy?.acquireMulticastLock?.();
           console.log("[DLNA] MulticastLock acquis !");
         } catch (e) {
           console.error("[DLNA] Erreur d'acquisition du MulticastLock", e);
@@ -140,20 +140,22 @@ export const useDlnaDiscovery = () => {
           try { socket.close(); } catch (e) {}
         }
         if (Platform.OS === 'android') {
-          LocalVideoProxy.releaseMulticastLock().catch(e => console.error(e));
+          LocalVideoProxy?.releaseMulticastLock?.()?.catch((e: any) => console.error(e));
         }
         setIsSearching(false);
       }, 5000);
     };
 
-    startDiscovery();
+    startDiscovery().catch(err => {
+      console.error("[DLNA] Critical error during discovery start:", err);
+    });
 
     return () => {
       if (socket) {
         try { socket.close(); } catch (e) {}
       }
       if (Platform.OS === 'android') {
-        LocalVideoProxy.releaseMulticastLock().catch(e => console.error(e));
+        LocalVideoProxy?.releaseMulticastLock?.()?.catch((e: any) => console.error(e));
       }
       setIsSearching(false);
     };
