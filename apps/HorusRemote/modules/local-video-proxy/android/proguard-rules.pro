@@ -1,9 +1,9 @@
-# 1. Conserver ABSOLUMENT tous les modules Expo et leurs définitions de fonctions
+# 1. Conserver tous les modules Expo et leurs définitions de fonctions
 -keep class expo.modules.** { *; }
 -keep class * extends expo.modules.core.interfaces.Module { *; }
 -keep interface expo.modules.** { *; }
 
-# 2. Conserver spécifiquement notre module local (au cas où)
+# 2. Conserver spécifiquement notre module local
 -keep class expo.modules.localvideoproxy.** { *; }
 
 # 3. Conserver intégralement le serveur HTTP NanoHTTPD

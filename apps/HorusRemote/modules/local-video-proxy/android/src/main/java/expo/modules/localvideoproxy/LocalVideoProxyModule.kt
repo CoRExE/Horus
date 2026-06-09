@@ -1,4 +1,4 @@
-package expo.modules.mymodule
+package expo.modules.localvideoproxy
 
 import android.util.Log
 import expo.modules.kotlin.modules.Module

@@ -4,7 +4,7 @@
     "modules": ["LocalVideoProxyModule"]
   },
   "android": {
-    "modules": ["expo.modules.mymodule.LocalVideoProxyModule"],
+    "modules": ["expo.modules.localvideoproxy.LocalVideoProxyModule"],
     "proguardRules": "android/proguard-rules.pro"
   }
 }

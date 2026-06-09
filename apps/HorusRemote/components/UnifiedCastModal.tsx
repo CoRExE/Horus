@@ -1,8 +1,8 @@
 import React, { useEffect } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Modal, FlatList, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Modal, ScrollView, ActivityIndicator } from 'react-native';
 import { useDevices, CastContext } from 'react-native-google-cast';
 import { useDlnaDiscovery, DlnaDevice } from '../hooks/useDlnaDiscovery';
-import { Monitor, Tv, X } from 'lucide-react-native';
+import { Monitor, Tv, X, RefreshCw } from 'lucide-react-native';
 
 interface UnifiedCastModalProps {
   visible: boolean;
@@ -40,9 +40,18 @@ export const UnifiedCastModal: React.FC<UnifiedCastModalProps> = ({ visible, onC
           
           <View style={styles.header}>
             <Text style={styles.title}>Cast & DLNA</Text>
-            <TouchableOpacity onPress={onClose} style={styles.closeBtn}>
-              <X color="#F8FAFC" size={24} />
-            </TouchableOpacity>
+            <View style={styles.headerActions}>
+              <TouchableOpacity 
+                onPress={startDiscovery} 
+                style={[styles.refreshBtn, isSearching && styles.refreshBtnDisabled]}
+                disabled={isSearching}
+              >
+                <RefreshCw color={isSearching ? '#475569' : '#00FFFF'} size={20} />
+              </TouchableOpacity>
+              <TouchableOpacity onPress={onClose} style={styles.closeBtn}>
+                <X color="#F8FAFC" size={24} />
+              </TouchableOpacity>
+            </View>
           </View>
 
           {isSearching && (
@@ -101,6 +110,10 @@ export const UnifiedCastModal: React.FC<UnifiedCastModalProps> = ({ visible, onC
               <View style={styles.emptyContainer}>
                 <Text style={styles.emptyText}>Aucun appareil détecté.</Text>
                 <Text style={styles.emptySubtext}>Assurez-vous d'être sur le même réseau WiFi que votre TV ou Box.</Text>
+                <TouchableOpacity onPress={startDiscovery} style={styles.retryBtn}>
+                  <RefreshCw color="#00FFFF" size={18} />
+                  <Text style={styles.retryText}>Réessayer</Text>
+                </TouchableOpacity>
               </View>
             )}
           </ScrollView>
@@ -110,9 +123,6 @@ export const UnifiedCastModal: React.FC<UnifiedCastModalProps> = ({ visible, onC
     </Modal>
   );
 };
-
-// J'importe ScrollView manuellement car manquant en haut
-import { ScrollView } from 'react-native';
 
 const styles = StyleSheet.create({
   overlay: {
@@ -133,10 +143,23 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 20,
   },
+  headerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
   title: {
     color: '#F8FAFC',
     fontSize: 20,
     fontWeight: 'bold',
+  },
+  refreshBtn: {
+    padding: 8,
+    borderRadius: 12,
+    backgroundColor: 'rgba(0, 255, 255, 0.08)',
+  },
+  refreshBtnDisabled: {
+    opacity: 0.4,
   },
   closeBtn: {
     padding: 4,
@@ -214,5 +237,22 @@ const styles = StyleSheet.create({
     color: '#475569',
     textAlign: 'center',
     fontSize: 14,
-  }
+    marginBottom: 20,
+  },
+  retryBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: 'rgba(0, 255, 255, 0.1)',
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(0, 255, 255, 0.2)',
+  },
+  retryText: {
+    color: '#00FFFF',
+    fontSize: 15,
+    fontWeight: '600',
+  },
 });
