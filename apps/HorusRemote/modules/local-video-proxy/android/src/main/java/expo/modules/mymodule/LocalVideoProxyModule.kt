@@ -201,6 +201,7 @@ class LocalVideoProxyServer(port: Int) : NanoHTTPD(port) {
 
 class LocalVideoProxyModule : Module() {
     private var server: LocalVideoProxyServer? = null
+    private var multicastLock: android.net.wifi.WifiManager.MulticastLock? = null
 
     private fun getLocalIpAddress(): String? {
         try {
@@ -245,6 +246,40 @@ class LocalVideoProxyModule : Module() {
                 promise.resolve(null)
             } catch (e: Exception) {
                 promise.reject("ERR_SERVER_STOP", "Failed to stop server", e)
+            }
+        }
+
+        AsyncFunction("acquireMulticastLock") { promise: Promise ->
+            try {
+                val context = appContext.reactContext
+                if (context != null) {
+                    val wifiManager = context.applicationContext.getSystemService(android.content.Context.WIFI_SERVICE) as android.net.wifi.WifiManager
+                    if (multicastLock == null) {
+                        multicastLock = wifiManager.createMulticastLock("HorusDLNALock")
+                        multicastLock?.setReferenceCounted(true)
+                    }
+                    if (multicastLock?.isHeld == false) {
+                        multicastLock?.acquire()
+                        Log.d("LocalVideoProxy", "MulticastLock acquired")
+                    }
+                }
+                promise.resolve(null)
+            } catch (e: Exception) {
+                Log.e("LocalVideoProxy", "Error acquiring MulticastLock", e)
+                promise.reject("ERR_MULTICAST_LOCK", "Failed to acquire MulticastLock", e)
+            }
+        }
+
+        AsyncFunction("releaseMulticastLock") { promise: Promise ->
+            try {
+                if (multicastLock?.isHeld == true) {
+                    multicastLock?.release()
+                    Log.d("LocalVideoProxy", "MulticastLock released")
+                }
+                promise.resolve(null)
+            } catch (e: Exception) {
+                Log.e("LocalVideoProxy", "Error releasing MulticastLock", e)
+                promise.reject("ERR_MULTICAST_UNLOCK", "Failed to release MulticastLock", e)
             }
         }
     }
