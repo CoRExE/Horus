@@ -46,7 +46,7 @@ export const useDlnaDiscovery = () => {
       }
 
       // @ts-ignore : the react-native-udp types might not perfectly match Node's dgram
-      socket = dgram.createSocket({ type: 'udp4', reusePort: true });
+      socket = dgram.createSocket('udp4');
 
       socket.on('message', async (msg: any, rinfo: any) => {
         const response = msg.toString();
