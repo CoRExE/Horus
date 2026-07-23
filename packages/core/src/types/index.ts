@@ -1,8 +1,11 @@
+export type ProviderId = 'anime-sama' | 'all-anime' | 'french-stream';
+
 export interface SearchResult {
   id: string; // URL path or unique identifier (e.g. "/catalogue/naruto")
   title: string;
   coverUrl?: string; // Standardized thumbnail URL
   type: 'movie' | 'series' | 'anime';
+  providerId: ProviderId;
 }
 
 export interface Episode {

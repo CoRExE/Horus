@@ -2,15 +2,6 @@
 	"folders": [
 		{
 			"path": "."
-		},
-		{
-			"path": "../../../CLI/ani-cli"
-		},
-		{
-			"path": "../../../CLI/animesama-cli"
-		},
-		{
-			"path": "../../../CLI/movie-cli"
 		}
 	],
 	"settings": {}

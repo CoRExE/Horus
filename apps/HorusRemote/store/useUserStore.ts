@@ -1,13 +1,14 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Episode } from '@horus/core';
+import { Episode, ProviderId, SearchResult } from '@horus/core';
 
 export interface MediaItem {
   id: string | number;
   title: string;
   imageUrl: string;
-  type: 'movie' | 'series';
+  type: SearchResult['type'];
+  providerId?: ProviderId;
 }
 
 export interface HistoryItem extends MediaItem {

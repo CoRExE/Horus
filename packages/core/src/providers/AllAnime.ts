@@ -57,6 +57,7 @@ export class AllAnimeProvider implements HorusProvider {
           id: edge._id,
           title: edge.name,
           type: 'anime', // AllAnime usually holds anime, but could be extended
+          providerId: 'all-anime',
         });
       }
     }
@@ -145,6 +146,7 @@ export class AllAnimeProvider implements HorusProvider {
               if (isPlayable && !isEmbed) {
                 streams.push({
                   url: directUrl,
+                  language: 'VOSTFR',
                   quality: linkObj.resolutionStr || 'auto',
                   server: sourceName
                 });

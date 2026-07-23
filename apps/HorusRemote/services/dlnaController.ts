@@ -68,37 +68,51 @@ const escapeXml = (unsafe: string) => {
     .replace(/'/g, '&apos;');
 };
 
+const getContentType = (url: string) => {
+  if (url.includes('/stream.ts')) return 'video/mp2t';
+  if (url.toLowerCase().includes('.m3u8')) return 'application/vnd.apple.mpegurl';
+  return 'video/mp4';
+};
+
+const prepareRemoteStream = async (
+  videoUrl: string,
+  headers?: Record<string, string>
+) => {
+  const referer = headers?.Referer || headers?.referer;
+  if (!referer) {
+    return { url: videoUrl, contentType: getContentType(videoUrl) };
+  }
+
+  const { ip, token } = await LocalVideoProxy.startServer(8080);
+  const proxyPath = videoUrl.toLowerCase().includes('.m3u8') ? '/stream.ts' : '/proxy';
+  const query = new URLSearchParams({
+    token,
+    url: videoUrl,
+    referer,
+  });
+
+  return {
+    url: `http://${ip}:8080${proxyPath}?${query.toString()}`,
+    contentType: getContentType(proxyPath),
+  };
+};
+
 export const dlnaController = {
+  prepareRemoteStream,
+
   /**
    * Envoie la vidéo à la TV
    */
   castVideo: async (controlUrl: string, videoUrl: string, title: string, headers?: Record<string, string>) => {
-    let finalUrl = videoUrl;
-    const isM3u8Source = videoUrl.includes('.m3u8');
-    
-    // Démarrer le proxy local si un Referer est requis par le stream
-    if (headers && headers['Referer']) {
-      try {
-        const ip = await LocalVideoProxy.startServer(8080);
-        const proxyPath = isM3u8Source ? '/stream.ts' : '/proxy';
-        finalUrl = `http://${ip}:8080${proxyPath}?url=${encodeURIComponent(videoUrl)}&referer=${encodeURIComponent(headers['Referer'])}`;
-        console.log(`[DLNA] Using Local Proxy: ${finalUrl}`);
-      } catch (e) {
-        console.error("[DLNA] Failed to start local proxy", e);
-      }
-    }
+    const preparedStream = await prepareRemoteStream(videoUrl, headers);
+    const finalUrl = preparedStream.url;
 
     // Les métadonnées DIDL-Lite strictes
     const escapedTitle = escapeXml(title);
     const escapedVideoUrl = escapeXml(finalUrl);
     
     // Déduction du type MIME
-    let mimeType = 'video/mp4';
-    if (finalUrl.includes('stream.ts')) {
-      mimeType = 'video/mp2t';
-    } else if (isM3u8Source) {
-      mimeType = 'application/vnd.apple.mpegurl';
-    }
+    const mimeType = preparedStream.contentType;
     
     // Les box strictes requièrent un protocolInfo valide dans la balise <res>
     const protocolInfo = `http-get:*:${mimeType}:*`;
@@ -119,6 +133,10 @@ export const dlnaController = {
       CurrentURI: escapedVideoUrl,
       CurrentURIMetaData: escapedMetaData
     });
+
+    // Attendre 1.5 seconde que la Box traite l'URI et charge le buffer initial
+    console.log('[DLNA] Waiting 1.5s for Box to transition...');
+    await new Promise(resolve => setTimeout(resolve, 1500));
 
     // 2. Lancer la lecture (Play)
     await sendSoapCommand(controlUrl, 'Play', {

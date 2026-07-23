@@ -69,6 +69,8 @@ class HlsStitcher: NSObject, URLSessionDataDelegate {
     override init() {
         super.init()
         let config = URLSessionConfiguration.default
+        config.timeoutIntervalForRequest = 20
+        config.timeoutIntervalForResource = 60
         self.session = URLSession(configuration: config, delegate: self, delegateQueue: nil)
     }
     
@@ -77,6 +79,7 @@ class HlsStitcher: NSObject, URLSessionDataDelegate {
         self.referer = referer
         guard let url = URL(string: urlStr) else { completion(false); return }
         var req = URLRequest(url: url)
+        req.timeoutInterval = 20
         req.setValue(userAgent, forHTTPHeaderField: "User-Agent")
         if let ref = referer { req.setValue(ref, forHTTPHeaderField: "Referer") }
         
@@ -180,6 +183,25 @@ public class LocalVideoProxyModule: Module {
   private var webServer: GCDWebServer?
   private var activeStreamers = [ProxyStreamer]()
   private var activeStitchers = [HlsStitcher]()
+  private var accessToken: String?
+
+  private func isAuthorized(_ request: GCDWebServerRequest) -> Bool {
+    guard let expectedToken = accessToken,
+          let providedToken = request.query?["token"] as? String else {
+      return false
+    }
+    return providedToken == expectedToken
+  }
+
+  private func validatedHttpUrl(_ rawValue: String) -> URL? {
+    guard let url = URL(string: rawValue),
+          let scheme = url.scheme?.lowercased(),
+          (scheme == "http" || scheme == "https"),
+          url.host?.isEmpty == false else {
+      return nil
+    }
+    return url
+  }
 
   private func getLocalIpAddress() -> String? {
     var address: String?
@@ -211,12 +233,18 @@ public class LocalVideoProxyModule: Module {
 
     AsyncFunction("startServer") { (port: Int, promise: Promise) in
       if self.webServer == nil {
+        self.accessToken = UUID().uuidString.replacingOccurrences(of: "-", with: "")
         self.webServer = GCDWebServer()
         
         // Handler pour le MPEG-TS Stitching
         self.webServer?.addHandler(forMethod: "GET", path: "/stream.ts", request: GCDWebServerRequest.self, asyncProcessBlock: { request, completionBlock in
+          guard self.isAuthorized(request) else {
+            completionBlock(GCDWebServerDataResponse(statusCode: 401))
+            return
+          }
           guard let urlString = request.query?["url"] as? String,
-                let targetUrlStr = urlString.removingPercentEncoding else {
+                let targetUrlStr = urlString.removingPercentEncoding,
+                self.validatedHttpUrl(targetUrlStr) != nil else {
             completionBlock(GCDWebServerDataResponse(statusCode: 400))
             return
           }
@@ -239,9 +267,13 @@ public class LocalVideoProxyModule: Module {
 
         // Handler pour le Proxy Classique
         self.webServer?.addHandler(forMethod: "GET", path: "/proxy", request: GCDWebServerRequest.self, asyncProcessBlock: { request, completionBlock in
+          guard self.isAuthorized(request) else {
+            completionBlock(GCDWebServerDataResponse(statusCode: 401))
+            return
+          }
           guard let urlString = request.query?["url"] as? String,
                 let targetUrlStr = urlString.removingPercentEncoding,
-                let targetUrl = URL(string: targetUrlStr) else {
+                let targetUrl = self.validatedHttpUrl(targetUrlStr) else {
             completionBlock(GCDWebServerDataResponse(statusCode: 400))
             return
           }
@@ -249,6 +281,7 @@ public class LocalVideoProxyModule: Module {
           
           var urlRequest = URLRequest(url: targetUrl)
           urlRequest.httpMethod = "GET"
+          urlRequest.timeoutInterval = 20
           urlRequest.setValue("Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15", forHTTPHeaderField: "User-Agent")
           if let ref = referer, !ref.isEmpty {
               urlRequest.setValue(ref, forHTTPHeaderField: "Referer")
@@ -258,6 +291,8 @@ public class LocalVideoProxyModule: Module {
           }
 
           let config = URLSessionConfiguration.default
+          config.timeoutIntervalForRequest = 20
+          config.timeoutIntervalForResource = 60
           let streamer = ProxyStreamer()
           streamer.responseBlock = completionBlock
           
@@ -275,12 +310,16 @@ public class LocalVideoProxyModule: Module {
       }
       
       let ip = self.getLocalIpAddress() ?? "127.0.0.1"
-      promise.resolve(ip)
+      promise.resolve([
+        "ip": ip,
+        "token": self.accessToken ?? ""
+      ])
     }
 
     AsyncFunction("stopServer") { (promise: Promise) in
       self.webServer?.stop()
       self.webServer = nil
+      self.accessToken = nil
       self.activeStreamers.removeAll()
       self.activeStitchers.removeAll()
       promise.resolve(nil)
