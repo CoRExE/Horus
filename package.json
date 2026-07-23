@@ -2,7 +2,12 @@
   "name": "horus-monorepo",
   "version": "1.0.0",
   "private": true,
-  "scripts": {},
+  "packageManager": "pnpm@10.24.0",
+  "scripts": {
+    "typecheck": "pnpm --filter @horus/core typecheck && pnpm --filter horusremote typecheck",
+    "test": "pnpm --filter @horus/core test",
+    "check": "pnpm run typecheck && pnpm run test"
+  },
   "engines": {
     "node": ">=18"
   }

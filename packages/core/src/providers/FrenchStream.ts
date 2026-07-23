@@ -58,7 +58,8 @@ export class FrenchStreamProvider implements HorusProvider {
             id,
             title,
             coverUrl,
-            type: (href.includes('saison') || title.toLowerCase().includes('saison')) ? 'series' : 'movie'
+            type: (href.includes('saison') || title.toLowerCase().includes('saison')) ? 'series' : 'movie',
+            providerId: 'french-stream'
           });
         }
       }

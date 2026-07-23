@@ -7,7 +7,7 @@ import { useUserStore, MediaItem } from '../store/useUserStore';
 export interface HorusMediaDetailsOverlayProps {
   visible: boolean;
   onClose: () => void;
-  media: MediaItem;
+  media: MediaItem | null;
   onInitStream: () => void;
 }
 
@@ -50,25 +50,22 @@ export const HorusMediaDetailsOverlay: React.FC<HorusMediaDetailsOverlayProps> =
         style={styles.overlay}
         from={{ opacity: 0 }}
         animate={{ opacity: 1 }}
-        transition={{ type: 'timing', duration: 150 }} 
+        transition={{ type: 'timing', duration: 150 }}
       >
         <Pressable style={StyleSheet.absoluteFillObject} onPress={onClose} />
       </MotiView>
 
       {/* 2. Le Panel de Détails (Focus) */}
       <View style={styles.centerContainer} pointerEvents="box-none">
-        
-        {/* 3. Le "Flicker Transition" sur le Panel */}
+
+        {/* 3. Transition rapide et fluide sur le Panel */}
         <MotiView
           style={styles.panel}
-          from={{ opacity: 0, scale: 0.95 }}
-          animate={{
-            opacity: [0, 0.8, 0.2, 1, 0.5, 1],
-            scale: [0.95, 1.03, 0.98, 1.01, 1],
-          }}
-          transition={{ 
-            type: 'timing', 
-            duration: 180,   
+          from={{ opacity: 0, scale: 0.96 }}
+          animate={{ opacity: 1, scale: 1 }}
+          transition={{
+            type: 'timing',
+            duration: 150,
           }}
         >
           <View style={styles.notchTopLeft} pointerEvents="none" />
@@ -88,14 +85,14 @@ export const HorusMediaDetailsOverlay: React.FC<HorusMediaDetailsOverlayProps> =
             </Text>
 
             <View style={styles.actionsContainer}>
-              <TouchableOpacity 
-                style={styles.actionButton} 
-                activeOpacity={0.7} 
+              <TouchableOpacity
+                style={styles.actionButton}
+                activeOpacity={0.7}
                 onPress={handleInitStream}
               >
                 <Text style={styles.actionButtonText}>INITIALIZE STREAM</Text>
               </TouchableOpacity>
-              
+
               <TouchableOpacity
                 style={[
                   styles.wishlistButton,
@@ -104,8 +101,8 @@ export const HorusMediaDetailsOverlay: React.FC<HorusMediaDetailsOverlayProps> =
                 activeOpacity={0.7}
                 onPress={() => toggleWishlist(media)}
               >
-                <Bookmark 
-                  color={isInWishlist ? COLOR_ACCENT_PURPLE : COLOR_ACCENT_CYAN} 
+                <Bookmark
+                  color={isInWishlist ? COLOR_ACCENT_PURPLE : COLOR_ACCENT_CYAN}
                   fill={isInWishlist ? COLOR_ACCENT_PURPLE : 'transparent'}
                   size={24}
                 />
@@ -198,7 +195,7 @@ const styles = StyleSheet.create({
   },
   actionButton: {
     flex: 1,
-    backgroundColor: 'rgba(139, 92, 246, 0.1)', 
+    backgroundColor: 'rgba(139, 92, 246, 0.1)',
     borderWidth: 1,
     borderColor: COLOR_ACCENT_PURPLE,
     paddingVertical: 16,

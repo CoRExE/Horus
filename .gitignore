@@ -1,5 +1,6 @@
+# Dependencies and package-manager caches
 node_modules/
-.pnpm-store
+.pnpm-store/
 
 # macOS
 .DS_Store
@@ -11,10 +12,33 @@ node_modules/
 *.swo
 
 # Logs
+*.log
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 
-# Typescript
+# TypeScript and test/build output
 *.tsbuildinfo
+coverage/
+dist/
+build/
+
+# Expo / React Native generated state
+**/.expo/
+web-build/
+*.apk
+*.aab
+*.ipa
+
+# Local environment and signing material
+.env
+.env.*
+!.env.example
+*.jks
+*.keystore
+*.p8
+*.p12
+*.pem
+*.key
+*.mobileprovision

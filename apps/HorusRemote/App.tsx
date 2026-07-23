@@ -5,7 +5,7 @@ import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import * as NavigationBar from 'expo-navigation-bar';
 
 // Imports de notre librairie locale @horus/core
-import { AnimeSamaProvider, FrenchStreamProvider, AllAnimeProvider, SearchResult, Episode, Stream, groupStreamsByLanguage } from '@horus/core';
+import { AnimeSamaProvider, FrenchStreamProvider, AllAnimeProvider, SearchResult, Episode, Stream, ProviderId, groupStreamsByLanguage } from '@horus/core';
 
 import VideoPlayer from './components/VideoPlayer';
 import { HorusBootSequence } from './components/HorusBootSequence';
@@ -13,12 +13,40 @@ import { HorusHeader } from './components/HorusHeader';
 import { HorusMediaCard } from './components/HorusMediaCard';
 import { HorusMediaDetailsOverlay } from './components/HorusMediaDetailsOverlay';
 import { HorusEpisodeList } from './components/HorusEpisodeList';
-import { useUserStore } from './store/useUserStore';
+import { HistoryItem, MediaItem, useUserStore } from './store/useUserStore';
+import { useCastSession, CastContext } from 'react-native-google-cast';
+import { CastController } from './components/CastController';
+import { UnifiedCastModal } from './components/UnifiedCastModal';
+import { DisconnectModal } from './components/DisconnectModal';
+import { DlnaDevice } from './hooks/useDlnaDiscovery';
+import { dlnaController } from './services/dlnaController';
+import LocalVideoProxy from './modules/local-video-proxy/src/LocalVideoProxyModule';
 
 // Instanciation des providers de Scraping
 const animeSama = new AnimeSamaProvider();
 const allAnime = new AllAnimeProvider();
 const frenchStream = new FrenchStreamProvider();
+
+const inferProviderId = (media: {
+  id: string | number;
+  type: SearchResult['type'];
+  providerId?: ProviderId;
+}): ProviderId => {
+  if (media.providerId) return media.providerId;
+
+  const id = String(media.id);
+  if (id.includes('catalogue')) return 'anime-sama';
+  if (media.type !== 'anime' && /^\d+$/.test(id)) return 'french-stream';
+  return 'all-anime';
+};
+
+const toSearchResult = (media: MediaItem): SearchResult => ({
+  id: String(media.id),
+  title: media.title,
+  coverUrl: media.imageUrl,
+  type: media.type,
+  providerId: inferProviderId(media),
+});
 
 export default function App() {
   const [isBooting, setIsBooting] = useState(true);
@@ -44,6 +72,33 @@ export default function App() {
   const [isExtracting, setIsExtracting] = useState(false);
   const [isLangModalVisible, setIsLangModalVisible] = useState(false);
   const [availableLanguages, setAvailableLanguages] = useState<Record<string, Stream[]>>({});
+
+  // Cast State
+  const castSession = useCastSession();
+  const [isCastRemoteVisible, setIsCastRemoteVisible] = useState(false);
+  const [pendingCastInfo, setPendingCastInfo] = useState<{title: string, imageUrl: string} | null>(null);
+
+  // Unified Cast Modal State
+  const [isUnifiedCastModalVisible, setIsUnifiedCastModalVisible] = useState(false);
+  const [isDisconnectModalVisible, setIsDisconnectModalVisible] = useState(false);
+  const [activeDlnaDevice, setActiveDlnaDevice] = useState<DlnaDevice | null>(null);
+
+  const loadOnChromecast = async (stream: Stream, title: string, imageUrl: string) => {
+    if (!castSession) return;
+
+    const preparedStream = await dlnaController.prepareRemoteStream(stream.url, stream.headers);
+    await castSession.client.loadMedia({
+      mediaInfo: {
+        contentUrl: preparedStream.url,
+        contentType: preparedStream.contentType,
+        metadata: {
+          type: 'generic',
+          title,
+          images: [{ url: imageUrl }]
+        }
+      }
+    });
+  };
 
   // Configuration de l'immersion Android au démarrage
   useEffect(() => {
@@ -79,10 +134,15 @@ export default function App() {
     }
   };
 
-  const getProviderForMedia = (mediaId: string) => {
-    if (mediaType === 'film_series') return frenchStream;
-    if (mediaId.includes('catalogue')) return animeSama;
-    return allAnime;
+  const getProviderForMedia = (media: SearchResult) => {
+    switch (inferProviderId(media)) {
+      case 'french-stream':
+        return frenchStream;
+      case 'anime-sama':
+        return animeSama;
+      case 'all-anime':
+        return allAnime;
+    }
   };
 
   const openMedia = async (media: SearchResult) => {
@@ -92,7 +152,7 @@ export default function App() {
     setEpisodes([]);
     setSelectedSeason('');
     try {
-      const provider = getProviderForMedia(media.id);
+      const provider = getProviderForMedia(media);
       const eps = await provider.getEpisodes(media.id);
       setEpisodes(eps);
     } catch (e) {
@@ -104,18 +164,19 @@ export default function App() {
 
   const extractStreamsAndCast = async (episode: Episode, overrideMedia?: SearchResult) => {
     const targetMedia = overrideMedia || selectedMedia;
-    if (targetMedia) {
-      addToHistory({
-        id: targetMedia.id,
-        title: targetMedia.title,
-        imageUrl: targetMedia.coverUrl || '',
-        type: targetMedia.type === 'anime' ? 'series' : targetMedia.type as 'movie' | 'series'
-      }, { lastEpisode: episode });
-    }
+    if (!targetMedia) return;
+
+    addToHistory({
+      id: targetMedia.id,
+      title: targetMedia.title,
+      imageUrl: targetMedia.coverUrl || '',
+      type: targetMedia.type,
+      providerId: targetMedia.providerId,
+    }, { lastEpisode: episode });
 
     setIsExtracting(true);
     try {
-      const provider = getProviderForMedia(targetMedia!.id);
+      const provider = getProviderForMedia(targetMedia);
 
 
       const streams = await provider.getStreams(episode.id);
@@ -125,9 +186,22 @@ export default function App() {
         const grouped = groupStreamsByLanguage(streams);
         const langs = Object.keys(grouped);
 
+        const castTitle = targetMedia.title + (episode.number ? ` - Ep ${episode.number}` : '');
+        const castImage = targetMedia.coverUrl || '';
+        setPendingCastInfo({ title: castTitle, imageUrl: castImage });
+
         if (langs.length === 1) {
-          setAllStreams(grouped[langs[0]]);
-          setCurrentStreamIndex(0);
+          const streamList = grouped[langs[0]];
+          if (castSession) {
+            await loadOnChromecast(streamList[0], castTitle, castImage);
+            setIsCastRemoteVisible(true);
+          } else if (activeDlnaDevice) {
+            await dlnaController.castVideo(activeDlnaDevice.controlUrl, streamList[0].url, castTitle, streamList[0].headers);
+            setIsCastRemoteVisible(true);
+          } else {
+            setAllStreams(streamList);
+            setCurrentStreamIndex(0);
+          }
         } else if (langs.length > 1) {
           setAvailableLanguages(grouped);
           setIsLangModalVisible(true);
@@ -143,10 +217,24 @@ export default function App() {
     }
   };
 
-  const handleLanguageSelect = (lang: string) => {
+  const handleLanguageSelect = async (lang: string) => {
     setIsLangModalVisible(false);
-    setAllStreams(availableLanguages[lang]);
-    setCurrentStreamIndex(0);
+    const selectedStreams = availableLanguages[lang];
+    try {
+      if (castSession && pendingCastInfo) {
+        await loadOnChromecast(selectedStreams[0], pendingCastInfo.title, pendingCastInfo.imageUrl);
+        setIsCastRemoteVisible(true);
+      } else if (activeDlnaDevice && pendingCastInfo) {
+        await dlnaController.castVideo(activeDlnaDevice.controlUrl, selectedStreams[0].url, pendingCastInfo.title, selectedStreams[0].headers);
+        setIsCastRemoteVisible(true);
+      } else {
+        setAllStreams(selectedStreams);
+        setCurrentStreamIndex(0);
+      }
+    } catch (error) {
+      console.error(error);
+      alert("Impossible d'envoyer ce flux vers l'appareil sélectionné.");
+    }
   };
 
   const tryNextStream = () => {
@@ -203,6 +291,14 @@ export default function App() {
           onSubmitEditing={handleSearch}
           returnKeyType="search"
           hideSearch={mediaType === 'wishlist' || mediaType === 'history'}
+          onPressCast={() => {
+            if (castSession || activeDlnaDevice) {
+              setIsDisconnectModalVisible(true);
+            } else {
+              setIsUnifiedCastModalVisible(true);
+            }
+          }}
+          isCasting={!!castSession || !!activeDlnaDevice}
         />
 
         {/* Pilules de Sélection de Type de Média */}
@@ -241,9 +337,10 @@ export default function App() {
           ) : (
             <View style={styles.grid}>
               {(() => {
-                const dataToDisplay = (mediaType === 'wishlist') ? wishlist.map(item => ({ id: String(item.id), title: item.title, coverUrl: item.imageUrl, type: item.type === 'movie' ? 'movie' : 'series', sourceItem: item })) as any[]
-                                      : (mediaType === 'history') ? history.map(item => ({ id: String(item.id), title: item.title, coverUrl: item.imageUrl, type: item.type === 'movie' ? 'movie' : 'series', sourceItem: item })) as any[]
-                                      : results;
+                const dataToDisplay: Array<SearchResult & { sourceItem?: HistoryItem }> =
+                  (mediaType === 'wishlist') ? wishlist.map(toSearchResult)
+                  : (mediaType === 'history') ? history.map(item => ({ ...toSearchResult(item), sourceItem: item }))
+                  : results;
 
                 if (dataToDisplay.length === 0) {
                   if (mediaType === 'wishlist') {
@@ -291,12 +388,12 @@ export default function App() {
         <HorusMediaDetailsOverlay
           visible={!!selectedMedia && !isEpisodeListVisible}
           onClose={() => { setSelectedMedia(null); setEpisodes([]); }}
-          // @ts-ignore : selectedMedia type from Core could be 'anime' instead of 'series'
           media={selectedMedia ? {
             id: selectedMedia.id,
             title: selectedMedia.title,
             imageUrl: selectedMedia.coverUrl || '',
-            type: selectedMedia.type === 'anime' ? 'series' : selectedMedia.type
+            type: selectedMedia.type,
+            providerId: selectedMedia.providerId,
           } : null}
           onInitStream={() => {
             if (seasonKeys.length === 1 && seasonGroups[seasonKeys[0]].length === 1) {
@@ -368,6 +465,46 @@ export default function App() {
             />
           </Modal>
         )}
+
+        {/* Modale de Sélection Cast / DLNA */}
+        <UnifiedCastModal
+          visible={isUnifiedCastModalVisible}
+          onClose={() => setIsUnifiedCastModalVisible(false)}
+          onSelectDlna={(device) => {
+            setActiveDlnaDevice(device);
+          }}
+        />
+
+        {/* Télécommande Cast */}
+        {isCastRemoteVisible && (
+          <Modal visible={true} animationType="slide" transparent={false} onRequestClose={() => setIsCastRemoteVisible(false)}>
+            <CastController 
+              onClose={() => {
+                setIsCastRemoteVisible(false);
+              }}
+              dlnaDevice={activeDlnaDevice}
+            />
+          </Modal>
+        )}
+
+        {/* Modale de déconnexion */}
+        <DisconnectModal
+          visible={isDisconnectModalVisible}
+          deviceName={activeDlnaDevice ? activeDlnaDevice.name : 'Chromecast'}
+          onClose={() => setIsDisconnectModalVisible(false)}
+          onConfirm={() => {
+            if (activeDlnaDevice) {
+              dlnaController.stop(activeDlnaDevice.controlUrl).catch(() => {});
+              setActiveDlnaDevice(null);
+            }
+            if (castSession) {
+              CastContext.getSessionManager().endCurrentSession(true).catch(console.error);
+            }
+            LocalVideoProxy.stopServer().catch(console.error);
+            setIsCastRemoteVisible(false);
+            setIsDisconnectModalVisible(false);
+          }}
+        />
 
       </SafeAreaView>
     </SafeAreaProvider>

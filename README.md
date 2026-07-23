@@ -1,57 +1,52 @@
 # 🎬 Horus Ecosystem
 
-> Le successeur spirituel de `movie-cli`, porté sur grand écran. Une solution de streaming auto-hébergée (sans serveur tiers) pour Android TV, pilotée par votre smartphone.
+> Un prototype React Native de recherche et de lecture locale, avec contrôle Chromecast/DLNA depuis un smartphone.
 
 ---
 
 ## 📌 Concept
 
-Ce projet est un écosystème complet en **React Native** permettant de transformer une Android TV en hub de streaming ultime (Anime, Films, Séries) en utilisant la puissance du scraping local. 
+Ce dépôt est un monorepo **React Native** en cours de développement. L'application mobile effectue les recherches localement et peut lire un flux sur le téléphone ou l'envoyer vers un appareil Chromecast/DLNA.
 
 **Zéro serveur.** Tout se passe sur votre réseau local.
 
 ## 📱 Composants
 
-### 1. TV Host (`/apps/android-tv`)
-* **Interface "10-foot" :** Optimisée pour une navigation à 3 mètres de distance.
-* **Focus Engine :** Navigation fluide via D-Pad (télécommande).
-* **HTTP Bridge :** L'application TV agit comme un serveur local pour recevoir les commandes du téléphone.
-* **Powerful Player :** Support natif du HLS (.m3u8) et MP4 via ExoPlayer.
-
-### 2. Mobile Remote (`/apps/mobile-remote`)
+### Mobile Remote (`/apps/HorusRemote`)
 * **Scraper Engine :** Embarque la logique de `movie-cli`, `ani-cli` et `animesama-cli` en JavaScript.
-* **Auto-Discovery :** Détecte automatiquement la TV sur le réseau Wi-Fi via ZeroConf.
-* **Control Center :** Recherche de contenu, gestion des favoris et contrôle de la lecture (Play/Pause/Seek).
+* **Discovery :** Détecte les appareils DLNA via SSDP et les appareils Google Cast.
+* **Lecture :** Lecture locale via Expo Video ou envoi vers Chromecast/DLNA.
+* **Données locales :** Wishlist et historique persistés avec Zustand/AsyncStorage.
 
 ## 🛠 Stack Technique
 
 | Technologie | Utilisation |
 | :--- | :--- |
-| **React Native TVOS** | Framework principal pour Android TV & Mobile |
-| **Axios + Cheerio** | Moteur de scraping (Portage de la logique Python/Bash) (! Axios est compromis sur les versions 0.30.4 & 1.14.1) |
-| **ZeroConf / mDNS** | Découverte automatique des appareils sur le réseau |
-| **HTTP Bridge** | Communication RPC entre le téléphone et la TV |
-| **React Native Video** | Lecteur vidéo haute performance |
+| **Expo / React Native** | Application mobile Android, iOS et Web |
+| **Axios + Cheerio** | Moteur de scraping |
+| **SSDP / UPnP / Google Cast** | Découverte et contrôle des appareils |
+| **Expo Video** | Lecteur vidéo mobile |
 
 ## 🏗 Architecture "Standalone"
 
 ```mermaid
 graph LR
     A[Mobile Remote] -- "1. Scrape (Local)" --> B((Web Sources))
-    A -- "2. Send URL (HTTP/IP)" --> C[Android TV Host]
+    A -- "2a. Lecture locale" --> A
+    A -- "2b. Cast/DLNA" --> C[TV ou box compatible]
     C -- "3. Stream" --> B
 ```
 
 1.  **Recherche :** Vous cherchez un média sur l'application mobile (le téléphone fait le travail de scraping).
-2.  **Liaison :** Le téléphone envoie l'URL finale et les métadonnées à l'IP de la TV.
-3.  **Lecture :** L'app TV intercepte la commande et lance le player instantanément.
+2.  **Lecture :** Le téléphone lit le flux ou l'envoie à un appareil Cast/DLNA.
+3.  **Proxy ponctuel :** Le téléphone expose un proxy local authentifié lorsqu'un flux exige des en-têtes HTTP spécifiques.
 
 ## 🚀 Installation (Dev Mode)
 
 ### Pré-requis
 * Node.js (v18+)
 * Android Studio & SDK Android
-* Un appareil Android TV ou un Chromecast Google TV
+* Un appareil Chromecast ou DLNA pour tester la diffusion distante
 
 ### Setup
 1. **Cloner le projet :**
@@ -61,17 +56,16 @@ graph LR
    ```
 2. **Installer les dépendances :**
    ```bash
-   npm install
+   pnpm install
    ```
-3. **Lancer l'app TV :**
+3. **Lancer l'app mobile :**
    ```bash
-   npx react-native run-android --project-path apps/android-tv
+   pnpm --dir apps/HorusRemote start
    ```
-4. **Lancer l'app Mobile :**
+4. **Vérifier le code :**
    ```bash
-   npx react-native run-android --project-path apps/mobile-remote
+   pnpm check
    ```
-
 ## ⚖️ Disclaimer
 
 Ce projet est une preuve de concept à but éducatif. Il ne contient aucun média et n'héberge aucun contenu. L'utilisateur est responsable de l'usage qu'il fait des moteurs de scraping intégrés et doit respecter les droits d'auteur en vigueur dans sa juridiction.

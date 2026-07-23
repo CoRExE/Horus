@@ -16,7 +16,8 @@ export class AnimeSamaProvider implements HorusProvider {
     const url = `${this.baseUrl}/catalogue/`;
     const { data } = await axios.get(url, {
       params: { search: query, 'type[]': 'Anime' },
-      headers: this.headers
+      headers: this.headers,
+      timeout: 15_000
     });
     
     const $ = cheerio.load(data);
@@ -37,7 +38,7 @@ export class AnimeSamaProvider implements HorusProvider {
             let relativePath = href.replace(this.baseUrl, '');
             if (!relativePath.startsWith('/')) relativePath = '/' + relativePath;
 
-            results.push({ id: relativePath, title, coverUrl, type: 'anime' });
+            results.push({ id: relativePath, title, coverUrl, type: 'anime', providerId: 'anime-sama' });
         }
       }
     });
@@ -47,7 +48,7 @@ export class AnimeSamaProvider implements HorusProvider {
 
   async getEpisodes(mediaId: string): Promise<Episode[]> {
       const fullUrl = `${this.baseUrl}${mediaId}`.replace(/([^:]\/)\/+/g, "$1");
-      const { data: pageHtml } = await axios.get(fullUrl, { headers: this.headers });
+      const { data: pageHtml } = await axios.get(fullUrl, { headers: this.headers, timeout: 15_000 });
       
       const seasons: { name: string, url: string }[] = [];
       const regex = /panneauAnime\("([^"]+)",\s*"([^"]+)"\)/g;
@@ -71,12 +72,12 @@ export class AnimeSamaProvider implements HorusProvider {
           if (season.url === "") seasonUrl = fullUrl.endsWith('/') ? fullUrl : fullUrl + '/';
 
           try {
-              const { data: seasonHtml } = await axios.get(seasonUrl, { headers: this.headers });
+              const { data: seasonHtml } = await axios.get(seasonUrl, { headers: this.headers, timeout: 15_000 });
               const fileverMatch = /episodes\.js\?filever=(\d+)/.exec(seasonHtml);
               
               if (fileverMatch) {
                   const episodesJsUrl = `${seasonUrl}episodes.js?filever=${fileverMatch[1]}`;
-                  const { data: jsData } = await axios.get(episodesJsUrl, { headers: this.headers });
+                  const { data: jsData } = await axios.get(episodesJsUrl, { headers: this.headers, timeout: 15_000 });
                   
                   const arrayMatches = [...jsData.matchAll(/var\s+eps\d+\s*=\s*\[(.*?)\];/gs)];
                   
@@ -143,14 +144,14 @@ export class AnimeSamaProvider implements HorusProvider {
                             timeout: TIMEOUT
                         });
                         if (redirectRes.status === 302 && redirectRes.headers.location) {
-                            return [{ url: redirectRes.headers.location, quality: 'auto', server: 'Sibnet', headers: sibnetHeaders }];
+                            return [{ url: redirectRes.headers.location, language: 'VOSTFR', quality: 'auto', server: 'Sibnet', headers: sibnetHeaders }];
                         }
                     } catch (e: any) {
                         if (e.response?.status === 302 && e.response?.headers?.location) {
-                            return [{ url: e.response.headers.location, quality: 'auto', server: 'Sibnet', headers: sibnetHeaders }];
+                            return [{ url: e.response.headers.location, language: 'VOSTFR', quality: 'auto', server: 'Sibnet', headers: sibnetHeaders }];
                         }
                     }
-                    return [{ url: initialUrl, quality: 'auto', server: 'Sibnet', headers: sibnetHeaders }];
+                    return [{ url: initialUrl, language: 'VOSTFR', quality: 'auto', server: 'Sibnet', headers: sibnetHeaders }];
                  }
               }
           }
@@ -160,7 +161,7 @@ export class AnimeSamaProvider implements HorusProvider {
              const { data } = await axios.get(providerUrl, { headers: { "user-agent": this.headers["user-agent"] }, timeout: TIMEOUT });
              const m3u8Match = /video_source\s*=\s*['"]([^'"]+\.m3u8)['"]/.exec(data);
              if (m3u8Match) {
-                 return [{ url: m3u8Match[1], quality: 'auto', server: 'Sendvid' }];
+                 return [{ url: m3u8Match[1], language: 'VOSTFR', quality: 'auto', server: 'Sendvid' }];
              }
           }
 
@@ -169,7 +170,7 @@ export class AnimeSamaProvider implements HorusProvider {
               const { data } = await axios.get(providerUrl, { headers: { "user-agent": this.headers["user-agent"] }, timeout: TIMEOUT });
               const m3u8Match = /file:\s*['"](https:\/\/[^'"]+\.m3u8[^'"]*)['"]/.exec(data);
               if (m3u8Match) {
-                  return [{ url: m3u8Match[1], quality: 'auto', server: 'Vidmoly' }];
+                  return [{ url: m3u8Match[1], language: 'VOSTFR', quality: 'auto', server: 'Vidmoly' }];
               }
           }
 
@@ -182,7 +183,7 @@ export class AnimeSamaProvider implements HorusProvider {
                   if (m3u8Match) {
                       let streamUrl = m3u8Match[1];
                       if (streamUrl.includes('.txt')) streamUrl = streamUrl.replace('.txt', '.m3u8');
-                      return [{ url: streamUrl, quality: 'auto', server: 'Smoothpre' }];
+                      return [{ url: streamUrl, language: 'VOSTFR', quality: 'auto', server: 'Smoothpre' }];
                   }
               }
           }

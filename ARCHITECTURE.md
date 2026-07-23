@@ -1,6 +1,8 @@
-# Horus Final Production Architecture
+# Horus Target Architecture
 
-This document represents the finalized, highly scalable Clean Architecture for the Horus monorepo. It specifically integrates strict environment separation, declarative UI states, queue-based scraping, and exception-less logic boundaries for true production readiness.
+> Status: architectural proposal. The packages and backend described below are not implemented in the current repository.
+
+This document describes a possible production target for the Horus monorepo. It is a roadmap, not a representation of the current source tree.
 
 ---
 
@@ -10,7 +12,6 @@ This document represents the finalized, highly scalable Clean Architecture for t
 horus/
 ├── apps/
 │   ├── remote/              # Mobile client (Expo)
-│   ├── tv/                  # TV client (React Native TVOS, isolated logic)
 │   └── backend/             # Node/Bun server orchestrating the actual data fetching
 │
 ├── packages/
@@ -26,8 +27,7 @@ horus/
 │   │
 │   ├── state/               # ViewModels / State Managers (Zustand, Redux, or TanStack)
 │   ├── ui-core/             # Shared agnostic React primitives
-│   ├── ui-mobile/           # Mobile-specific UI (Expo router, touch)
-│   └── ui-tv/               # TV-specific UI (D-pad focus engine)
+│   └── ui-mobile/           # Mobile-specific UI (Expo router, touch)
 │   │
 │   ├── config-eslint/
 │   └── config-typescript/
@@ -71,11 +71,10 @@ graph TD
 
     %% Apps
     App_Mobile[apps/remote]:::apps
-    App_TV[apps/tv]:::apps
     Backend[apps/backend]:::apps
 
     %% UI & State 
-    PKG_UI["ui-mobile / ui-tv"]:::ui
+    PKG_UI["ui-mobile"]:::ui
     PKG_STATE["state (ViewModels, Zustand/Query)"]:::state
 
     %% Core & Domain
@@ -90,7 +89,6 @@ graph TD
 
     %% UI to State Flow
     App_Mobile --> PKG_UI
-    App_TV --> PKG_UI
     PKG_UI -->|Dispatches Events / Observes| PKG_STATE
 
     %% State to Domain via DI
