@@ -1,6 +1,8 @@
 /**
  * Service pour contrôler un appareil DLNA / UPnP via SOAP
  */
+import { inferStreamFormat, Stream } from '@horus/core';
+import LocalVideoProxy from '../modules/local-video-proxy/src/LocalVideoProxyModule';
 
 const buildSoapMessage = (action: string, args: Record<string, string>) => {
   const argsXml = Object.keys(args)
@@ -57,8 +59,6 @@ const sendSoapCommand = async (controlUrl: string, action: string, args: Record<
   }
 };
 
-import LocalVideoProxy from '../modules/local-video-proxy/src/LocalVideoProxyModule';
-
 const escapeXml = (unsafe: string) => {
   return unsafe
     .replace(/&/g, '&amp;')
@@ -75,21 +75,36 @@ const getContentType = (url: string) => {
 };
 
 const prepareRemoteStream = async (
-  videoUrl: string,
-  headers?: Record<string, string>
+  stream: Pick<Stream, 'url' | 'format' | 'headers'>,
+  options: { bridgeHls?: boolean } = {}
 ) => {
+  const videoUrl = stream.url;
+  const headers = stream.headers;
   const referer = headers?.Referer || headers?.referer;
-  if (!referer) {
+  const origin = headers?.Origin || headers?.origin;
+  const userAgent = headers?.['User-Agent'] || headers?.['user-agent'];
+  const format = inferStreamFormat(stream);
+  const bridgeHls = options.bridgeHls ?? true;
+
+  // La plupart des renderers DLNA ne savent pas lire un manifeste HLS.
+  // Même sans Referer, le téléphone transforme donc le HLS en MPEG-TS continu.
+  const requiresProxy = (format === 'hls' && bridgeHls) || Boolean(referer || origin || userAgent);
+  if (!requiresProxy) {
     return { url: videoUrl, contentType: getContentType(videoUrl) };
   }
 
   const { ip, token } = await LocalVideoProxy.startServer(8080);
-  const proxyPath = videoUrl.toLowerCase().includes('.m3u8') ? '/stream.ts' : '/proxy';
-  const query = new URLSearchParams({
+  // Un HLS protégé doit également être assemblé : un simple proxy du manifeste
+  // ne pourrait pas injecter ses en-têtes dans les requêtes de segments.
+  const proxyPath = format === 'hls' ? '/stream.ts' : '/proxy';
+  const queryValues: Record<string, string> = {
     token,
     url: videoUrl,
-    referer,
-  });
+  };
+  if (referer) queryValues.referer = referer;
+  if (origin) queryValues.origin = origin;
+  if (userAgent) queryValues.userAgent = userAgent;
+  const query = new URLSearchParams(queryValues);
 
   return {
     url: `http://${ip}:8080${proxyPath}?${query.toString()}`,
@@ -103,8 +118,12 @@ export const dlnaController = {
   /**
    * Envoie la vidéo à la TV
    */
-  castVideo: async (controlUrl: string, videoUrl: string, title: string, headers?: Record<string, string>) => {
-    const preparedStream = await prepareRemoteStream(videoUrl, headers);
+  castVideo: async (
+    controlUrl: string,
+    stream: Pick<Stream, 'url' | 'format' | 'headers'>,
+    title: string
+  ) => {
+    const preparedStream = await prepareRemoteStream(stream);
     const finalUrl = preparedStream.url;
 
     // Les métadonnées DIDL-Lite strictes

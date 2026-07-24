@@ -6,6 +6,7 @@ import expo.modules.kotlin.modules.ModuleDefinition
 import expo.modules.kotlin.Promise
 import fi.iki.elonen.NanoHTTPD
 import java.net.HttpURLConnection
+import java.net.URI
 import java.net.URL
 import java.net.NetworkInterface
 import java.io.InputStream
@@ -18,6 +19,7 @@ class HlsSequenceInputStream(
     private val playlistUrl: String,
     private var segments: List<String>,
     private val referer: String?,
+    private val origin: String?,
     private val userAgent: String,
     private val server: LocalVideoProxyServer
 ) : InputStream() {
@@ -27,8 +29,8 @@ class HlsSequenceInputStream(
 
     private fun refreshSegments() {
         try {
-            Log.d("LocalVideoProxy", "Refreshing segments from M3U8 playlist: $playlistUrl")
-            val freshSegments = server.fetchSegmentsFromM3u8(playlistUrl, referer, userAgent)
+            Log.d("LocalVideoProxy", "Refreshing segments from M3U8 playlist")
+            val freshSegments = server.fetchSegmentsFromM3u8(playlistUrl, referer, origin, userAgent)
             if (freshSegments.isNotEmpty()) {
                 segments = freshSegments
                 Log.d("LocalVideoProxy", "Successfully refreshed segments. Count: ${segments.size}")
@@ -50,7 +52,7 @@ class HlsSequenceInputStream(
         Log.d("LocalVideoProxy", "[Proxy] Pushing segment ${currentSegmentIndex + 1}/${segments.size} to TV")
 
         try {
-            var connection = server.openHttpConnection(urlStr, referer, userAgent)
+            var connection = server.openHttpConnection(urlStr, referer, origin, userAgent)
             connection.connect()
 
             var responseCode = connection.responseCode
@@ -63,7 +65,7 @@ class HlsSequenceInputStream(
                     val freshUrlStr = segments[currentSegmentIndex]
                     Log.d("LocalVideoProxy", "Retrying with refreshed URL...")
                     connection.disconnect()
-                    connection = server.openHttpConnection(freshUrlStr, referer, userAgent)
+                    connection = server.openHttpConnection(freshUrlStr, referer, origin, userAgent)
                     connection.connect()
                     responseCode = connection.responseCode
                 }
@@ -140,6 +142,7 @@ class LocalVideoProxyServer(
     fun openHttpConnection(
         urlString: String,
         referer: String?,
+        origin: String?,
         userAgent: String,
         range: String? = null
     ): HttpURLConnection {
@@ -151,48 +154,103 @@ class LocalVideoProxyServer(
         referer
             ?.takeIf { it.startsWith("http://") || it.startsWith("https://") }
             ?.let { connection.setRequestProperty("Referer", it) }
+        origin
+            ?.takeIf { it.startsWith("http://") || it.startsWith("https://") }
+            ?.let { connection.setRequestProperty("Origin", it) }
         range?.let { connection.setRequestProperty("Range", it) }
         return connection
     }
 
-    fun fetchSegmentsFromM3u8(playlistUrl: String, referer: String?, userAgent: String): List<String> {
-        val url = requireHttpUrl(playlistUrl)
-        val connection = openHttpConnection(playlistUrl, referer, userAgent)
+    private fun resolvePlaylistUri(playlistUrl: String, rawUri: String): String {
+        val base = requireHttpUrl(playlistUrl)
+        val raw = rawUri.trim()
+        val resolved = URL(base, raw)
+
+        // Certains CDN signent toute une playlist via la query du manifeste et
+        // fournissent ensuite des segments relatifs sans répéter cette signature.
+        if (!URI(raw).isAbsolute && !raw.contains("?") && resolved.query == null && base.query != null) {
+            return URI(
+                resolved.protocol,
+                resolved.userInfo,
+                resolved.host,
+                resolved.port,
+                resolved.path,
+                base.query,
+                resolved.ref
+            ).toASCIIString()
+        }
+
+        return resolved.toString()
+    }
+
+    fun fetchSegmentsFromM3u8(
+        playlistUrl: String,
+        referer: String?,
+        origin: String?,
+        userAgent: String,
+        depth: Int = 0
+    ): List<String> {
+        require(depth < 6) { "Too many nested HLS playlists" }
+        requireHttpUrl(playlistUrl)
+        val connection = openHttpConnection(playlistUrl, referer, origin, userAgent)
         connection.connect()
 
         if (connection.responseCode !in 200..299) {
+            val responseCode = connection.responseCode
             connection.disconnect()
-            return emptyList()
+            throw IllegalStateException("HLS playlist returned HTTP $responseCode")
         }
 
         val text = connection.inputStream.bufferedReader().use { it.readText() }
         connection.disconnect()
-        val baseUrl = if (playlistUrl.contains("?")) playlistUrl.substringBefore("?") else playlistUrl
-        val basePath = baseUrl.substringBeforeLast("/") + "/"
 
         val segments = mutableListOf<String>()
-        var isMasterPlaylist = false
+        val variants = mutableListOf<Pair<Long, String>>()
+        var pendingVariantBandwidth: Long? = null
+        var unsupportedEncryption = false
+        var usesFragmentedMp4 = false
 
         text.split("\n").forEach { line ->
             val trimmed = line.trim()
             if (trimmed.startsWith("#EXT-X-STREAM-INF:")) {
-                isMasterPlaylist = true
+                pendingVariantBandwidth = Regex("""(?:^|,)BANDWIDTH=(\d+)""")
+                    .find(trimmed.substringAfter(":"))
+                    ?.groupValues
+                    ?.get(1)
+                    ?.toLongOrNull()
+                    ?: 0L
+            } else if (trimmed.startsWith("#EXT-X-KEY:") && !trimmed.contains("METHOD=NONE")) {
+                unsupportedEncryption = true
+            } else if (trimmed.startsWith("#EXT-X-MAP:")) {
+                usesFragmentedMp4 = true
             } else if (trimmed.isNotBlank() && !trimmed.startsWith("#")) {
-                val absoluteUrl = when {
-                    trimmed.startsWith("http") -> trimmed
-                    trimmed.startsWith("/") -> {
-                        val urlObj = URL(playlistUrl)
-                        "${urlObj.protocol}://${urlObj.host}${if (urlObj.port != -1) ":" + urlObj.port else ""}$trimmed"
-                    }
-                    else -> basePath + trimmed
+                val absoluteUrl = resolvePlaylistUri(playlistUrl, trimmed)
+                val bandwidth = pendingVariantBandwidth
+                if (bandwidth != null) {
+                    variants.add(bandwidth to absoluteUrl)
+                    pendingVariantBandwidth = null
+                } else {
+                    segments.add(absoluteUrl)
                 }
-                segments.add(absoluteUrl)
             }
         }
 
-        if (isMasterPlaylist && segments.isNotEmpty()) {
-            // Prendre la sous-playlist (on prend la dernière, souvent de meilleure qualité)
-            return fetchSegmentsFromM3u8(segments.last(), referer, userAgent)
+        if (variants.isNotEmpty()) {
+            val selectedVariant = variants.maxByOrNull { it.first }!!.second
+            return fetchSegmentsFromM3u8(
+                selectedVariant,
+                referer,
+                origin,
+                userAgent,
+                depth + 1
+            )
+        }
+
+        require(!unsupportedEncryption) {
+            "AES-encrypted HLS playlists are not supported by the DLNA MPEG-TS bridge"
+        }
+        require(!usesFragmentedMp4) {
+            "Fragmented MP4 HLS playlists cannot be exposed as an MPEG-TS DLNA stream"
         }
 
         return segments
@@ -202,7 +260,10 @@ class LocalVideoProxyServer(
         val params = session.parameters
         val targetUrlStr = params["url"]?.get(0)
         val referer = params["referer"]?.get(0)
-        val userAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+        val origin = params["origin"]?.get(0)
+        val userAgent = params["userAgent"]?.get(0)
+            ?.takeIf { it.length in 1..512 }
+            ?: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
 
         if (!isAuthorized(session)) {
             return newFixedLengthResponse(Response.Status.UNAUTHORIZED, MIME_PLAINTEXT, "Unauthorized")
@@ -213,17 +274,26 @@ class LocalVideoProxyServer(
 
             try {
                 Log.d("LocalVideoProxy", "Starting authenticated HLS proxy")
-                val segments = fetchSegmentsFromM3u8(targetUrlStr, referer, userAgent)
+                val segments = fetchSegmentsFromM3u8(targetUrlStr, referer, origin, userAgent)
                 if (segments.isEmpty()) {
                     return newFixedLengthResponse(Response.Status.INTERNAL_ERROR, MIME_PLAINTEXT, "No segments found")
                 }
 
                 Log.d("LocalVideoProxy", "Found ${segments.size} segments. Starting MPEG-TS Stitching.")
-                val sequenceStream = HlsSequenceInputStream(targetUrlStr, segments, referer, userAgent, this)
+                val sequenceStream = HlsSequenceInputStream(
+                    targetUrlStr,
+                    segments,
+                    referer,
+                    origin,
+                    userAgent,
+                    this
+                )
 
                 // On utilise le chunked response pour le "Live" MPEG-TS
                 val response = newChunkedResponse(Response.Status.OK, "video/mp2t", sequenceStream)
                 response.addHeader("Access-Control-Allow-Origin", "*")
+                response.addHeader("transferMode.dlna.org", "Streaming")
+                response.addHeader("contentFeatures.dlna.org", "DLNA.ORG_OP=00;DLNA.ORG_CI=0;DLNA.ORG_FLAGS=01700000000000000000000000000000")
                 return response
             } catch (e: Exception) {
                 Log.e("LocalVideoProxy", "Proxy stitching error", e)
@@ -236,6 +306,7 @@ class LocalVideoProxyServer(
                 val connection = openHttpConnection(
                     targetUrlStr,
                     referer,
+                    origin,
                     userAgent,
                     session.headers["range"]
                 )
@@ -340,8 +411,9 @@ class LocalVideoProxyModule : Module() {
                 val addresses = networkInterface.inetAddresses
                 while (addresses.hasMoreElements()) {
                     val addr = addresses.nextElement()
-                    if (!addr.isLoopbackAddress && addr.hostAddress.indexOf(':') < 0) {
-                        return addr.hostAddress
+                    val hostAddress = addr.hostAddress ?: continue
+                    if (!addr.isLoopbackAddress && hostAddress.indexOf(':') < 0) {
+                        return hostAddress
                     }
                 }
             }

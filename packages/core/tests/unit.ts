@@ -1,5 +1,10 @@
 import assert from 'node:assert/strict';
-import { groupStreamsByLanguage, Stream } from '../src/types';
+import {
+  formatRemoteMediaTitle,
+  groupStreamsByLanguage,
+  inferStreamFormat,
+  Stream,
+} from '../src/types';
 import { Unpacker } from '../src/utils/Unpacker';
 
 const streams: Stream[] = [
@@ -12,6 +17,42 @@ const grouped = groupStreamsByLanguage(streams);
 assert.deepEqual(Object.keys(grouped), ['VF', 'VOSTFR']);
 assert.equal(grouped.VF.length, 2);
 assert.equal(grouped.VOSTFR[0].server, 'B');
+
+assert.equal(inferStreamFormat(streams[0]), 'hls');
+assert.equal(
+  inferStreamFormat({ url: 'https://example.test/master.m3u8?token=abc' }),
+  'hls'
+);
+assert.equal(
+  inferStreamFormat({ url: 'https://example.test/playback?id=42', format: 'hls' }),
+  'hls'
+);
+assert.equal(
+  inferStreamFormat({ url: 'https://example.test/video.mp4?token=abc' }),
+  'file'
+);
+
+assert.equal(
+  formatRemoteMediaTitle(
+    { title: 'Dune', type: 'movie' },
+    { id: 'dune::movie', number: 1, title: 'Film' }
+  ),
+  'Dune'
+);
+assert.equal(
+  formatRemoteMediaTitle(
+    { title: 'Loki', type: 'series' },
+    { id: 'loki::4', number: 4, title: 'Saison 1 - Épisode 4' }
+  ),
+  'Loki - Saison 1 - Ep 4'
+);
+assert.equal(
+  formatRemoteMediaTitle(
+    { title: 'Loki - Saison 1', type: 'series' },
+    { id: 'loki::4', number: 4, title: 'Épisode 4' }
+  ),
+  'Loki - Saison 1 - Ep 4'
+);
 
 const packed = "eval(function(p,a,c,k,e,d){return p}('0 1',2,2,'hello|world'.split('|'),0,{}))";
 assert.equal(Unpacker.unpack(packed), 'hello world');

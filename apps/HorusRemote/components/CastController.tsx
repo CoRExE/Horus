@@ -9,16 +9,17 @@ import { dlnaController } from '../services/dlnaController';
 interface CastControllerProps {
   onClose: () => void;
   dlnaDevice?: DlnaDevice | null;
+  dlnaTitle?: string;
 }
 
-export const CastController: React.FC<CastControllerProps> = ({ onClose, dlnaDevice }) => {
+export const CastController: React.FC<CastControllerProps> = ({ onClose, dlnaDevice, dlnaTitle }) => {
   const client = useRemoteMediaClient();
   const [isPlaying, setIsPlaying] = useState(true);
   const [mediaTitle, setMediaTitle] = useState('Chargement...');
 
   useEffect(() => {
     if (dlnaDevice) {
-      setMediaTitle(`Lecture DLNA en cours...`);
+      setMediaTitle(dlnaTitle || 'Lecture DLNA en cours...');
       setIsPlaying(true);
       return;
     }
@@ -46,7 +47,7 @@ export const CastController: React.FC<CastControllerProps> = ({ onClose, dlnaDev
     return () => {
       subscription.remove();
     };
-  }, [client]);
+  }, [client, dlnaDevice, dlnaTitle]);
 
   const handlePlayPause = () => {
     if (dlnaDevice) {

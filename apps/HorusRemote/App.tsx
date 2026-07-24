@@ -5,7 +5,7 @@ import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import * as NavigationBar from 'expo-navigation-bar';
 
 // Imports de notre librairie locale @horus/core
-import { AnimeSamaProvider, FrenchStreamProvider, AllAnimeProvider, SearchResult, Episode, Stream, ProviderId, groupStreamsByLanguage } from '@horus/core';
+import { AnimeSamaProvider, FrenchStreamProvider, AllAnimeProvider, SearchResult, Episode, Stream, ProviderId, formatRemoteMediaTitle, groupStreamsByLanguage } from '@horus/core';
 
 import VideoPlayer from './components/VideoPlayer';
 import { HorusBootSequence } from './components/HorusBootSequence';
@@ -86,7 +86,7 @@ export default function App() {
   const loadOnChromecast = async (stream: Stream, title: string, imageUrl: string) => {
     if (!castSession) return;
 
-    const preparedStream = await dlnaController.prepareRemoteStream(stream.url, stream.headers);
+    const preparedStream = await dlnaController.prepareRemoteStream(stream, { bridgeHls: false });
     await castSession.client.loadMedia({
       mediaInfo: {
         contentUrl: preparedStream.url,
@@ -166,13 +166,16 @@ export default function App() {
     const targetMedia = overrideMedia || selectedMedia;
     if (!targetMedia) return;
 
+    const historyEpisode = targetMedia.type === 'movie'
+      ? undefined
+      : { lastEpisode: episode };
     addToHistory({
       id: targetMedia.id,
       title: targetMedia.title,
       imageUrl: targetMedia.coverUrl || '',
       type: targetMedia.type,
       providerId: targetMedia.providerId,
-    }, { lastEpisode: episode });
+    }, historyEpisode);
 
     setIsExtracting(true);
     try {
@@ -186,7 +189,7 @@ export default function App() {
         const grouped = groupStreamsByLanguage(streams);
         const langs = Object.keys(grouped);
 
-        const castTitle = targetMedia.title + (episode.number ? ` - Ep ${episode.number}` : '');
+        const castTitle = formatRemoteMediaTitle(targetMedia, episode);
         const castImage = targetMedia.coverUrl || '';
         setPendingCastInfo({ title: castTitle, imageUrl: castImage });
 
@@ -196,7 +199,7 @@ export default function App() {
             await loadOnChromecast(streamList[0], castTitle, castImage);
             setIsCastRemoteVisible(true);
           } else if (activeDlnaDevice) {
-            await dlnaController.castVideo(activeDlnaDevice.controlUrl, streamList[0].url, castTitle, streamList[0].headers);
+            await dlnaController.castVideo(activeDlnaDevice.controlUrl, streamList[0], castTitle);
             setIsCastRemoteVisible(true);
           } else {
             setAllStreams(streamList);
@@ -225,7 +228,7 @@ export default function App() {
         await loadOnChromecast(selectedStreams[0], pendingCastInfo.title, pendingCastInfo.imageUrl);
         setIsCastRemoteVisible(true);
       } else if (activeDlnaDevice && pendingCastInfo) {
-        await dlnaController.castVideo(activeDlnaDevice.controlUrl, selectedStreams[0].url, pendingCastInfo.title, selectedStreams[0].headers);
+        await dlnaController.castVideo(activeDlnaDevice.controlUrl, selectedStreams[0], pendingCastInfo.title);
         setIsCastRemoteVisible(true);
       } else {
         setAllStreams(selectedStreams);
@@ -364,7 +367,13 @@ export default function App() {
                     key={item.id + idx}
                     title={item.title}
                     subtitle={item.type}
-                    highlightText={mediaType === 'history' && item.sourceItem?.lastEpisode?.number ? `ÉPISODE ${item.sourceItem.lastEpisode.number}` : undefined}
+                    highlightText={
+                      mediaType === 'history' &&
+                      item.type !== 'movie' &&
+                      item.sourceItem?.lastEpisode?.number
+                        ? `ÉPISODE ${item.sourceItem.lastEpisode.number}`
+                        : undefined
+                    }
                     imageUrl={item.coverUrl}
                     index={idx}
                     onPress={() => {
@@ -483,6 +492,7 @@ export default function App() {
                 setIsCastRemoteVisible(false);
               }}
               dlnaDevice={activeDlnaDevice}
+              dlnaTitle={pendingCastInfo?.title}
             />
           </Modal>
         )}

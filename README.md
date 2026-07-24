@@ -16,6 +16,7 @@ Ce dépôt est un monorepo **React Native** en cours de développement. L'applic
 * **Scraper Engine :** Embarque la logique de `movie-cli`, `ani-cli` et `animesama-cli` en JavaScript.
 * **Discovery :** Détecte les appareils DLNA via SSDP et les appareils Google Cast.
 * **Lecture :** Lecture locale via Expo Video ou envoi vers Chromecast/DLNA.
+* **Passerelle HLS/DLNA :** Transforme les playlists HLS MPEG-TS en flux continu pour les téléviseurs qui ne lisent pas directement les fichiers `.m3u8`.
 * **Données locales :** Wishlist et historique persistés avec Zustand/AsyncStorage.
 
 ## 🛠 Stack Technique
@@ -33,13 +34,17 @@ Ce dépôt est un monorepo **React Native** en cours de développement. L'applic
 graph LR
     A[Mobile Remote] -- "1. Scrape (Local)" --> B((Web Sources))
     A -- "2a. Lecture locale" --> A
-    A -- "2b. Cast/DLNA" --> C[TV ou box compatible]
-    C -- "3. Stream" --> B
+    A -- "2b. Cast ou fichier direct" --> C[TV ou box compatible]
+    C -- "3a. Flux direct compatible" --> B
+    C -- "3b. HLS via proxy local" --> A
+    A -- "4. Segments MPEG-TS" --> B
 ```
 
 1.  **Recherche :** Vous cherchez un média sur l'application mobile (le téléphone fait le travail de scraping).
 2.  **Lecture :** Le téléphone lit le flux ou l'envoie à un appareil Cast/DLNA.
-3.  **Proxy ponctuel :** Le téléphone expose un proxy local authentifié lorsqu'un flux exige des en-têtes HTTP spécifiques.
+3.  **Passerelle locale :** Le téléphone expose un proxy authentifié lorsqu'un flux exige des en-têtes HTTP spécifiques ou lorsqu'un manifeste HLS doit être présenté au renderer DLNA comme un flux MPEG-TS continu.
+
+La passerelle prend en charge les playlists HLS MPEG-TS, y compris les playlists maîtres et les URL relatives ou signées. Les variantes HLS chiffrées et les segments fMP4 nécessiteraient un véritable remuxage/transcodage et sont rejetés explicitement.
 
 ## 🚀 Installation (Dev Mode)
 

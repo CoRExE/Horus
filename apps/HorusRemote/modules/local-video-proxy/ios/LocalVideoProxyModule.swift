@@ -65,6 +65,7 @@ class HlsStitcher: NSObject, URLSessionDataDelegate {
     var session: URLSession!
     var userAgent: String = ""
     var referer: String?
+    var origin: String?
     
     override init() {
         super.init()
@@ -74,47 +75,107 @@ class HlsStitcher: NSObject, URLSessionDataDelegate {
         self.session = URLSession(configuration: config, delegate: self, delegateQueue: nil)
     }
     
-    func fetchM3u8(urlStr: String, referer: String?, userAgent: String, completion: @escaping (Bool) -> Void) {
+    private func resolvePlaylistUri(_ rawUri: String, relativeTo playlistUrl: URL) -> URL? {
+        guard let resolved = URL(string: rawUri, relativeTo: playlistUrl)?.absoluteURL else {
+            return nil
+        }
+
+        // Some CDNs sign a whole playlist in its query string while leaving
+        // relative segment paths unsigned.
+        if URL(string: rawUri)?.scheme == nil,
+           !rawUri.contains("?"),
+           resolved.query == nil,
+           let inheritedQuery = playlistUrl.query,
+           var components = URLComponents(url: resolved, resolvingAgainstBaseURL: false) {
+            components.percentEncodedQuery = inheritedQuery
+            return components.url
+        }
+
+        return resolved
+    }
+
+    func fetchM3u8(
+        urlStr: String,
+        referer: String?,
+        origin: String?,
+        userAgent: String,
+        depth: Int = 0,
+        completion: @escaping (Bool) -> Void
+    ) {
+        guard depth < 6 else { completion(false); return }
         self.userAgent = userAgent
         self.referer = referer
+        self.origin = origin
         guard let url = URL(string: urlStr) else { completion(false); return }
         var req = URLRequest(url: url)
         req.timeoutInterval = 20
         req.setValue(userAgent, forHTTPHeaderField: "User-Agent")
         if let ref = referer { req.setValue(ref, forHTTPHeaderField: "Referer") }
+        if let origin = origin { req.setValue(origin, forHTTPHeaderField: "Origin") }
         
         URLSession.shared.dataTask(with: req) { data, response, err in
-            guard let data = data, let text = String(data: data, encoding: .utf8) else { completion(false); return }
+            guard let httpResponse = response as? HTTPURLResponse,
+                  (200...299).contains(httpResponse.statusCode),
+                  let data = data,
+                  let text = String(data: data, encoding: .utf8) else {
+                completion(false)
+                return
+            }
             
-            var baseUrl = urlStr
-            if let qIdx = baseUrl.firstIndex(of: "?") { baseUrl = String(baseUrl[..<qIdx]) }
-            let basePath = (baseUrl as NSString).deletingLastPathComponent + "/"
-            
-            var isMaster = false
             var newSegments = [String]()
+            var variants = [(bandwidth: Int64, url: String)]()
+            var pendingVariantBandwidth: Int64?
+            var unsupportedEncryption = false
+            var usesFragmentedMp4 = false
             
             let lines = text.components(separatedBy: .newlines)
             for line in lines {
                 let trimmed = line.trimmingCharacters(in: .whitespaces)
                 if trimmed.hasPrefix("#EXT-X-STREAM-INF:") {
-                    isMaster = true
-                } else if !trimmed.isEmpty && !trimmed.hasPrefix("#") {
-                    if trimmed.hasPrefix("http") {
-                        newSegments.append(trimmed)
-                    } else if trimmed.hasPrefix("/") {
-                        if let u = URL(string: urlStr), let scheme = u.scheme, let host = u.host {
-                            let portStr = u.port != nil ? ":\(u.port!)" : ""
-                            newSegments.append("\(scheme)://\(host)\(portStr)\(trimmed)")
-                        }
+                    let attributes = String(trimmed.dropFirst("#EXT-X-STREAM-INF:".count))
+                    let pattern = #"(?:^|,)BANDWIDTH=(\d+)"#
+                    if let regex = try? NSRegularExpression(pattern: pattern),
+                       let match = regex.firstMatch(
+                        in: attributes,
+                        range: NSRange(attributes.startIndex..., in: attributes)
+                       ),
+                       let range = Range(match.range(at: 1), in: attributes) {
+                        pendingVariantBandwidth = Int64(attributes[range]) ?? 0
                     } else {
-                        newSegments.append(basePath + trimmed)
+                        pendingVariantBandwidth = 0
+                    }
+                } else if trimmed.hasPrefix("#EXT-X-KEY:") && !trimmed.contains("METHOD=NONE") {
+                    unsupportedEncryption = true
+                } else if trimmed.hasPrefix("#EXT-X-MAP:") {
+                    usesFragmentedMp4 = true
+                } else if !trimmed.isEmpty && !trimmed.hasPrefix("#") {
+                    guard let resolved = self.resolvePlaylistUri(trimmed, relativeTo: url) else {
+                        continue
+                    }
+                    if let bandwidth = pendingVariantBandwidth {
+                        variants.append((bandwidth, resolved.absoluteString))
+                        pendingVariantBandwidth = nil
+                    } else {
+                        newSegments.append(resolved.absoluteString)
                     }
                 }
             }
             
-            if isMaster && !newSegments.isEmpty {
-                self.fetchM3u8(urlStr: newSegments.last!, referer: referer, userAgent: userAgent, completion: completion)
+            if let selectedVariant = variants.max(by: { $0.bandwidth < $1.bandwidth }) {
+                self.fetchM3u8(
+                    urlStr: selectedVariant.url,
+                    referer: referer,
+                    origin: origin,
+                    userAgent: userAgent,
+                    depth: depth + 1,
+                    completion: completion
+                )
             } else {
+                guard !unsupportedEncryption, !usesFragmentedMp4 else {
+                    print("[Proxy] Unsupported encrypted or fragmented-MP4 HLS playlist")
+                    completion(false)
+                    return
+                }
                 self.segments = newSegments
                 completion(!newSegments.isEmpty)
             }
@@ -139,6 +200,11 @@ class HlsStitcher: NSObject, URLSessionDataDelegate {
             }
         })
         serverResponse.setValue("*", forAdditionalHeader: "Access-Control-Allow-Origin")
+        serverResponse.setValue("Streaming", forAdditionalHeader: "transferMode.dlna.org")
+        serverResponse.setValue(
+            "DLNA.ORG_OP=00;DLNA.ORG_CI=0;DLNA.ORG_FLAGS=01700000000000000000000000000000",
+            forAdditionalHeader: "contentFeatures.dlna.org"
+        )
         responseBlock(serverResponse)
         
         downloadNextSegment()
@@ -160,6 +226,7 @@ class HlsStitcher: NSObject, URLSessionDataDelegate {
         var req = URLRequest(url: url)
         req.setValue(userAgent, forHTTPHeaderField: "User-Agent")
         if let ref = referer { req.setValue(ref, forHTTPHeaderField: "Referer") }
+        if let origin = origin { req.setValue(origin, forHTTPHeaderField: "Origin") }
         
         session.dataTask(with: req).resume()
     }
@@ -242,19 +309,27 @@ public class LocalVideoProxyModule: Module {
             completionBlock(GCDWebServerDataResponse(statusCode: 401))
             return
           }
-          guard let urlString = request.query?["url"] as? String,
-                let targetUrlStr = urlString.removingPercentEncoding,
+          guard let targetUrlStr = request.query?["url"] as? String,
                 self.validatedHttpUrl(targetUrlStr) != nil else {
             completionBlock(GCDWebServerDataResponse(statusCode: 400))
             return
           }
-          let referer = (request.query?["referer"] as? String)?.removingPercentEncoding
-          let userAgent = "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15"
+          let referer = request.query?["referer"] as? String
+          let origin = request.query?["origin"] as? String
+          let requestedUserAgent = request.query?["userAgent"] as? String
+          let userAgent = requestedUserAgent.flatMap {
+              $0.isEmpty || $0.count > 512 ? nil : $0
+          } ?? "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15"
           
           let stitcher = HlsStitcher()
           self.activeStitchers.append(stitcher)
           
-          stitcher.fetchM3u8(urlStr: targetUrlStr, referer: referer, userAgent: userAgent) { success in
+          stitcher.fetchM3u8(
+            urlStr: targetUrlStr,
+            referer: referer,
+            origin: origin,
+            userAgent: userAgent
+          ) { success in
               if success {
                   stitcher.startStreaming(responseBlock: completionBlock)
               } else {
@@ -271,20 +346,27 @@ public class LocalVideoProxyModule: Module {
             completionBlock(GCDWebServerDataResponse(statusCode: 401))
             return
           }
-          guard let urlString = request.query?["url"] as? String,
-                let targetUrlStr = urlString.removingPercentEncoding,
+          guard let targetUrlStr = request.query?["url"] as? String,
                 let targetUrl = self.validatedHttpUrl(targetUrlStr) else {
             completionBlock(GCDWebServerDataResponse(statusCode: 400))
             return
           }
-          let referer = (request.query?["referer"] as? String)?.removingPercentEncoding
+          let referer = request.query?["referer"] as? String
+          let origin = request.query?["origin"] as? String
+          let requestedUserAgent = request.query?["userAgent"] as? String
+          let userAgent = requestedUserAgent.flatMap {
+              $0.isEmpty || $0.count > 512 ? nil : $0
+          } ?? "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15"
           
           var urlRequest = URLRequest(url: targetUrl)
           urlRequest.httpMethod = "GET"
           urlRequest.timeoutInterval = 20
-          urlRequest.setValue("Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15", forHTTPHeaderField: "User-Agent")
+          urlRequest.setValue(userAgent, forHTTPHeaderField: "User-Agent")
           if let ref = referer, !ref.isEmpty {
               urlRequest.setValue(ref, forHTTPHeaderField: "Referer")
+          }
+          if let origin = origin, !origin.isEmpty {
+              urlRequest.setValue(origin, forHTTPHeaderField: "Origin")
           }
           if let range = request.headers["Range"] as? String {
               urlRequest.setValue(range, forHTTPHeaderField: "Range")
