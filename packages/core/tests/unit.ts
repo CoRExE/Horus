@@ -1,8 +1,11 @@
 import assert from 'node:assert/strict';
 import {
   formatRemoteMediaTitle,
+  formatDlnaTime,
+  formatPlaybackTime,
   groupStreamsByLanguage,
   inferStreamFormat,
+  parseDlnaTime,
   Stream,
 } from '../src/types';
 import { Unpacker } from '../src/utils/Unpacker';
@@ -53,6 +56,13 @@ assert.equal(
   ),
   'Loki - Saison 1 - Ep 4'
 );
+
+assert.equal(parseDlnaTime('01:02:03'), 3723);
+assert.equal(parseDlnaTime('NOT_IMPLEMENTED'), 0);
+assert.equal(parseDlnaTime('invalid'), 0);
+assert.equal(formatDlnaTime(3723.9), '01:02:03');
+assert.equal(formatPlaybackTime(83), '1:23');
+assert.equal(formatPlaybackTime(3723), '1:02:03');
 
 const packed = "eval(function(p,a,c,k,e,d){return p}('0 1',2,2,'hello|world'.split('|'),0,{}))";
 assert.equal(Unpacker.unpack(packed), 'hello world');

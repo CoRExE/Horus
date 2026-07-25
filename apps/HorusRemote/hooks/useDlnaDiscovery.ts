@@ -10,6 +10,7 @@ export interface DlnaDevice {
   ip: string;
   name: string;
   controlUrl: string;
+  renderingControlUrl?: string;
   location: string; // The URL to device description
 }
 
@@ -174,20 +175,21 @@ export const useDlnaDiscovery = () => {
             extractServices(deviceNode);
 
             const avTransport = services.find(s => s.serviceType?.includes('AVTransport'));
+            const renderingControl = services.find(s => s.serviceType?.includes('RenderingControl'));
 
             if (avTransport && avTransport.controlURL) {
-               const baseUrl = new URL(locationUrl);
-               const cUrl = avTransport.controlURL.startsWith('/')
-                 ? avTransport.controlURL
-                 : `/${avTransport.controlURL}`;
-
-               controlUrl = `${baseUrl.origin}${cUrl}`;
+               const serviceBaseUrl = parsed?.root?.URLBase || locationUrl;
+               controlUrl = new URL(avTransport.controlURL, serviceBaseUrl).toString();
+               const renderingControlUrl = renderingControl?.controlURL
+                 ? new URL(renderingControl.controlURL, serviceBaseUrl).toString()
+                 : undefined;
 
                const newDevice: DlnaDevice = {
                  id: udn,
                  ip: rinfo.address,
                  name,
                  controlUrl,
+                 renderingControlUrl,
                  location: locationUrl
                };
 

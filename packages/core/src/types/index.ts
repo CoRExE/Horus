@@ -69,3 +69,39 @@ export function formatRemoteMediaTitle(
 
   return `${media.title} - ${seasonLabel} - ${episodeLabel}`;
 }
+
+export function parseDlnaTime(value?: string): number {
+  if (!value || value === 'NOT_IMPLEMENTED') return 0;
+
+  const parts = value.split(':');
+  if (parts.length !== 3) return 0;
+
+  const [hours, minutes, seconds] = parts.map(Number);
+  if (![hours, minutes, seconds].every(Number.isFinite)) return 0;
+
+  return Math.max(0, hours * 3600 + minutes * 60 + seconds);
+}
+
+export function formatDlnaTime(totalSeconds: number): string {
+  const safeSeconds = Math.max(0, Math.floor(totalSeconds));
+  const hours = Math.floor(safeSeconds / 3600);
+  const minutes = Math.floor((safeSeconds % 3600) / 60);
+  const seconds = safeSeconds % 60;
+
+  return [hours, minutes, seconds]
+    .map(value => String(value).padStart(2, '0'))
+    .join(':');
+}
+
+export function formatPlaybackTime(totalSeconds: number): string {
+  const safeSeconds = Math.max(0, Math.floor(totalSeconds));
+  const hours = Math.floor(safeSeconds / 3600);
+  const minutes = Math.floor((safeSeconds % 3600) / 60);
+  const seconds = safeSeconds % 60;
+
+  if (hours > 0) {
+    return `${hours}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+  }
+
+  return `${minutes}:${String(seconds).padStart(2, '0')}`;
+}

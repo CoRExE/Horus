@@ -5,7 +5,7 @@ import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import * as NavigationBar from 'expo-navigation-bar';
 
 // Imports de notre librairie locale @horus/core
-import { AnimeSamaProvider, FrenchStreamProvider, AllAnimeProvider, SearchResult, Episode, Stream, ProviderId, formatRemoteMediaTitle, groupStreamsByLanguage } from '@horus/core';
+import { AnimeSamaProvider, FrenchStreamProvider, AllAnimeProvider, SearchResult, Episode, Stream, ProviderId, formatRemoteMediaTitle, groupStreamsByLanguage, inferStreamFormat } from '@horus/core';
 
 import VideoPlayer from './components/VideoPlayer';
 import { HorusBootSequence } from './components/HorusBootSequence';
@@ -48,6 +48,19 @@ const toSearchResult = (media: MediaItem): SearchResult => ({
   providerId: inferProviderId(media),
 });
 
+interface PlaybackContext {
+  media: SearchResult;
+  episode: Episode;
+  episodeQueue: Episode[];
+  title: string;
+  imageUrl: string;
+}
+
+interface RemotePlaybackSession extends PlaybackContext {
+  language: string;
+  canSeek: boolean;
+}
+
 export default function App() {
   const [isBooting, setIsBooting] = useState(true);
   const [mediaType, setMediaType] = useState<'anime' | 'film_series' | 'wishlist' | 'history'>('anime');
@@ -77,6 +90,9 @@ export default function App() {
   const castSession = useCastSession();
   const [isCastRemoteVisible, setIsCastRemoteVisible] = useState(false);
   const [pendingCastInfo, setPendingCastInfo] = useState<{title: string, imageUrl: string} | null>(null);
+  const [pendingPlayback, setPendingPlayback] = useState<PlaybackContext | null>(null);
+  const [remotePlayback, setRemotePlayback] = useState<RemotePlaybackSession | null>(null);
+  const [isChangingRemoteEpisode, setIsChangingRemoteEpisode] = useState(false);
 
   // Unified Cast Modal State
   const [isUnifiedCastModalVisible, setIsUnifiedCastModalVisible] = useState(false);
@@ -98,6 +114,29 @@ export default function App() {
         }
       }
     });
+  };
+
+  const playOnSelectedRemote = async (
+    stream: Stream,
+    language: string,
+    context: PlaybackContext
+  ) => {
+    if (castSession) {
+      await loadOnChromecast(stream, context.title, context.imageUrl);
+    } else if (activeDlnaDevice) {
+      await dlnaController.castVideo(activeDlnaDevice.controlUrl, stream, context.title);
+    } else {
+      return false;
+    }
+
+    setPendingCastInfo({ title: context.title, imageUrl: context.imageUrl });
+    setRemotePlayback({
+      ...context,
+      language,
+      canSeek: Boolean(castSession) || inferStreamFormat(stream) === 'file',
+    });
+    setIsCastRemoteVisible(true);
+    return true;
   };
 
   // Configuration de l'immersion Android au démarrage
@@ -162,7 +201,14 @@ export default function App() {
     }
   };
 
-  const extractStreamsAndCast = async (episode: Episode, overrideMedia?: SearchResult) => {
+  const extractStreamsAndCast = async (
+    episode: Episode,
+    overrideMedia?: SearchResult,
+    options: {
+      preferredLanguage?: string;
+      episodeQueue?: Episode[];
+    } = {}
+  ) => {
     const targetMedia = overrideMedia || selectedMedia;
     if (!targetMedia) return;
 
@@ -180,10 +226,18 @@ export default function App() {
     setIsExtracting(true);
     try {
       const provider = getProviderForMedia(targetMedia);
-
-
-      const streams = await provider.getStreams(episode.id);
-
+      const currentEpisodeQueue =
+        selectedMedia?.id === targetMedia.id ? episodes : [];
+      const shouldLoadQueue =
+        !options.episodeQueue &&
+        currentEpisodeQueue.length === 0 &&
+        targetMedia.type !== 'movie';
+      const [streams, loadedQueue] = await Promise.all([
+        provider.getStreams(episode.id),
+        shouldLoadQueue
+          ? provider.getEpisodes(targetMedia.id).catch(() => [episode])
+          : Promise.resolve(options.episodeQueue || currentEpisodeQueue),
+      ]);
 
       if (streams.length > 0) {
         const grouped = groupStreamsByLanguage(streams);
@@ -191,17 +245,41 @@ export default function App() {
 
         const castTitle = formatRemoteMediaTitle(targetMedia, episode);
         const castImage = targetMedia.coverUrl || '';
+        const context: PlaybackContext = {
+          media: targetMedia,
+          episode,
+          episodeQueue: loadedQueue.length > 0 ? loadedQueue : [episode],
+          title: castTitle,
+          imageUrl: castImage,
+        };
         setPendingCastInfo({ title: castTitle, imageUrl: castImage });
+        setPendingPlayback(context);
+
+        if (options.preferredLanguage) {
+          const selectedLanguage = grouped[options.preferredLanguage]
+            ? options.preferredLanguage
+            : langs[0];
+          const preferredStreams = grouped[selectedLanguage];
+          const didPlayRemotely = await playOnSelectedRemote(
+            preferredStreams[0],
+            selectedLanguage,
+            context
+          );
+          if (!didPlayRemotely) {
+            setAllStreams(preferredStreams);
+            setCurrentStreamIndex(0);
+          }
+          return;
+        }
 
         if (langs.length === 1) {
           const streamList = grouped[langs[0]];
-          if (castSession) {
-            await loadOnChromecast(streamList[0], castTitle, castImage);
-            setIsCastRemoteVisible(true);
-          } else if (activeDlnaDevice) {
-            await dlnaController.castVideo(activeDlnaDevice.controlUrl, streamList[0], castTitle);
-            setIsCastRemoteVisible(true);
-          } else {
+          const didPlayRemotely = await playOnSelectedRemote(
+            streamList[0],
+            langs[0],
+            context
+          );
+          if (!didPlayRemotely) {
             setAllStreams(streamList);
             setCurrentStreamIndex(0);
           }
@@ -224,19 +302,43 @@ export default function App() {
     setIsLangModalVisible(false);
     const selectedStreams = availableLanguages[lang];
     try {
-      if (castSession && pendingCastInfo) {
-        await loadOnChromecast(selectedStreams[0], pendingCastInfo.title, pendingCastInfo.imageUrl);
-        setIsCastRemoteVisible(true);
-      } else if (activeDlnaDevice && pendingCastInfo) {
-        await dlnaController.castVideo(activeDlnaDevice.controlUrl, selectedStreams[0], pendingCastInfo.title);
-        setIsCastRemoteVisible(true);
-      } else {
+      if (!selectedStreams || selectedStreams.length === 0) return;
+      const didPlayRemotely = pendingPlayback
+        ? await playOnSelectedRemote(selectedStreams[0], lang, pendingPlayback)
+        : false;
+      if (!didPlayRemotely) {
         setAllStreams(selectedStreams);
         setCurrentStreamIndex(0);
       }
     } catch (error) {
       console.error(error);
       alert("Impossible d'envoyer ce flux vers l'appareil sélectionné.");
+    }
+  };
+
+  const remoteEpisodeIndex = remotePlayback
+    ? remotePlayback.episodeQueue.findIndex(item => item.id === remotePlayback.episode.id)
+    : -1;
+  const hasPreviousRemoteEpisode = remoteEpisodeIndex > 0;
+  const hasNextRemoteEpisode = Boolean(
+    remotePlayback &&
+    remoteEpisodeIndex >= 0 &&
+    remoteEpisodeIndex < remotePlayback.episodeQueue.length - 1
+  );
+
+  const changeRemoteEpisode = async (offset: -1 | 1) => {
+    if (!remotePlayback || isChangingRemoteEpisode) return;
+    const targetEpisode = remotePlayback.episodeQueue[remoteEpisodeIndex + offset];
+    if (!targetEpisode) return;
+
+    setIsChangingRemoteEpisode(true);
+    try {
+      await extractStreamsAndCast(targetEpisode, remotePlayback.media, {
+        preferredLanguage: remotePlayback.language,
+        episodeQueue: remotePlayback.episodeQueue,
+      });
+    } finally {
+      setIsChangingRemoteEpisode(false);
     }
   };
 
@@ -295,7 +397,9 @@ export default function App() {
           returnKeyType="search"
           hideSearch={mediaType === 'wishlist' || mediaType === 'history'}
           onPressCast={() => {
-            if (castSession || activeDlnaDevice) {
+            if (castSession || (activeDlnaDevice && remotePlayback)) {
+              setIsCastRemoteVisible(true);
+            } else if (activeDlnaDevice) {
               setIsDisconnectModalVisible(true);
             } else {
               setIsUnifiedCastModalVisible(true);
@@ -493,6 +597,20 @@ export default function App() {
               }}
               dlnaDevice={activeDlnaDevice}
               dlnaTitle={pendingCastInfo?.title}
+              canSeek={remotePlayback?.canSeek ?? true}
+              hasPreviousEpisode={hasPreviousRemoteEpisode}
+              hasNextEpisode={hasNextRemoteEpisode}
+              isChangingEpisode={isChangingRemoteEpisode}
+              onPreviousEpisode={() => changeRemoteEpisode(-1)}
+              onNextEpisode={() => changeRemoteEpisode(1)}
+              onStopped={() => {
+                setRemotePlayback(null);
+                LocalVideoProxy.stopServer().catch(console.error);
+              }}
+              onRequestDisconnect={() => {
+                setIsCastRemoteVisible(false);
+                setIsDisconnectModalVisible(true);
+              }}
             />
           </Modal>
         )}
@@ -511,6 +629,7 @@ export default function App() {
               CastContext.getSessionManager().endCurrentSession(true).catch(console.error);
             }
             LocalVideoProxy.stopServer().catch(console.error);
+            setRemotePlayback(null);
             setIsCastRemoteVisible(false);
             setIsDisconnectModalVisible(false);
           }}

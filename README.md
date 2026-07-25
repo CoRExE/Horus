@@ -17,6 +17,7 @@ Ce dépôt est un monorepo **React Native** en cours de développement. L'applic
 * **Discovery :** Détecte les appareils DLNA via SSDP et les appareils Google Cast.
 * **Lecture :** Lecture locale via Expo Video ou envoi vers Chromecast/DLNA.
 * **Passerelle HLS/DLNA :** Transforme les playlists HLS MPEG-TS en flux continu pour les téléviseurs qui ne lisent pas directement les fichiers `.m3u8`.
+* **Télécommande :** Synchronise lecture, pause, progression et volume avec le renderer, et permet de naviguer entre les épisodes.
 * **Données locales :** Wishlist et historique persistés avec Zustand/AsyncStorage.
 
 ## 🛠 Stack Technique
