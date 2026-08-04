@@ -1,11 +1,11 @@
 import { StatusBar } from 'expo-status-bar';
 import { StyleSheet, Text, View, TextInput, ScrollView, Image, TouchableOpacity, Platform, ActivityIndicator, Modal } from 'react-native';
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import * as NavigationBar from 'expo-navigation-bar';
 
 // Imports de notre librairie locale @horus/core
-import { AnimeSamaProvider, FrenchStreamProvider, AllAnimeProvider, SearchResult, Episode, Stream, ProviderId, formatRemoteMediaTitle, groupStreamsByLanguage, inferStreamFormat } from '@horus/core';
+import { AnimeSamaProvider, FrenchStreamProvider, AllAnimeProvider, SearchResult, Episode, Stream, ProviderId, formatRemoteMediaTitle, groupStreamsByLanguage, inferStreamFormat, normalizeStreamLanguage, sortStreamLanguages, sortStreamsForRemotePlayback } from '@horus/core';
 
 import VideoPlayer from './components/VideoPlayer';
 import { HorusBootSequence } from './components/HorusBootSequence';
@@ -16,16 +16,28 @@ import { HorusEpisodeList } from './components/HorusEpisodeList';
 import { HistoryItem, MediaItem, useUserStore } from './store/useUserStore';
 import { useCastSession, CastContext } from 'react-native-google-cast';
 import { CastController } from './components/CastController';
-import { UnifiedCastModal } from './components/UnifiedCastModal';
+import { RemoteDeliveryMode, UnifiedCastModal } from './components/UnifiedCastModal';
 import { DisconnectModal } from './components/DisconnectModal';
 import { DlnaDevice } from './hooks/useDlnaDiscovery';
 import { dlnaController } from './services/dlnaController';
 import LocalVideoProxy from './modules/local-video-proxy/src/LocalVideoProxyModule';
+import { CacheProgressEvent } from './modules/local-video-proxy/src/LocalVideoProxy.types';
 
 // Instanciation des providers de Scraping
 const animeSama = new AnimeSamaProvider();
 const allAnime = new AllAnimeProvider();
 const frenchStream = new FrenchStreamProvider();
+const REMOTE_CACHE_CANCELLED = 'REMOTE_CACHE_CANCELLED';
+
+const formatByteCount = (bytes: number) => {
+  if (!Number.isFinite(bytes) || bytes <= 0) return '0 Mo';
+  const megabytes = bytes / (1024 * 1024);
+  if (megabytes < 1024) return `${megabytes.toFixed(megabytes < 10 ? 1 : 0)} Mo`;
+  return `${(megabytes / 1024).toFixed(1)} Go`;
+};
+
+const isRemoteCacheCancellation = (error: unknown) =>
+  error instanceof Error && error.message === REMOTE_CACHE_CANCELLED;
 
 const inferProviderId = (media: {
   id: string | number;
@@ -98,6 +110,19 @@ export default function App() {
   const [isUnifiedCastModalVisible, setIsUnifiedCastModalVisible] = useState(false);
   const [isDisconnectModalVisible, setIsDisconnectModalVisible] = useState(false);
   const [activeDlnaDevice, setActiveDlnaDevice] = useState<DlnaDevice | null>(null);
+  const [remoteDeliveryMode, setRemoteDeliveryMode] = useState<RemoteDeliveryMode>('direct');
+  const [isCachingMedia, setIsCachingMedia] = useState(false);
+  const [cacheProgress, setCacheProgress] = useState<CacheProgressEvent>({
+    bytesDownloaded: 0,
+  });
+  const cacheCancelledRef = useRef(false);
+  const lastCacheProgressAtRef = useRef(0);
+
+  const stopProxyAndClearCache = () => {
+    LocalVideoProxy.stopServer()
+      .catch(console.error)
+      .finally(() => LocalVideoProxy.clearCache().catch(console.error));
+  };
 
   const loadOnChromecast = async (stream: Stream, title: string, imageUrl: string) => {
     if (!castSession) return;
@@ -117,23 +142,81 @@ export default function App() {
   };
 
   const playOnSelectedRemote = async (
-    stream: Stream,
+    streams: Stream[],
     language: string,
     context: PlaybackContext
   ) => {
-    if (castSession) {
-      await loadOnChromecast(stream, context.title, context.imageUrl);
-    } else if (activeDlnaDevice) {
-      await dlnaController.castVideo(activeDlnaDevice.controlUrl, stream, context.title);
-    } else {
+    if (streams.length === 0) {
+      throw new Error('No stream candidate available');
+    }
+
+    const orderedStreams = sortStreamsForRemotePlayback(streams);
+    let selectedStream: Stream | null = null;
+    let lastError: unknown;
+
+    if (!castSession && !activeDlnaDevice) {
       return false;
+    }
+
+    const shouldCache = remoteDeliveryMode === 'cache';
+    cacheCancelledRef.current = false;
+    if (shouldCache) {
+      setCacheProgress({ bytesDownloaded: 0 });
+      setIsCachingMedia(true);
+    }
+
+    try {
+      for (const stream of orderedStreams) {
+        let candidate = stream;
+        let cacheId: string | undefined;
+        try {
+          if (shouldCache) {
+            const cached = await dlnaController.cacheStream(stream);
+            candidate = cached.stream;
+            cacheId = cached.cacheId;
+          }
+
+          if (castSession) {
+            await loadOnChromecast(candidate, context.title, context.imageUrl);
+          } else if (activeDlnaDevice) {
+            console.log(`[DLNA] Trying server ${stream.server} (${language})`);
+            await dlnaController.castVideo(
+              activeDlnaDevice.controlUrl,
+              candidate,
+              context.title
+            );
+          }
+          selectedStream = candidate;
+          break;
+        } catch (error) {
+          lastError = error;
+          if (cacheId) {
+            await dlnaController.removeCachedMedia(cacheId).catch(console.error);
+          }
+          if (cacheCancelledRef.current) {
+            throw new Error(REMOTE_CACHE_CANCELLED);
+          }
+          const protocol = castSession ? 'Cast' : 'DLNA';
+          console.warn(`[${protocol}] Server ${stream.server} failed, trying the next one.`);
+        }
+      }
+    } finally {
+      if (shouldCache) {
+        setIsCachingMedia(false);
+      }
+    }
+
+    if (!selectedStream) {
+      throw lastError instanceof Error
+        ? lastError
+        : new Error('No remote stream could be started');
     }
 
     setPendingCastInfo({ title: context.title, imageUrl: context.imageUrl });
     setRemotePlayback({
       ...context,
       language,
-      canSeek: Boolean(castSession) || inferStreamFormat(stream) === 'file',
+      canSeek: Boolean(castSession) || inferStreamFormat(selectedStream) === 'file',
     });
     setIsCastRemoteVisible(true);
     return true;
@@ -241,7 +324,7 @@ export default function App() {
 
       if (streams.length > 0) {
         const grouped = groupStreamsByLanguage(streams);
-        const langs = Object.keys(grouped);
+        const langs = sortStreamLanguages(Object.keys(grouped));
 
         const castTitle = formatRemoteMediaTitle(targetMedia, episode);
         const castImage = targetMedia.coverUrl || '';
@@ -256,13 +339,16 @@ export default function App() {
         setPendingPlayback(context);
 
         if (options.preferredLanguage) {
-          const selectedLanguage = grouped[options.preferredLanguage]
-            ? options.preferredLanguage
-            : langs[0];
-          const preferredStreams = grouped[selectedLanguage];
+          const preferredLanguage = normalizeStreamLanguage(options.preferredLanguage);
+          const preferredStreams = grouped[preferredLanguage];
+          if (!preferredStreams) {
+            setAvailableLanguages(grouped);
+            setIsLangModalVisible(true);
+            return;
+          }
           const didPlayRemotely = await playOnSelectedRemote(
-            preferredStreams[0],
-            selectedLanguage,
+            preferredStreams,
+            preferredLanguage,
             context
           );
           if (!didPlayRemotely) {
@@ -272,10 +358,10 @@ export default function App() {
           return;
         }
 
-        if (langs.length === 1) {
+        if (langs.length === 1 && langs[0] === 'VF') {
           const streamList = grouped[langs[0]];
           const didPlayRemotely = await playOnSelectedRemote(
-            streamList[0],
+            streamList,
             langs[0],
             context
           );
@@ -283,7 +369,7 @@ export default function App() {
             setAllStreams(streamList);
             setCurrentStreamIndex(0);
           }
-        } else if (langs.length > 1) {
+        } else if (langs.length >= 1) {
           setAvailableLanguages(grouped);
           setIsLangModalVisible(true);
         }
@@ -291,6 +377,7 @@ export default function App() {
         alert("Aucun lien de streaming trouvé pour cet épisode.");
       }
     } catch (e) {
+      if (isRemoteCacheCancellation(e)) return;
       console.error(e);
       alert("Erreur lors de l'extraction de la vidéo");
     } finally {
@@ -304,13 +391,14 @@ export default function App() {
     try {
       if (!selectedStreams || selectedStreams.length === 0) return;
       const didPlayRemotely = pendingPlayback
-        ? await playOnSelectedRemote(selectedStreams[0], lang, pendingPlayback)
+        ? await playOnSelectedRemote(selectedStreams, lang, pendingPlayback)
         : false;
       if (!didPlayRemotely) {
         setAllStreams(selectedStreams);
         setCurrentStreamIndex(0);
       }
     } catch (error) {
+      if (isRemoteCacheCancellation(error)) return;
       console.error(error);
       alert("Impossible d'envoyer ce flux vers l'appareil sélectionné.");
     }
@@ -379,6 +467,25 @@ export default function App() {
       setSelectedSeason(seasonKeys[0]);
     }
   }, [seasonKeys, selectedSeason]);
+
+  useEffect(() => {
+    LocalVideoProxy.clearCache().catch(error => {
+      console.warn('[Cache] Initial cleanup failed', error);
+    });
+    const subscription = LocalVideoProxy.addListener(
+      'onCacheProgress',
+      (progress) => {
+        const now = Date.now();
+        const isComplete =
+          progress.totalBytes !== undefined &&
+          progress.bytesDownloaded >= progress.totalBytes;
+        if (!isComplete && now - lastCacheProgressAtRef.current < 200) return;
+        lastCacheProgressAtRef.current = now;
+        setCacheProgress(progress);
+      }
+    );
+    return () => subscription.remove();
+  }, []);
 
   if (isBooting) {
     return <HorusBootSequence onBootComplete={() => setIsBooting(false)} />;
@@ -540,7 +647,7 @@ export default function App() {
             <View style={styles.langModalContent}>
               <Text style={styles.langModalTitle}>Choisir la version</Text>
 
-              {Object.keys(availableLanguages).map((lang) => (
+              {sortStreamLanguages(Object.keys(availableLanguages)).map((lang) => (
                 <TouchableOpacity
                   key={lang}
                   style={styles.langButton}
@@ -548,7 +655,11 @@ export default function App() {
                 >
                   <Text style={styles.langButtonText}>{lang}</Text>
                   <Text style={styles.langButtonSubtext}>
-                    {availableLanguages[lang].length} serveur(s)
+                    {lang === 'VOSTFR'
+                      ? 'Audio original • sous-titres DLNA non garantis'
+                      : lang === 'VO'
+                        ? 'Audio original'
+                        : `${availableLanguages[lang].length} serveur(s)`}
                   </Text>
                 </TouchableOpacity>
               ))}
@@ -583,10 +694,66 @@ export default function App() {
         <UnifiedCastModal
           visible={isUnifiedCastModalVisible}
           onClose={() => setIsUnifiedCastModalVisible(false)}
-          onSelectDlna={(device) => {
+          onSelectCast={setRemoteDeliveryMode}
+          onSelectDlna={(device, mode) => {
             setActiveDlnaDevice(device);
+            setRemoteDeliveryMode(mode);
           }}
         />
+
+        <Modal
+          visible={isCachingMedia}
+          transparent={true}
+          animationType="fade"
+          onRequestClose={() => {
+            cacheCancelledRef.current = true;
+            LocalVideoProxy.cancelCache().catch(console.error);
+          }}
+        >
+          <View style={styles.cacheModalOverlay}>
+            <View style={styles.cacheModalContent}>
+              <ActivityIndicator size="large" color="#00FFFF" />
+              <Text style={styles.cacheModalTitle}>Préparation pour la TV</Text>
+              <Text style={styles.cacheModalText}>
+                Téléchargement complet du média
+              </Text>
+              <Text style={styles.cacheModalProgress}>
+                {formatByteCount(cacheProgress.bytesDownloaded)}
+                {cacheProgress.totalBytes
+                  ? ` / ${formatByteCount(cacheProgress.totalBytes)}`
+                  : ' téléchargés'}
+              </Text>
+              {cacheProgress.totalBytes ? (
+                <View style={styles.cacheProgressTrack}>
+                  <View
+                    style={[
+                      styles.cacheProgressFill,
+                      {
+                        width: `${Math.min(
+                          100,
+                          (cacheProgress.bytesDownloaded / cacheProgress.totalBytes) * 100
+                        )}%`,
+                      },
+                    ]}
+                  />
+                </View>
+              ) : (
+                <Text style={styles.cacheModalHint}>
+                  La taille totale du flux HLS sera connue à la fin.
+                </Text>
+              )}
+              <TouchableOpacity
+                style={styles.cacheCancelButton}
+                onPress={() => {
+                  cacheCancelledRef.current = true;
+                  LocalVideoProxy.cancelCache().catch(console.error);
+                }}
+              >
+                <Text style={styles.cacheCancelText}>Annuler</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </Modal>
 
         {/* Télécommande Cast */}
         {isCastRemoteVisible && (
@@ -605,7 +772,7 @@ export default function App() {
               onNextEpisode={() => changeRemoteEpisode(1)}
               onStopped={() => {
                 setRemotePlayback(null);
-                LocalVideoProxy.stopServer().catch(console.error);
+                stopProxyAndClearCache();
               }}
               onRequestDisconnect={() => {
                 setIsCastRemoteVisible(false);
@@ -628,7 +795,7 @@ export default function App() {
             if (castSession) {
               CastContext.getSessionManager().endCurrentSession(true).catch(console.error);
             }
-            LocalVideoProxy.stopServer().catch(console.error);
+            stopProxyAndClearCache();
             setRemotePlayback(null);
             setIsCastRemoteVisible(false);
             setIsDisconnectModalVisible(false);
@@ -752,5 +919,67 @@ const styles = StyleSheet.create({
     color: '#94A3B8',
     fontSize: 16,
     fontWeight: '600'
+  },
+  cacheModalOverlay: {
+    flex: 1,
+    justifyContent: 'center',
+    padding: 28,
+    backgroundColor: 'rgba(0, 0, 0, 0.82)',
+  },
+  cacheModalContent: {
+    padding: 24,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: 'rgba(0, 255, 255, 0.28)',
+    backgroundColor: '#111827',
+    alignItems: 'center',
+  },
+  cacheModalTitle: {
+    color: '#F8FAFC',
+    fontSize: 20,
+    fontWeight: '700',
+    marginTop: 18,
+  },
+  cacheModalText: {
+    color: '#94A3B8',
+    fontSize: 14,
+    marginTop: 8,
+  },
+  cacheModalProgress: {
+    color: '#00FFFF',
+    fontSize: 15,
+    fontWeight: '700',
+    marginTop: 18,
+  },
+  cacheProgressTrack: {
+    width: '100%',
+    height: 7,
+    borderRadius: 4,
+    overflow: 'hidden',
+    backgroundColor: '#253044',
+    marginTop: 14,
+  },
+  cacheProgressFill: {
+    height: '100%',
+    borderRadius: 4,
+    backgroundColor: '#00FFFF',
+  },
+  cacheModalHint: {
+    color: '#64748B',
+    fontSize: 12,
+    textAlign: 'center',
+    marginTop: 14,
+  },
+  cacheCancelButton: {
+    marginTop: 22,
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    borderRadius: 12,
+    backgroundColor: '#253044',
+  },
+  cacheCancelText: {
+    color: '#F8FAFC',
+    fontSize: 15,
+    fontWeight: '600',
   }
 });

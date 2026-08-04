@@ -2,21 +2,30 @@ import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Modal, ScrollView, ActivityIndicator, Platform } from 'react-native';
 import { useDevices, CastContext } from 'react-native-google-cast';
 import { useDlnaDiscovery, DlnaDevice } from '../hooks/useDlnaDiscovery';
-import { Monitor, Tv, X, RefreshCw, Terminal } from 'lucide-react-native';
+import { Download, Monitor, Radio, Tv, X, RefreshCw, Terminal } from 'lucide-react-native';
+
+export type RemoteDeliveryMode = 'direct' | 'cache';
 
 interface UnifiedCastModalProps {
   visible: boolean;
   onClose: () => void;
-  onSelectDlna: (device: DlnaDevice) => void;
+  onSelectCast: (mode: RemoteDeliveryMode) => void;
+  onSelectDlna: (device: DlnaDevice, mode: RemoteDeliveryMode) => void;
 }
 
-export const UnifiedCastModal: React.FC<UnifiedCastModalProps> = ({ visible, onClose, onSelectDlna }) => {
+export const UnifiedCastModal: React.FC<UnifiedCastModalProps> = ({
+  visible,
+  onClose,
+  onSelectCast,
+  onSelectDlna,
+}) => {
   // Découverte Chromecast
   const castDevices = useDevices();
 
   // Découverte DLNA
   const { devices: dlnaDevices, isSearching, startDiscovery, logs } = useDlnaDiscovery();
   const [showDebug, setShowDebug] = useState(false);
+  const [deliveryMode, setDeliveryMode] = useState<RemoteDeliveryMode>('direct');
 
   useEffect(() => {
     if (visible) {
@@ -25,12 +34,13 @@ export const UnifiedCastModal: React.FC<UnifiedCastModalProps> = ({ visible, onC
   }, [visible, startDiscovery]);
 
   const handleCastSelect = (deviceId: string) => {
+    onSelectCast(deliveryMode);
     CastContext.getSessionManager().startSession(deviceId).catch(console.error);
     onClose();
   };
 
   const handleDlnaSelect = (device: DlnaDevice) => {
-    onSelectDlna(device);
+    onSelectDlna(device, deliveryMode);
     onClose();
   };
 
@@ -65,6 +75,42 @@ export const UnifiedCastModal: React.FC<UnifiedCastModalProps> = ({ visible, onC
             <View style={styles.searchingContainer}>
               <ActivityIndicator color="#00FFFF" />
               <Text style={styles.searchingText}>Recherche d'appareils sur le réseau local...</Text>
+            </View>
+          )}
+
+          {!showDebug && (
+            <View style={styles.modeSection}>
+              <Text style={styles.sectionTitle}>Mode de diffusion</Text>
+              <View style={styles.modeRow}>
+                <TouchableOpacity
+                  style={[
+                    styles.modeButton,
+                    deliveryMode === 'direct' && styles.modeButtonActive,
+                  ]}
+                  onPress={() => setDeliveryMode('direct')}
+                >
+                  <Radio
+                    color={deliveryMode === 'direct' ? '#00FFFF' : '#64748B'}
+                    size={22}
+                  />
+                  <Text style={styles.modeButtonTitle}>Immédiat</Text>
+                  <Text style={styles.modeButtonText}>Démarre sans attendre</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[
+                    styles.modeButton,
+                    deliveryMode === 'cache' && styles.modeButtonActive,
+                  ]}
+                  onPress={() => setDeliveryMode('cache')}
+                >
+                  <Download
+                    color={deliveryMode === 'cache' ? '#00FFFF' : '#64748B'}
+                    size={22}
+                  />
+                  <Text style={styles.modeButtonTitle}>Téléchargement complet</Text>
+                  <Text style={styles.modeButtonText}>Lecture TV stabilisée</Text>
+                </TouchableOpacity>
+              </View>
             </View>
           )}
 
@@ -212,6 +258,37 @@ const styles = StyleSheet.create({
     color: '#00FFFF',
     marginLeft: 10,
     fontSize: 14,
+  },
+  modeSection: {
+    marginBottom: 20,
+  },
+  modeRow: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  modeButton: {
+    flex: 1,
+    minHeight: 112,
+    padding: 14,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#253044',
+    backgroundColor: '#0B0F19',
+  },
+  modeButtonActive: {
+    borderColor: '#00FFFF',
+    backgroundColor: 'rgba(0, 255, 255, 0.08)',
+  },
+  modeButtonTitle: {
+    color: '#F8FAFC',
+    fontSize: 13,
+    fontWeight: '700',
+    marginTop: 8,
+  },
+  modeButtonText: {
+    color: '#64748B',
+    fontSize: 11,
+    marginTop: 4,
   },
   listContainer: {
     marginBottom: 10,

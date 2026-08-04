@@ -20,6 +20,7 @@ export interface Stream {
   quality?: string; // "1080p", "720p", "auto"
   server: string; // "Sibnet", "Sendvid", "Voe", etc.
   format?: 'hls' | 'file'; // Explicit hint when the URL does not expose its container
+  contentType?: string; // MIME type when it cannot be inferred from the URL
   headers?: Record<string, string>; // HTTP headers needed for playback (e.g. Referer)
 }
 
@@ -30,9 +31,54 @@ export interface HorusProvider {
   getStreams(episodeId: string): Promise<Stream[]>;
 }
 
+export function normalizeStreamLanguage(language?: string): string {
+  const normalized = (language || 'VF')
+    .trim()
+    .toUpperCase()
+    .replace(/[\s_-]+/g, '');
+
+  if (['VF', 'VF1', 'VF2', 'VFF', 'VFFR', 'VFQ', 'FRENCH', 'TRUEFRENCH', 'FR'].includes(normalized)) {
+    return 'VF';
+  }
+  if (['VOSTFR', 'VOSTFR1', 'VOSTFR2', 'VOST', 'SUBFR', 'FRENCHSUB', 'SUB'].includes(normalized)) {
+    return 'VOSTFR';
+  }
+  if (['VO', 'EN', 'ENG', 'ENGLISH', 'VOSTA'].includes(normalized)) {
+    return 'VO';
+  }
+
+  return normalized || 'VF';
+}
+
+export function sortStreamLanguages(languages: string[]): string[] {
+  const priorities: Record<string, number> = {
+    VF: 0,
+    VOSTFR: 1,
+    VO: 2,
+  };
+
+  return [...languages].sort((left, right) => {
+    const leftPriority = priorities[normalizeStreamLanguage(left)] ?? 10;
+    const rightPriority = priorities[normalizeStreamLanguage(right)] ?? 10;
+    return leftPriority - rightPriority || left.localeCompare(right);
+  });
+}
+
+export function sortStreamsForRemotePlayback(streams: Stream[]): Stream[] {
+  return streams
+    .map((stream, index) => ({ stream, index }))
+    .sort((left, right) => {
+      const formatDifference =
+        (inferStreamFormat(left.stream) === 'file' ? 0 : 1) -
+        (inferStreamFormat(right.stream) === 'file' ? 0 : 1);
+      return formatDifference || left.index - right.index;
+    })
+    .map(({ stream }) => stream);
+}
+
 export function groupStreamsByLanguage(streams: Stream[]): Record<string, Stream[]> {
   return streams.reduce((grouped, stream) => {
-    const lang = stream.language || 'VF';
+    const lang = normalizeStreamLanguage(stream.language);
     
     if (!grouped[lang]) {
       grouped[lang] = [];

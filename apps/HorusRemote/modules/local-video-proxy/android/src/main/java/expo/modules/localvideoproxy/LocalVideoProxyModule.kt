@@ -9,83 +9,168 @@ import java.net.HttpURLConnection
 import java.net.URI
 import java.net.URL
 import java.net.NetworkInterface
+import java.io.Closeable
+import java.io.File
+import java.io.FileInputStream
+import java.io.FileOutputStream
+import java.io.IOException
 import java.io.InputStream
 import java.net.URLDecoder
 import java.security.MessageDigest
 import java.nio.charset.StandardCharsets
 import java.util.UUID
+import java.util.concurrent.atomic.AtomicBoolean
+
+data class HlsSegment(
+    val sequence: Long,
+    val url: String
+)
+
+data class HlsPlaylistSnapshot(
+    val mediaPlaylistUrl: String,
+    val segments: List<HlsSegment>,
+    val mediaSequence: Long,
+    val targetDurationMs: Long,
+    val hasEndList: Boolean
+)
+
+data class HlsVariant(
+    val bandwidth: Long,
+    val url: String,
+    val codecs: String?,
+    val width: Int?,
+    val height: Int?,
+    val usesExternalAudio: Boolean
+)
 
 class HlsSequenceInputStream(
-    private val playlistUrl: String,
-    private var segments: List<String>,
+    private val rootPlaylistUrl: String,
+    private var snapshot: HlsPlaylistSnapshot,
     private val referer: String?,
     private val origin: String?,
     private val userAgent: String,
-    private val server: LocalVideoProxyServer
+    private val server: LocalVideoProxyServer,
+    private val strict: Boolean = false
 ) : InputStream() {
-    private var currentSegmentIndex = 0
+    private var nextSequence = snapshot.mediaSequence
     private var currentStream: InputStream? = null
     private var currentConnection: HttpURLConnection? = null
+    @Volatile private var closed = false
 
-    private fun refreshSegments() {
+    private fun refreshSnapshot(): Boolean {
         try {
-            Log.d("LocalVideoProxy", "Refreshing segments from M3U8 playlist")
-            val freshSegments = server.fetchSegmentsFromM3u8(playlistUrl, referer, origin, userAgent)
-            if (freshSegments.isNotEmpty()) {
-                segments = freshSegments
-                Log.d("LocalVideoProxy", "Successfully refreshed segments. Count: ${segments.size}")
-            }
+            val freshSnapshot = server.fetchHlsSnapshot(
+                rootPlaylistUrl,
+                referer,
+                origin,
+                userAgent
+            )
+            snapshot = freshSnapshot
+            return snapshot.segments.any { it.sequence >= nextSequence }
         } catch (e: Exception) {
-            Log.e("LocalVideoProxy", "Error refreshing segments in stream", e)
+            Log.w("LocalVideoProxy", "HLS playlist refresh failed: ${e.message}")
+            return false
         }
+    }
+
+    private fun nextSegment(): HlsSegment? {
+        snapshot.segments.firstOrNull { it.sequence >= nextSequence }?.let {
+            return it
+        }
+
+        if (snapshot.hasEndList) return null
+
+        var refreshAttempts = 0
+        while (!closed && refreshAttempts < 12) {
+            val waitMs = (snapshot.targetDurationMs / 2).coerceIn(500L, 5_000L)
+            Thread.sleep(waitMs)
+            if (refreshSnapshot()) {
+                snapshot.segments.firstOrNull { it.sequence >= nextSequence }?.let {
+                    Log.d("LocalVideoProxy", "HLS window advanced at sequence ${it.sequence}")
+                    return it
+                }
+            }
+            if (snapshot.hasEndList) return null
+            refreshAttempts++
+        }
+
+        Log.w("LocalVideoProxy", "No new HLS segment after $refreshAttempts refresh attempts")
+        return null
     }
 
     private fun nextStream(): Boolean {
         currentStream?.close()
         currentConnection?.disconnect()
+        currentStream = null
+        currentConnection = null
 
-        if (currentSegmentIndex >= segments.size) {
-            return false
-        }
+        while (!closed) {
+            val segment = nextSegment() ?: return false
+            Log.d("LocalVideoProxy", "[Proxy] Pushing HLS segment sequence ${segment.sequence}")
 
-        val urlStr = segments[currentSegmentIndex]
-        Log.d("LocalVideoProxy", "[Proxy] Pushing segment ${currentSegmentIndex + 1}/${segments.size} to TV")
-
-        try {
-            var connection = server.openHttpConnection(urlStr, referer, origin, userAgent)
-            connection.connect()
-
-            var responseCode = connection.responseCode
-
-            // If the segment URL has expired, try to refresh all segment URLs and retry
-            if (responseCode == 403 || responseCode == 410 || responseCode == 401) {
-                Log.w("LocalVideoProxy", "Segment returned HTTP $responseCode (token expired). Refreshing M3U8...")
-                refreshSegments()
-                if (currentSegmentIndex < segments.size) {
-                    val freshUrlStr = segments[currentSegmentIndex]
-                    Log.d("LocalVideoProxy", "Retrying with refreshed URL...")
-                    connection.disconnect()
-                    connection = server.openHttpConnection(freshUrlStr, referer, origin, userAgent)
+            for (attempt in 0..2) {
+                try {
+                    var connection = server.openHttpConnection(
+                        segment.url,
+                        referer,
+                        origin,
+                        userAgent
+                    )
                     connection.connect()
-                    responseCode = connection.responseCode
+
+                    var responseCode = connection.responseCode
+
+                    if (responseCode == 401 || responseCode == 403 || responseCode == 410) {
+                        connection.disconnect()
+                        refreshSnapshot()
+                        val refreshedSegment = snapshot.segments
+                            .firstOrNull { it.sequence == segment.sequence }
+                        if (refreshedSegment != null) {
+                            connection = server.openHttpConnection(
+                                refreshedSegment.url,
+                                referer,
+                                origin,
+                                userAgent
+                            )
+                            connection.connect()
+                            responseCode = connection.responseCode
+                        }
+                    }
+
+                    if (responseCode in 200..299) {
+                        currentStream = connection.inputStream
+                        currentConnection = connection
+                        nextSequence = segment.sequence + 1
+                        return true
+                    }
+
+                    Log.w(
+                        "LocalVideoProxy",
+                        "HLS segment ${segment.sequence} attempt ${attempt + 1} " +
+                            "returned HTTP $responseCode"
+                    )
+                    connection.disconnect()
+                } catch (e: Exception) {
+                    Log.w(
+                        "LocalVideoProxy",
+                        "HLS segment ${segment.sequence} attempt ${attempt + 1} failed: " +
+                            e.message
+                    )
+                }
+
+                if (attempt < 2 && !closed) {
+                    Thread.sleep(500L * (attempt + 1))
                 }
             }
 
-            if (responseCode in 200..299) {
-                currentStream = connection.inputStream
-                currentConnection = connection
-                currentSegmentIndex++
-                return true
-            } else {
-                Log.e("LocalVideoProxy", "Failed to load segment $responseCode")
-                currentSegmentIndex++
-                return nextStream()
+            Log.w("LocalVideoProxy", "Skipping HLS segment ${segment.sequence} after retries")
+            if (strict) {
+                throw IOException("HLS segment ${segment.sequence} failed after retries")
             }
-        } catch (e: Exception) {
-            Log.e("LocalVideoProxy", "Exception loading segment", e)
-            currentSegmentIndex++
-            return nextStream()
+            nextSequence = segment.sequence + 1
         }
+
+        return false
     }
 
     override fun read(): Int {
@@ -111,6 +196,7 @@ class HlsSequenceInputStream(
     }
 
     override fun close() {
+        closed = true
         currentStream?.close()
         currentConnection?.disconnect()
         super.close()
@@ -119,7 +205,8 @@ class HlsSequenceInputStream(
 
 class LocalVideoProxyServer(
     port: Int,
-    private val accessToken: String
+    private val accessToken: String,
+    private val cacheDirectory: File
 ) : NanoHTTPD(port) {
 
     private fun isAuthorized(session: IHTTPSession): Boolean {
@@ -148,8 +235,8 @@ class LocalVideoProxyServer(
     ): HttpURLConnection {
         val connection = requireHttpUrl(urlString).openConnection() as HttpURLConnection
         connection.requestMethod = "GET"
-        connection.connectTimeout = 10_000
-        connection.readTimeout = 20_000
+        connection.connectTimeout = 15_000
+        connection.readTimeout = 45_000
         connection.setRequestProperty("User-Agent", userAgent)
         referer
             ?.takeIf { it.startsWith("http://") || it.startsWith("https://") }
@@ -183,13 +270,143 @@ class LocalVideoProxyServer(
         return resolved.toString()
     }
 
-    fun fetchSegmentsFromM3u8(
+    private fun selectCompatibleVariant(variants: List<HlsVariant>): HlsVariant {
+        val codecCompatible = variants.filter { variant ->
+            val codecs = variant.codecs?.lowercase().orEmpty()
+            codecs.isEmpty() ||
+                (("avc1" in codecs || "h264" in codecs) &&
+                    !("hev1" in codecs || "hvc1" in codecs || "av01" in codecs))
+        }
+        val resolutionCompatible = codecCompatible.filter { variant ->
+            (variant.width == null || variant.width <= 1920) &&
+                (variant.height == null || variant.height <= 1080)
+        }
+        val muxedCandidates = resolutionCompatible.filterNot { it.usesExternalAudio }
+        val candidates = when {
+            muxedCandidates.isNotEmpty() -> muxedCandidates
+            resolutionCompatible.isNotEmpty() -> resolutionCompatible
+            codecCompatible.isNotEmpty() -> codecCompatible
+            else -> variants
+        }
+
+        return candidates.maxByOrNull { it.bandwidth }
+            ?: variants.minByOrNull { it.bandwidth }
+            ?: throw IllegalStateException("HLS master playlist has no variant")
+    }
+
+    fun cacheFile(id: String, extension: String): File {
+        require(Regex("^[a-f0-9]{32}$").matches(id)) { "Invalid cache identifier" }
+        cacheDirectory.mkdirs()
+        return File(cacheDirectory, "$id.$extension")
+    }
+
+    fun removeCachedMedia(id: String) {
+        if (!Regex("^[a-f0-9]{32}$").matches(id)) return
+        cacheDirectory.listFiles()
+            ?.filter { it.name.startsWith("$id.") }
+            ?.forEach { it.delete() }
+    }
+
+    private fun findCachedMedia(id: String): File? {
+        if (!Regex("^[a-f0-9]{32}$").matches(id)) return null
+        return cacheDirectory.listFiles()
+            ?.firstOrNull {
+                it.isFile &&
+                    !it.name.endsWith(".part") &&
+                    it.name.startsWith("$id.")
+            }
+    }
+
+    private fun cachedContentType(file: File): String {
+        return when (file.extension.lowercase()) {
+            "ts" -> "video/mp2t"
+            "mkv" -> "video/x-matroska"
+            "webm" -> "video/webm"
+            else -> "video/mp4"
+        }
+    }
+
+    private fun serveCachedMedia(session: IHTTPSession): Response {
+        val id = session.parameters["id"]?.firstOrNull()
+            ?: return newFixedLengthResponse(
+                Response.Status.BAD_REQUEST,
+                MIME_PLAINTEXT,
+                "Missing cache identifier"
+            )
+        val file = findCachedMedia(id)
+            ?: return newFixedLengthResponse(
+                Response.Status.NOT_FOUND,
+                MIME_PLAINTEXT,
+                "Cached media not found"
+            )
+        val fileLength = file.length()
+        if (fileLength <= 0L) {
+            return newFixedLengthResponse(
+                Response.Status.INTERNAL_ERROR,
+                MIME_PLAINTEXT,
+                "Cached media is empty"
+            )
+        }
+
+        var start = 0L
+        var end = fileLength - 1
+        var isPartial = false
+        val rangeHeader = session.headers["range"]
+        if (!rangeHeader.isNullOrBlank()) {
+            val match = Regex("""bytes=(\d*)-(\d*)""").matchEntire(rangeHeader.trim())
+                ?: return newFixedLengthResponse(
+                    Response.Status.RANGE_NOT_SATISFIABLE,
+                    MIME_PLAINTEXT,
+                    "Invalid range"
+                )
+            val rawStart = match.groupValues[1]
+            val rawEnd = match.groupValues[2]
+            if (rawStart.isBlank() && rawEnd.isNotBlank()) {
+                val suffixLength = rawEnd.toLongOrNull()?.coerceAtMost(fileLength) ?: 0L
+                start = (fileLength - suffixLength).coerceAtLeast(0L)
+            } else {
+                start = rawStart.toLongOrNull() ?: 0L
+                end = rawEnd.toLongOrNull()?.coerceAtMost(fileLength - 1) ?: end
+            }
+            if (start !in 0 until fileLength || end < start) {
+                return newFixedLengthResponse(
+                    Response.Status.RANGE_NOT_SATISFIABLE,
+                    MIME_PLAINTEXT,
+                    "Range outside cached media"
+                ).apply {
+                    addHeader("Content-Range", "bytes */$fileLength")
+                }
+            }
+            isPartial = true
+        }
+
+        val length = end - start + 1
+        val input = FileInputStream(file)
+        input.channel.position(start)
+        val status = if (isPartial) Response.Status.PARTIAL_CONTENT else Response.Status.OK
+        return newFixedLengthResponse(status, cachedContentType(file), input, length).apply {
+            addHeader("Accept-Ranges", "bytes")
+            addHeader("Content-Length", length.toString())
+            addHeader("transferMode.dlna.org", "Streaming")
+            addHeader(
+                "contentFeatures.dlna.org",
+                "DLNA.ORG_OP=01;DLNA.ORG_CI=" +
+                    (if (file.extension.equals("ts", ignoreCase = true)) "1" else "0") +
+                    ";DLNA.ORG_FLAGS=01700000000000000000000000000000"
+            )
+            if (isPartial) {
+                addHeader("Content-Range", "bytes $start-$end/$fileLength")
+            }
+        }
+    }
+
+    fun fetchHlsSnapshot(
         playlistUrl: String,
         referer: String?,
         origin: String?,
         userAgent: String,
         depth: Int = 0
-    ): List<String> {
+    ): HlsPlaylistSnapshot {
         require(depth < 6) { "Too many nested HLS playlists" }
         requireHttpUrl(playlistUrl)
         val connection = openHttpConnection(playlistUrl, referer, origin, userAgent)
@@ -204,41 +421,83 @@ class LocalVideoProxyServer(
         val text = connection.inputStream.bufferedReader().use { it.readText() }
         connection.disconnect()
 
-        val segments = mutableListOf<String>()
-        val variants = mutableListOf<Pair<Long, String>>()
-        var pendingVariantBandwidth: Long? = null
+        require(text.lineSequence().any { it.trim() == "#EXTM3U" }) {
+            "Upstream response is not an HLS playlist"
+        }
+
+        val segments = mutableListOf<HlsSegment>()
+        val variants = mutableListOf<HlsVariant>()
+        var pendingVariant: HlsVariant? = null
         var unsupportedEncryption = false
         var usesFragmentedMp4 = false
+        var mediaSequence = 0L
+        var targetDurationMs = 4_000L
+        var hasEndList = false
 
         text.split("\n").forEach { line ->
             val trimmed = line.trim()
             if (trimmed.startsWith("#EXT-X-STREAM-INF:")) {
-                pendingVariantBandwidth = Regex("""(?:^|,)BANDWIDTH=(\d+)""")
-                    .find(trimmed.substringAfter(":"))
+                val attributes = trimmed.substringAfter(":")
+                val bandwidth = Regex("""(?:^|,)BANDWIDTH=(\d+)""")
+                    .find(attributes)
                     ?.groupValues
                     ?.get(1)
                     ?.toLongOrNull()
                     ?: 0L
+                val codecs = Regex("""(?:^|,)CODECS="([^"]+)"""")
+                    .find(attributes)
+                    ?.groupValues
+                    ?.get(1)
+                val resolution = Regex("""(?:^|,)RESOLUTION=(\d+)x(\d+)""")
+                    .find(attributes)
+                pendingVariant = HlsVariant(
+                    bandwidth = bandwidth,
+                    url = "",
+                    codecs = codecs,
+                    width = resolution?.groupValues?.get(1)?.toIntOrNull(),
+                    height = resolution?.groupValues?.get(2)?.toIntOrNull(),
+                    usesExternalAudio = Regex("""(?:^|,)AUDIO="[^"]+"""")
+                        .containsMatchIn(attributes)
+                )
             } else if (trimmed.startsWith("#EXT-X-KEY:") && !trimmed.contains("METHOD=NONE")) {
                 unsupportedEncryption = true
             } else if (trimmed.startsWith("#EXT-X-MAP:")) {
                 usesFragmentedMp4 = true
+            } else if (trimmed.startsWith("#EXT-X-MEDIA-SEQUENCE:")) {
+                mediaSequence = trimmed.substringAfter(":").trim().toLongOrNull() ?: 0L
+            } else if (trimmed.startsWith("#EXT-X-TARGETDURATION:")) {
+                val targetDurationSeconds = trimmed.substringAfter(":").trim().toDoubleOrNull()
+                if (targetDurationSeconds != null) {
+                    targetDurationMs = (targetDurationSeconds * 1_000).toLong()
+                }
+            } else if (trimmed == "#EXT-X-ENDLIST") {
+                hasEndList = true
             } else if (trimmed.isNotBlank() && !trimmed.startsWith("#")) {
                 val absoluteUrl = resolvePlaylistUri(playlistUrl, trimmed)
-                val bandwidth = pendingVariantBandwidth
-                if (bandwidth != null) {
-                    variants.add(bandwidth to absoluteUrl)
-                    pendingVariantBandwidth = null
+                val variant = pendingVariant
+                if (variant != null) {
+                    variants.add(variant.copy(url = absoluteUrl))
+                    pendingVariant = null
                 } else {
-                    segments.add(absoluteUrl)
+                    segments.add(
+                        HlsSegment(
+                            sequence = mediaSequence + segments.size,
+                            url = absoluteUrl
+                        )
+                    )
                 }
             }
         }
 
         if (variants.isNotEmpty()) {
-            val selectedVariant = variants.maxByOrNull { it.first }!!.second
-            return fetchSegmentsFromM3u8(
-                selectedVariant,
+            val selectedVariant = selectCompatibleVariant(variants)
+            Log.d(
+                "LocalVideoProxy",
+                "Selected HLS variant ${selectedVariant.width ?: "?"}x" +
+                    "${selectedVariant.height ?: "?"} @ ${selectedVariant.bandwidth}bps"
+            )
+            return fetchHlsSnapshot(
+                selectedVariant.url,
                 referer,
                 origin,
                 userAgent,
@@ -253,7 +512,13 @@ class LocalVideoProxyServer(
             "Fragmented MP4 HLS playlists cannot be exposed as an MPEG-TS DLNA stream"
         }
 
-        return segments
+        return HlsPlaylistSnapshot(
+            mediaPlaylistUrl = playlistUrl,
+            segments = segments,
+            mediaSequence = mediaSequence,
+            targetDurationMs = targetDurationMs.coerceIn(1_000L, 30_000L),
+            hasEndList = hasEndList
+        )
     }
 
     override fun serve(session: IHTTPSession): Response {
@@ -269,20 +534,26 @@ class LocalVideoProxyServer(
             return newFixedLengthResponse(Response.Status.UNAUTHORIZED, MIME_PLAINTEXT, "Unauthorized")
         }
 
-        if (session.uri == "/stream.ts") {
+        if (session.uri == "/cache") {
+            return serveCachedMedia(session)
+        } else if (session.uri == "/stream.ts") {
             if (targetUrlStr == null) return newFixedLengthResponse(Response.Status.BAD_REQUEST, MIME_PLAINTEXT, "Missing URL")
 
             try {
                 Log.d("LocalVideoProxy", "Starting authenticated HLS proxy")
-                val segments = fetchSegmentsFromM3u8(targetUrlStr, referer, origin, userAgent)
-                if (segments.isEmpty()) {
+                val snapshot = fetchHlsSnapshot(targetUrlStr, referer, origin, userAgent)
+                if (snapshot.segments.isEmpty()) {
                     return newFixedLengthResponse(Response.Status.INTERNAL_ERROR, MIME_PLAINTEXT, "No segments found")
                 }
 
-                Log.d("LocalVideoProxy", "Found ${segments.size} segments. Starting MPEG-TS Stitching.")
+                Log.d(
+                    "LocalVideoProxy",
+                    "Found ${snapshot.segments.size} HLS segments " +
+                        "(endList=${snapshot.hasEndList}). Starting MPEG-TS stitching."
+                )
                 val sequenceStream = HlsSequenceInputStream(
                     targetUrlStr,
-                    segments,
+                    snapshot,
                     referer,
                     origin,
                     userAgent,
@@ -356,6 +627,37 @@ class LocalVideoProxyModule : Module() {
     private var multicastLock: android.net.wifi.WifiManager.MulticastLock? = null
     private var wakeLock: android.os.PowerManager.WakeLock? = null
     private var wifiLock: android.net.wifi.WifiManager.WifiLock? = null
+    private val cacheCancelled = AtomicBoolean(false)
+    @Volatile private var cacheThread: Thread? = null
+    @Volatile private var activeCacheResource: Closeable? = null
+    @Volatile private var activeCacheConnection: HttpURLConnection? = null
+
+    private fun getCacheDirectory(): File {
+        val context = appContext.reactContext
+            ?: throw IllegalStateException("ReactContext unavailable")
+        return File(context.cacheDir, "horus_media_cache").apply { mkdirs() }
+    }
+
+    private fun clearCacheDirectory() {
+        val directory = getCacheDirectory()
+        directory.listFiles()?.forEach { file ->
+            if (file.isDirectory) {
+                file.deleteRecursively()
+            } else {
+                file.delete()
+            }
+        }
+    }
+
+    private fun cachedExtension(contentType: String, isHls: Boolean): String {
+        if (isHls) return "ts"
+        return when {
+            contentType.contains("matroska", ignoreCase = true) -> "mkv"
+            contentType.contains("webm", ignoreCase = true) -> "webm"
+            contentType.contains("mp2t", ignoreCase = true) -> "ts"
+            else -> "mp4"
+        }
+    }
 
     private fun acquireLocks() {
         try {
@@ -425,12 +727,13 @@ class LocalVideoProxyModule : Module() {
 
     override fun definition() = ModuleDefinition {
         Name("LocalVideoProxy")
+        Events("onCacheProgress")
 
         AsyncFunction("startServer") { port: Int, promise: Promise ->
             try {
                 if (server == null) {
                     accessToken = UUID.randomUUID().toString().replace("-", "")
-                    server = LocalVideoProxyServer(port, accessToken!!)
+                    server = LocalVideoProxyServer(port, accessToken!!, getCacheDirectory())
                     server?.start(NanoHTTPD.SOCKET_READ_TIMEOUT, false)
                     acquireLocks()
                 }
@@ -454,6 +757,217 @@ class LocalVideoProxyModule : Module() {
             } catch (e: Exception) {
                 promise.reject("ERR_SERVER_STOP", "Failed to stop server", e)
             }
+        }
+
+        AsyncFunction("cacheMedia") {
+            url: String,
+            format: String,
+            referer: String?,
+            origin: String?,
+            requestedUserAgent: String?,
+            promise: Promise ->
+            synchronized(this@LocalVideoProxyModule) {
+                if (cacheThread?.isAlive == true) {
+                    promise.reject(
+                        "ERR_CACHE_BUSY",
+                        "Another media download is already running",
+                        null
+                    )
+                    return@AsyncFunction
+                }
+
+                val activeServer = server
+                if (activeServer == null) {
+                    promise.reject(
+                        "ERR_SERVER_NOT_STARTED",
+                        "Local video server must be started before caching",
+                        null
+                    )
+                    return@AsyncFunction
+                }
+
+                cacheCancelled.set(false)
+                val cacheId = UUID.randomUUID().toString().replace("-", "")
+                val userAgent = requestedUserAgent
+                    ?.takeIf { it.length in 1..512 }
+                    ?: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+
+                cacheThread = Thread {
+                    val cacheDirectory = getCacheDirectory()
+                    val partialFile = File(cacheDirectory, "$cacheId.part")
+                    var finalFile: File? = null
+                    var connection: HttpURLConnection? = null
+                    var input: InputStream? = null
+                    try {
+                        val isHls = format.equals("hls", ignoreCase = true)
+                        var contentType = if (isHls) "video/mp2t" else "video/mp4"
+                        var totalBytes = -1L
+
+                        if (isHls) {
+                            val snapshot = activeServer.fetchHlsSnapshot(
+                                url,
+                                referer,
+                                origin,
+                                userAgent
+                            )
+                            input = HlsSequenceInputStream(
+                                url,
+                                snapshot,
+                                referer,
+                                origin,
+                                userAgent,
+                                activeServer,
+                                strict = true
+                            )
+                        } else {
+                            connection = activeServer.openHttpConnection(
+                                url,
+                                referer,
+                                origin,
+                                userAgent
+                            )
+                            activeCacheConnection = connection
+                            connection.connect()
+                            val responseCode = connection.responseCode
+                            if (responseCode !in 200..299) {
+                                throw IOException("Upstream returned HTTP $responseCode")
+                            }
+                            contentType = connection.contentType
+                                ?.substringBefore(";")
+                                ?.trim()
+                                ?.takeIf { it.isNotBlank() }
+                                ?: "video/mp4"
+                            totalBytes = connection.contentLengthLong
+                            if (
+                                totalBytes > 0 &&
+                                totalBytes + 100L * 1024L * 1024L > cacheDirectory.usableSpace
+                            ) {
+                                throw IOException("Not enough free space for cached media")
+                            }
+                            input = connection.inputStream
+                        }
+
+                        activeCacheResource = input
+                        var downloadedBytes = 0L
+                        var lastProgressAt = 0L
+                        val buffer = ByteArray(256 * 1024)
+                        FileOutputStream(partialFile).use { output ->
+                            while (true) {
+                                if (cacheCancelled.get()) {
+                                    throw IOException("Media download cancelled")
+                                }
+                                val read = input.read(buffer)
+                                if (read < 0) break
+                                output.write(buffer, 0, read)
+                                downloadedBytes += read
+
+                                if (cacheDirectory.usableSpace < 64L * 1024L * 1024L) {
+                                    throw IOException("Not enough free space to finish cached media")
+                                }
+
+                                val now = System.currentTimeMillis()
+                                if (now - lastProgressAt >= 250L) {
+                                    sendEvent(
+                                        "onCacheProgress",
+                                        mapOf(
+                                            "bytesDownloaded" to downloadedBytes.toDouble(),
+                                            "totalBytes" to totalBytes
+                                                .takeIf { it > 0 }
+                                                ?.toDouble()
+                                        )
+                                    )
+                                    lastProgressAt = now
+                                }
+                            }
+                            output.fd.sync()
+                        }
+
+                        if (cacheCancelled.get()) {
+                            throw IOException("Media download cancelled")
+                        }
+                        if (downloadedBytes <= 0L) {
+                            throw IOException("Downloaded media is empty")
+                        }
+
+                        val extension = cachedExtension(contentType, isHls)
+                        finalFile = activeServer.cacheFile(cacheId, extension)
+                        if (!partialFile.renameTo(finalFile)) {
+                            throw IOException("Could not finalize cached media")
+                        }
+                        sendEvent(
+                            "onCacheProgress",
+                            mapOf(
+                                "bytesDownloaded" to downloadedBytes.toDouble(),
+                                "totalBytes" to downloadedBytes.toDouble()
+                            )
+                        )
+                        promise.resolve(
+                            mapOf(
+                                "id" to cacheId,
+                                "contentType" to contentType,
+                                "sizeBytes" to downloadedBytes.toDouble()
+                            )
+                        )
+                    } catch (error: Exception) {
+                        partialFile.delete()
+                        finalFile?.delete()
+                        val code = if (cacheCancelled.get()) {
+                            "ERR_CACHE_CANCELLED"
+                        } else {
+                            "ERR_CACHE_DOWNLOAD"
+                        }
+                        promise.reject(code, error.message ?: "Media download failed", error)
+                    } finally {
+                        try {
+                            input?.close()
+                        } catch (_: Exception) {
+                        }
+                        connection?.disconnect()
+                        activeCacheResource = null
+                        activeCacheConnection = null
+                        cacheThread = null
+                    }
+                }.apply {
+                    name = "HorusMediaCache"
+                    start()
+                }
+            }
+        }
+
+        AsyncFunction("cancelCache") { promise: Promise ->
+            cacheCancelled.set(true)
+            try {
+                activeCacheResource?.close()
+            } catch (_: Exception) {
+            }
+            activeCacheConnection?.disconnect()
+            cacheThread?.interrupt()
+            promise.resolve(null)
+        }
+
+        AsyncFunction("removeCachedMedia") { id: String, promise: Promise ->
+            server?.removeCachedMedia(id)
+                ?: run {
+                    if (Regex("^[a-f0-9]{32}$").matches(id)) {
+                        getCacheDirectory().listFiles()
+                            ?.filter { it.name.startsWith("$id.") }
+                            ?.forEach { it.delete() }
+                    }
+                }
+            promise.resolve(null)
+        }
+
+        AsyncFunction("clearCache") { promise: Promise ->
+            if (cacheThread?.isAlive == true) {
+                promise.reject(
+                    "ERR_CACHE_BUSY",
+                    "Cannot clear cache while a download is running",
+                    null
+                )
+                return@AsyncFunction
+            }
+            clearCacheDirectory()
+            promise.resolve(null)
         }
 
         AsyncFunction("acquireMulticastLock") { promise: Promise ->

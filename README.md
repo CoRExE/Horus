@@ -45,7 +45,28 @@ graph LR
 2.  **Lecture :** Le téléphone lit le flux ou l'envoie à un appareil Cast/DLNA.
 3.  **Passerelle locale :** Le téléphone expose un proxy authentifié lorsqu'un flux exige des en-têtes HTTP spécifiques ou lorsqu'un manifeste HLS doit être présenté au renderer DLNA comme un flux MPEG-TS continu.
 
-La passerelle prend en charge les playlists HLS MPEG-TS, y compris les playlists maîtres et les URL relatives ou signées. Les variantes HLS chiffrées et les segments fMP4 nécessiteraient un véritable remuxage/transcodage et sont rejetés explicitement.
+La passerelle prend en charge les playlists HLS MPEG-TS, y compris les playlists
+maîtres, glissantes, relatives ou signées. Elle actualise le manifeste pendant la
+lecture, retente les segments en erreur et essaie un autre serveur si le renderer
+DLNA ne démarre pas. Les variantes HLS chiffrées et les segments fMP4
+nécessiteraient un véritable remuxage/transcodage et sont rejetés explicitement.
+
+La VF est prioritaire et une indisponibilité de cette piste impose un nouveau choix
+au lieu de basculer silencieusement vers la VO. Avec la passerelle MPEG-TS, les
+sous-titres séparés d'une source VOSTFR ne sont toutefois pas garantis sur le
+renderer DLNA.
+
+Lors de la sélection d'une TV, deux modes sont proposés :
+
+* **Immédiat :** le flux est relayé pendant la lecture.
+* **Téléchargement complet :** le média est d'abord enregistré dans le cache privé
+  de l'application, puis exposé comme un fichier HTTP local compatible avec les
+  requêtes `Range`. La lecture ne dépend alors plus du serveur distant.
+
+Le téléchargement complet peut être annulé et essaie le serveur suivant en cas
+d'échec. Les fichiers incomplets sont supprimés immédiatement. Le dossier de cache
+média est vidé à chaque lancement de l'application et après l'arrêt explicite de
+la diffusion.
 
 ## 🚀 Installation (Dev Mode)
 

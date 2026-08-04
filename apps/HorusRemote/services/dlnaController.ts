@@ -69,7 +69,8 @@ const sendSoapCommand = async (
   controlUrl: string,
   service: DlnaService,
   action: string,
-  args: Record<string, string> = {}
+  args: Record<string, string> = {},
+  options: { allowTransitionError?: boolean } = {}
 ) => {
   const soapMessage = buildSoapMessage(service, action, args);
   const isPolling = action.startsWith('Get');
@@ -94,7 +95,7 @@ const sendSoapCommand = async (
     if (!response.ok) {
       // L'erreur 701 "Transition Not Available" est normale si on essaie de Stopper, 
       // Mettre en pause ou Jouer alors que l'appareil est déjà dans cet état (ex: pause via télécommande TV)
-      if (text.includes('701')) {
+      if (text.includes('701') && options.allowTransitionError) {
         console.log(`[DLNA] SOAP Action ${action} ignorée (Déjà dans cet état ou action indisponible).`);
         return text;
       }
@@ -128,14 +129,15 @@ const escapeXml = (unsafe: string) => {
     .replace(/'/g, '&apos;');
 };
 
-const getContentType = (url: string) => {
+const getContentType = (url: string, explicitContentType?: string) => {
+  if (explicitContentType) return explicitContentType;
   if (url.includes('/stream.ts')) return 'video/mp2t';
   if (url.toLowerCase().includes('.m3u8')) return 'application/vnd.apple.mpegurl';
   return 'video/mp4';
 };
 
 const prepareRemoteStream = async (
-  stream: Pick<Stream, 'url' | 'format' | 'headers'>,
+  stream: Pick<Stream, 'url' | 'format' | 'contentType' | 'headers'>,
   options: { bridgeHls?: boolean } = {}
 ) => {
   const videoUrl = stream.url;
@@ -150,7 +152,10 @@ const prepareRemoteStream = async (
   // Même sans Referer, le téléphone transforme donc le HLS en MPEG-TS continu.
   const requiresProxy = (format === 'hls' && bridgeHls) || Boolean(referer || origin || userAgent);
   if (!requiresProxy) {
-    return { url: videoUrl, contentType: getContentType(videoUrl) };
+    return {
+      url: videoUrl,
+      contentType: getContentType(videoUrl, stream.contentType),
+    };
   }
 
   const { ip, token } = await LocalVideoProxy.startServer(8080);
@@ -175,12 +180,47 @@ const prepareRemoteStream = async (
 export const dlnaController = {
   prepareRemoteStream,
 
+  cacheStream: async (stream: Stream) => {
+    const headers = stream.headers;
+    const referer = headers?.Referer || headers?.referer;
+    const origin = headers?.Origin || headers?.origin;
+    const userAgent = headers?.['User-Agent'] || headers?.['user-agent'];
+    const { ip, token } = await LocalVideoProxy.startServer(8080);
+    const cached = await LocalVideoProxy.cacheMedia(
+      stream.url,
+      inferStreamFormat(stream),
+      referer,
+      origin,
+      userAgent
+    );
+    const query = new URLSearchParams({
+      token,
+      id: cached.id,
+    });
+
+    return {
+      cacheId: cached.id,
+      stream: {
+        ...stream,
+        url: `http://${ip}:8080/cache?${query.toString()}`,
+        server: `Cache • ${stream.server}`,
+        format: 'file' as const,
+        contentType: cached.contentType,
+        headers: undefined,
+      },
+    };
+  },
+
+  removeCachedMedia: async (cacheId: string) => {
+    await LocalVideoProxy.removeCachedMedia(cacheId);
+  },
+
   /**
    * Envoie la vidéo à la TV
    */
   castVideo: async (
     controlUrl: string,
-    stream: Pick<Stream, 'url' | 'format' | 'headers'>,
+    stream: Pick<Stream, 'url' | 'format' | 'contentType' | 'headers'>,
     title: string
   ) => {
     const preparedStream = await prepareRemoteStream(stream);
@@ -194,7 +234,13 @@ export const dlnaController = {
     const mimeType = preparedStream.contentType;
     
     // Les box strictes requièrent un protocolInfo valide dans la balise <res>
-    const protocolInfo = `http-get:*:${mimeType}:*`;
+    const isCachedFile = finalUrl.includes('/cache?');
+    const conversionIndicator =
+      isCachedFile && mimeType === 'video/mp2t' ? '1' : '0';
+    const dlnaFeatures = isCachedFile
+      ? `DLNA.ORG_OP=01;DLNA.ORG_CI=${conversionIndicator};DLNA.ORG_FLAGS=01700000000000000000000000000000`
+      : '*';
+    const protocolInfo = `http-get:*:${mimeType}:${dlnaFeatures}`;
 
     const metaData = `<DIDL-Lite xmlns="urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:upnp="urn:schemas-upnp-org:metadata-1-0/upnp/">
   <item id="1" parentID="0" restricted="1">
@@ -213,26 +259,62 @@ export const dlnaController = {
       CurrentURIMetaData: escapedMetaData
     });
 
-    // Attendre 1.5 seconde que la Box traite l'URI et charge le buffer initial
-    console.log('[DLNA] Waiting 1.5s for Box to transition...');
-    await new Promise(resolve => setTimeout(resolve, 1500));
+    // Le renderer ouvre ensuite l'URL locale et le proxy doit encore résoudre le
+    // manifeste HLS. On attend son état réel au lieu de supposer qu'1,5 s suffit.
+    let lastError: unknown;
+    for (let attempt = 0; attempt < 5; attempt++) {
+      await new Promise(resolve => setTimeout(resolve, 750 + attempt * 500));
+      try {
+        await sendSoapCommand(controlUrl, 'AVTransport', 'Play', { Speed: '1' });
+      } catch (error) {
+        lastError = error;
+      }
 
-    // 2. Lancer la lecture (Play)
-    await sendSoapCommand(controlUrl, 'AVTransport', 'Play', {
-      Speed: '1'
-    });
+      await new Promise(resolve => setTimeout(resolve, 600));
+      try {
+        const state = await dlnaController.getTransportState(controlUrl);
+        if (state === 'PLAYING') {
+          return;
+        }
+        lastError = new Error(`Renderer remained in ${state}`);
+      } catch (error) {
+        lastError = error;
+      }
+    }
+
+    throw lastError instanceof Error
+      ? lastError
+      : new Error('DLNA renderer did not start playback');
   },
 
   play: async (controlUrl: string) => {
-    await sendSoapCommand(controlUrl, 'AVTransport', 'Play', { Speed: '1' });
+    await sendSoapCommand(
+      controlUrl,
+      'AVTransport',
+      'Play',
+      { Speed: '1' },
+      { allowTransitionError: true }
+    );
   },
 
   pause: async (controlUrl: string) => {
-    await sendSoapCommand(controlUrl, 'AVTransport', 'Pause');
+    await sendSoapCommand(
+      controlUrl,
+      'AVTransport',
+      'Pause',
+      {},
+      { allowTransitionError: true }
+    );
   },
 
   stop: async (controlUrl: string) => {
-    await sendSoapCommand(controlUrl, 'AVTransport', 'Stop');
+    await sendSoapCommand(
+      controlUrl,
+      'AVTransport',
+      'Stop',
+      {},
+      { allowTransitionError: true }
+    );
   },
 
   seek: async (controlUrl: string, positionSeconds: number) => {
