@@ -1,6 +1,10 @@
 import { HorusProvider, SearchResult, Episode, Stream } from '../types';
 import { HttpClient } from '../utils/HttpClient';
 import { Unpacker } from '../utils/Unpacker';
+import {
+  extractFsvidHlsSource,
+  isPromotionalMediaUrl,
+} from '../utils/FsvidExtractor';
 import * as cheerio from 'cheerio';
 
 export class FrenchStreamProvider implements HorusProvider {
@@ -144,64 +148,115 @@ export class FrenchStreamProvider implements HorusProvider {
     }
 
     // Resolve direct links concurrently
-    await Promise.allSettled(providersToScrape.map(async ({ lang, providerName, embedUrl }) => {
-      try {
-        const rawEmbedUrl = embedUrl.startsWith('//') ? `https:${embedUrl}` : embedUrl;
-        let actualEmbed = rawEmbedUrl;
+    const resolvedProviders = await Promise.allSettled(
+      providersToScrape.map(async ({ lang, providerName, embedUrl }) => {
+        const resolvedStreams: Stream[] = [];
+        try {
+          const rawEmbedUrl = embedUrl.startsWith('//') ? `https:${embedUrl}` : embedUrl;
+          let actualEmbed = rawEmbedUrl;
 
-        // Follow Kakaflix redirects (skip moon/bigwar = Doodstream)
-        if (actualEmbed.includes('kakaflix.lol') && !actualEmbed.includes('/moon') && !actualEmbed.includes('/bigwar')) {
-          const initRes = await this.http.get(actualEmbed, { timeout: 10000 });
-          const redirectMatch = initRes.data.match(/window\.location\.href\s*=\s*'([^']+)'/);
-          if (redirectMatch) {
-            actualEmbed = redirectMatch[1];
-          } else {
-            return;
-          }
-        }
-
-        // Skip known unsupported providers (Cloudflare/WASM protected)
-        const unsupported = ['mixdrop', 'dood', 'dsvplay', 'kakaflix.lol/moon', 'kakaflix.lol//bigwar', 'filmoon'];
-        if (unsupported.some(p => actualEmbed.includes(p))) return;
-
-        const { data: pageHtml } = await this.http.get(actualEmbed, { 
-          timeout: 10000,
-          headers: { 'Referer': this.baseUrl }
-        });
-
-        if (actualEmbed.includes('uqload')) {
-          let uqHtml = pageHtml;
-          if (uqHtml.includes('eval(function')) {
-            const unpackMatch = uqHtml.match(/eval\(function[\s\S]*?\n<\/script>/) || uqHtml.match(/eval\(function.*?\)\)/);
-            if (unpackMatch) {
-              uqHtml = Unpacker.unpack(unpackMatch[0]);
+          // Follow Kakaflix redirects (skip moon/bigwar = Doodstream)
+          if (actualEmbed.includes('kakaflix.lol') && !actualEmbed.includes('/moon') && !actualEmbed.includes('/bigwar')) {
+            const initRes = await this.http.get(actualEmbed, { timeout: 10000 });
+            const redirectMatch = initRes.data.match(/window\.location\.href\s*=\s*'([^']+)'/);
+            if (redirectMatch) {
+              actualEmbed = redirectMatch[1];
+            } else {
+              return resolvedStreams;
             }
           }
-          let match = uqHtml.match(/sources:\s*\[\s*"([^"]+)"/);
-          if (!match) match = uqHtml.match(/(http[^"']+m3u8[^"']*)/);
-          if (!match) match = uqHtml.match(/(?:file|src):\s*['"]([^'"]+)['"]/);
-          
-          if (match && match[1]) {
-            streams.push({ url: match[1], language: lang.toUpperCase(), server: 'Uqload', headers: { 'Referer': 'https://uqload.is/' } });
-          }
-        } else if (actualEmbed.includes('voe.') || actualEmbed.includes('sandratableother.com')) {
-          const m1 = pageHtml.match(/var source\s*=\s*'([^']+)'/);
-          const m2 = pageHtml.match(/(?:hls|mp4)':\s*'([^']+)'/);
-          const link = m1 ? m1[1] : (m2 ? m2[1] : null);
-          if (link) {
-            streams.push({ url: link, language: lang.toUpperCase(), server: 'Voe', headers: { 'Referer': 'https://voe.sx/' } });
-          }
-        } else if (actualEmbed.includes('vidzy.live') || actualEmbed.includes('fsvid.lol')) {
-          if (pageHtml.includes('eval(function')) {
-            const decrypted = Unpacker.unpack(pageHtml);
-            const linkMatch = decrypted.match(/(http[^"']+m3u8[^"']*)/) || decrypted.match(/(?:file|src):\s*['"]([^'"]+)['"]/);
-            if (linkMatch && linkMatch[1]) {
-              streams.push({ url: linkMatch[1], language: lang.toUpperCase(), server: 'Vidzy', headers: { 'Referer': 'https://french-stream.one/' } });
+
+          // Skip known unsupported providers (Cloudflare/WASM protected)
+          const unsupported = ['mixdrop', 'dood', 'dsvplay', 'kakaflix.lol/moon', 'kakaflix.lol//bigwar', 'filmoon'];
+          if (unsupported.some(p => actualEmbed.includes(p))) return resolvedStreams;
+
+          const { data: pageHtml } = await this.http.get(actualEmbed, {
+            timeout: 10000,
+            headers: { 'Referer': this.baseUrl }
+          });
+
+          if (actualEmbed.includes('uqload')) {
+            let uqHtml = String(pageHtml);
+            if (uqHtml.includes('eval(function')) {
+              const unpackMatch = uqHtml.match(/eval\(function[\s\S]*?\n<\/script>/) || uqHtml.match(/eval\(function.*?\)\)/);
+              if (unpackMatch) {
+                uqHtml = Unpacker.unpack(unpackMatch[0]);
+              }
+            }
+            const candidates = [
+              uqHtml.match(/sources:\s*\[\s*"([^"]+)"/)?.[1],
+              uqHtml.match(/(?:file|src):\s*['"]([^'"]+)['"]/)?.[1],
+              ...Array.from(
+                uqHtml.matchAll(/(https?:\/\/[^"']+?\.m3u8[^"']*)/g),
+                match => match[1]
+              ),
+            ].filter((candidate): candidate is string => Boolean(candidate));
+            const link = candidates.find(candidate => !isPromotionalMediaUrl(candidate));
+
+            if (link) {
+              resolvedStreams.push({ url: link, language: lang.toUpperCase(), server: 'Uqload', headers: { 'Referer': 'https://uqload.is/' } });
+            }
+          } else if (actualEmbed.includes('voe.') || actualEmbed.includes('sandratableother.com')) {
+            const m1 = pageHtml.match(/var source\s*=\s*'([^']+)'/);
+            const m2 = pageHtml.match(/(?:hls|mp4)':\s*'([^']+)'/);
+            const link = m1 ? m1[1] : (m2 ? m2[1] : null);
+            if (link && !isPromotionalMediaUrl(link)) {
+              resolvedStreams.push({ url: link, language: lang.toUpperCase(), server: 'Voe', headers: { 'Referer': 'https://voe.sx/' } });
+            }
+          } else if (actualEmbed.includes('fsvid.lol')) {
+            if (pageHtml.includes('eval(function')) {
+              const decrypted = Unpacker.unpack(pageHtml);
+              const link = extractFsvidHlsSource(decrypted);
+              if (link) {
+                const embedOrigin = `${new URL(actualEmbed).origin}/`;
+                resolvedStreams.push({
+                  url: link,
+                  language: lang.toUpperCase(),
+                  server: 'Fsvid',
+                  format: 'hls',
+                  headers: { 'Referer': embedOrigin },
+                });
+              }
+            }
+          } else if (actualEmbed.includes('vidzy.live') || actualEmbed.includes('vidzy.org')) {
+            if (pageHtml.includes('eval(function')) {
+              const decrypted = Unpacker.unpack(pageHtml);
+              const candidates = [
+                decrypted.match(/(?:file|src):\s*['"]([^'"]+)['"]/)?.[1],
+                ...Array.from(
+                  decrypted.matchAll(/(https?:\/\/[^"']+?\.m3u8[^"']*)/g),
+                  match => match[1]
+                ),
+              ].filter((candidate): candidate is string => Boolean(candidate));
+              const link = candidates.find(candidate => !isPromotionalMediaUrl(candidate));
+              if (link) {
+                const embedOrigin = `${new URL(actualEmbed).origin}/`;
+                resolvedStreams.push({
+                  url: link,
+                  language: lang.toUpperCase(),
+                  server: 'Vidzy',
+                  format: 'hls',
+                  headers: { 'Referer': embedOrigin },
+                });
+              }
             }
           }
+          return resolvedStreams;
+        } catch (error) {
+          console.warn(
+            `FrenchStream: ${providerName} (${lang}) could not be resolved`,
+            error instanceof Error ? error.message : error
+          );
+          return resolvedStreams;
         }
-      } catch { }
-    }));
+      })
+    );
+
+    for (const result of resolvedProviders) {
+      if (result.status === 'fulfilled' && Array.isArray(result.value)) {
+        streams.push(...result.value);
+      }
+    }
 
     return streams;
   }
