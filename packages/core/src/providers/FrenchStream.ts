@@ -174,6 +174,7 @@ export class FrenchStreamProvider implements HorusProvider {
             timeout: 10000,
             headers: { 'Referer': this.baseUrl }
           });
+          const embedHostname = new URL(actualEmbed).hostname.toLowerCase();
 
           if (actualEmbed.includes('uqload')) {
             let uqHtml = String(pageHtml);
@@ -206,7 +207,7 @@ export class FrenchStreamProvider implements HorusProvider {
           } else if (actualEmbed.includes('fsvid.lol')) {
             if (pageHtml.includes('eval(function')) {
               const decrypted = Unpacker.unpack(pageHtml);
-              const link = extractFsvidHlsSource(decrypted);
+              const link = extractFsvidHlsSource(decrypted, embedHostname);
               if (link) {
                 const embedOrigin = `${new URL(actualEmbed).origin}/`;
                 resolvedStreams.push({
@@ -218,10 +219,11 @@ export class FrenchStreamProvider implements HorusProvider {
                 });
               }
             }
-          } else if (actualEmbed.includes('vidzy.live') || actualEmbed.includes('vidzy.org')) {
+          } else if (embedHostname.startsWith('vidzy.')) {
             if (pageHtml.includes('eval(function')) {
               const decrypted = Unpacker.unpack(pageHtml);
               const candidates = [
+                extractFsvidHlsSource(decrypted, embedHostname),
                 decrypted.match(/(?:file|src):\s*['"]([^'"]+)['"]/)?.[1],
                 ...Array.from(
                   decrypted.matchAll(/(https?:\/\/[^"']+?\.m3u8[^"']*)/g),

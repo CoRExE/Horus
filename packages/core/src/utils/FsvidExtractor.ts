@@ -59,7 +59,10 @@ const isUsableHlsUrl = (candidate: string): boolean => {
  * places a short `/troll/` HLS URL earlier in the unpacked script, while the
  * actual media URL is encoded in an inline base64/XOR function.
  */
-export const extractFsvidHlsSource = (unpackedScript: string): string | null => {
+export const extractFsvidHlsSource = (
+  unpackedScript: string,
+  sourceHostname?: string
+): string | null => {
   const sourceEntry = unpackedScript.match(
     /\bsources\s*:\s*\[\s*\{\s*src\s*:\s*([\s\S]{1,2500}?),\s*type\s*:\s*['"][^'"]+['"]/i
   );
@@ -77,9 +80,32 @@ export const extractFsvidHlsSource = (unpackedScript: string): string | null => 
   const payloadMatch = sourceExpression.match(
     /\}\s*\)\s*\(\s*['"]([A-Za-z0-9+/=_-]+)['"]\s*\)\s*$/
   );
-  if (!keyMatch || !payloadMatch || !/\batob\s*\(/.test(sourceExpression)) {
+  if (!payloadMatch || !/\batob\s*\(/.test(sourceExpression)) {
     return null;
   }
+
+  const encryptedBytes = decodeBase64Bytes(payloadMatch[1]);
+  if (!encryptedBytes) return null;
+
+  if (
+    sourceHostname &&
+    /\.reverse\s*\(\s*\)\s*\.join\s*\(\s*['"]{2}\s*\)/.test(sourceExpression) &&
+    /0x3d\s*\+\s*[A-Za-z_$][\w$]*\s*\*\s*89\s*\+/.test(sourceExpression)
+  ) {
+    const hostnameKey = Array.from(sourceHostname.toLowerCase()).reduce(
+      (sum, character) => (sum + character.charCodeAt(0)) & 0xff,
+      0
+    );
+    const decoded = [...encryptedBytes]
+      .reverse()
+      .map((value, index) =>
+        String.fromCharCode(value ^ ((0x3d + index * 89 + hostnameKey) & 0xff))
+      )
+      .join('');
+    if (isUsableHlsUrl(decoded)) return decoded;
+  }
+
+  if (!keyMatch) return null;
 
   const key = keyMatch[1]
     .split(',')
@@ -91,9 +117,6 @@ export const extractFsvidHlsSource = (unpackedScript: string): string | null => 
   ) {
     return null;
   }
-
-  const encryptedBytes = decodeBase64Bytes(payloadMatch[1]);
-  if (!encryptedBytes) return null;
 
   const decoded = encryptedBytes
     .map((value, index) => String.fromCharCode(value ^ key[index % key.length]))

@@ -102,6 +102,35 @@ const fsvidFixture = `
   })("${fsvidPayload}"),type:"application/x-mpegURL"}]});
 `;
 assert.equal(extractFsvidHlsSource(fsvidFixture), fsvidRealUrl);
+
+const rotatingHostname = 'fsvid.lol';
+const rotatingHostnameKey = Array.from(rotatingHostname).reduce(
+  (sum, character) => (sum + character.charCodeAt(0)) & 0xff,
+  0
+);
+const rotatingPayload = Buffer.from(
+  Array.from(fsvidRealUrl, (character, index) =>
+    character.charCodeAt(0) ^ ((0x3d + index * 89 + rotatingHostnameKey) & 0xff)
+  ).reverse()
+).toString('base64');
+const rotatingFixture = [
+  'videojs("vjsplayer", {sources:[{src:(function(s){',
+  '  var h=(location&&location.hostname)||"",H=0;',
+  '  for(var j=0;j<h.length;j++){H=(H+h.charCodeAt(j))&255}',
+  '  var b=atob(s),a=b.split("").reverse().join(""),r="";',
+  '  for(var i=0;i<a.length;i++){',
+  '    var kk=(0x3d+i*89+H)&255;',
+  '    r+=String.fromCharCode(a.charCodeAt(i)^kk)',
+  '  }',
+  '  return r',
+  '})("' + rotatingPayload + '"),type:"application/x-mpegURL"}]});',
+].join('\n');
+assert.equal(
+  extractFsvidHlsSource(rotatingFixture, rotatingHostname),
+  fsvidRealUrl
+);
+assert.equal(extractFsvidHlsSource(rotatingFixture), null);
+
 assert.equal(
   extractFsvidHlsSource(
     `videojs('vjsplayer',{sources:[{src:"${fsvidRealUrl}",type:"application/x-mpegURL"}]})`
