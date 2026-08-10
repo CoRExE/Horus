@@ -1,14 +1,18 @@
 package expo.modules.localvideoproxy
 
 import android.util.Log
+import com.google.android.gms.net.CronetProviderInstaller
+import com.google.android.gms.tasks.Tasks
 import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
 import expo.modules.kotlin.Promise
 import fi.iki.elonen.NanoHTTPD
+import org.chromium.net.CronetEngine
 import java.net.HttpURLConnection
 import java.net.URI
 import java.net.URL
 import java.net.NetworkInterface
+import java.net.URLEncoder
 import java.io.Closeable
 import java.io.File
 import java.io.FileInputStream
@@ -19,6 +23,7 @@ import java.net.URLDecoder
 import java.security.MessageDigest
 import java.nio.charset.StandardCharsets
 import java.util.UUID
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 
 data class HlsSegment(
@@ -206,8 +211,13 @@ class HlsSequenceInputStream(
 class LocalVideoProxyServer(
     port: Int,
     private val accessToken: String,
-    private val cacheDirectory: File
+    private val cacheDirectory: File,
+    private val cronetEngine: CronetEngine?
 ) : NanoHTTPD(port) {
+
+    @Volatile
+    var lastProxyError: String? = null
+        private set
 
     private fun isAuthorized(session: IHTTPSession): Boolean {
         val providedToken = session.parameters["token"]?.firstOrNull() ?: return false
@@ -233,11 +243,15 @@ class LocalVideoProxyServer(
         userAgent: String,
         range: String? = null
     ): HttpURLConnection {
-        val connection = requireHttpUrl(urlString).openConnection() as HttpURLConnection
+        val url = requireHttpUrl(urlString)
+        val connection = (cronetEngine?.openConnection(url) ?: url.openConnection())
+            as HttpURLConnection
         connection.requestMethod = "GET"
         connection.connectTimeout = 15_000
         connection.readTimeout = 45_000
         connection.setRequestProperty("User-Agent", userAgent)
+        connection.setRequestProperty("Accept", "*/*")
+        connection.setRequestProperty("Accept-Language", "fr-FR,fr;q=0.9,en;q=0.8")
         referer
             ?.takeIf { it.startsWith("http://") || it.startsWith("https://") }
             ?.let { connection.setRequestProperty("Referer", it) }
@@ -246,6 +260,123 @@ class LocalVideoProxyServer(
             ?.let { connection.setRequestProperty("Origin", it) }
         range?.let { connection.setRequestProperty("Range", it) }
         return connection
+    }
+
+    private fun openHlsRelayConnection(
+        urlString: String,
+        referer: String?,
+        origin: String?,
+        userAgent: String,
+        range: String?
+    ): HttpURLConnection {
+        var lastResponseCode: Int? = null
+        var lastException: Exception? = null
+
+        for (attempt in 0..2) {
+            try {
+                val connection = openHttpConnection(
+                    urlString,
+                    referer,
+                    origin,
+                    userAgent,
+                    range
+                )
+                connection.connect()
+                val responseCode = connection.responseCode
+                if (responseCode in 200..299) {
+                    if (attempt > 0) {
+                        Log.i(
+                            "LocalVideoProxy",
+                            "HLS upstream recovered after ${attempt + 1} attempts"
+                        )
+                    }
+                    return connection
+                }
+
+                lastResponseCode = responseCode
+                connection.disconnect()
+                val isRetryable = responseCode == 401 ||
+                    responseCode == 403 ||
+                    responseCode == 408 ||
+                    responseCode == 425 ||
+                    responseCode == 429 ||
+                    responseCode in 500..599
+                if (!isRetryable) break
+            } catch (error: Exception) {
+                lastException = error
+            }
+
+            if (attempt < 2) {
+                Thread.sleep(300L * (attempt + 1))
+            }
+        }
+
+        lastResponseCode?.let { responseCode ->
+            throw IOException("Upstream returned HTTP $responseCode")
+        }
+        throw IOException(
+            lastException?.message ?: "Unable to connect to the HLS upstream"
+        )
+    }
+
+    private fun localHlsPath(
+        upstreamUrl: String,
+        referer: String?,
+        origin: String?,
+        userAgent: String
+    ): String {
+        fun encoded(value: String): String =
+            URLEncoder.encode(value, StandardCharsets.UTF_8.toString())
+
+        val query = mutableListOf(
+            "token=${encoded(accessToken)}",
+            "url=${encoded(upstreamUrl)}",
+            "userAgent=${encoded(userAgent)}"
+        )
+        referer?.let { query.add("referer=${encoded(it)}") }
+        origin?.let { query.add("origin=${encoded(it)}") }
+        return "/hls?${query.joinToString("&")}"
+    }
+
+    private fun rewriteHlsPlaylist(
+        playlist: String,
+        playlistUrl: String,
+        referer: String?,
+        origin: String?,
+        userAgent: String
+    ): String {
+        val uriAttribute = Regex("""URI="([^"]+)"""")
+        return playlist.lineSequence().joinToString("\n") { line ->
+            val trimmed = line.trim()
+            when {
+                trimmed.isNotEmpty() && !trimmed.startsWith("#") -> {
+                    localHlsPath(
+                        resolvePlaylistUri(playlistUrl, trimmed),
+                        referer,
+                        origin,
+                        userAgent
+                    )
+                }
+                trimmed.startsWith("#") && uriAttribute.containsMatchIn(line) -> {
+                    uriAttribute.replace(line) { match ->
+                        val resolved = resolvePlaylistUri(playlistUrl, match.groupValues[1])
+                        "URI=\"${localHlsPath(resolved, referer, origin, userAgent)}\""
+                    }
+                }
+                else -> line
+            }
+        }
+    }
+
+    private fun rememberProxyError(targetUrl: String?, error: String): String {
+        val target = try {
+            targetUrl?.let { URL(it) }?.let { "${it.host}${it.path}" }
+        } catch (_: Exception) {
+            null
+        }
+        val transport = if (cronetEngine != null) "Cronet" else "HttpURLConnection"
+        val detail = "$error (transport: $transport)"
+        return if (target != null) "$target: $detail" else detail
     }
 
     private fun resolvePlaylistUri(playlistUrl: String, rawUri: String): String {
@@ -536,6 +667,84 @@ class LocalVideoProxyServer(
 
         if (session.uri == "/cache") {
             return serveCachedMedia(session)
+        } else if (session.uri == "/hls") {
+            if (targetUrlStr == null) {
+                return newFixedLengthResponse(
+                    Response.Status.BAD_REQUEST,
+                    MIME_PLAINTEXT,
+                    "Missing URL"
+                )
+            }
+
+            try {
+                val connection = openHlsRelayConnection(
+                    targetUrlStr,
+                    referer,
+                    origin,
+                    userAgent,
+                    session.headers["range"]
+                )
+                val responseCode = connection.responseCode
+
+                val upstreamContentType = connection.contentType
+                    ?.substringBefore(";")
+                    ?.trim()
+                    .orEmpty()
+                val isPlaylist = URL(targetUrlStr).path.endsWith(".m3u8", ignoreCase = true) ||
+                    upstreamContentType.contains("mpegurl", ignoreCase = true)
+
+                if (isPlaylist) {
+                    val playlist = connection.inputStream.bufferedReader().use { it.readText() }
+                    connection.disconnect()
+                    require(playlist.lineSequence().any { it.trim() == "#EXTM3U" }) {
+                        "Upstream response is not an HLS playlist"
+                    }
+                    val rewritten = rewriteHlsPlaylist(
+                        playlist,
+                        targetUrlStr,
+                        referer,
+                        origin,
+                        userAgent
+                    )
+                    return newFixedLengthResponse(
+                        Response.Status.OK,
+                        "application/vnd.apple.mpegurl",
+                        rewritten
+                    ).apply {
+                        addHeader("Access-Control-Allow-Origin", "*")
+                        addHeader("Cache-Control", "no-store")
+                    }
+                }
+
+                val input = connection.inputStream
+                val contentType = upstreamContentType.ifBlank { "application/octet-stream" }
+                val contentLength = connection.contentLengthLong
+                val status = if (responseCode == 206) {
+                    Response.Status.PARTIAL_CONTENT
+                } else {
+                    Response.Status.OK
+                }
+                val response = if (contentLength >= 0) {
+                    newFixedLengthResponse(status, contentType, input, contentLength)
+                } else {
+                    newChunkedResponse(status, contentType, input)
+                }
+                connection.getHeaderField("Content-Range")
+                    ?.let { response.addHeader("Content-Range", it) }
+                connection.getHeaderField("Accept-Ranges")
+                    ?.let { response.addHeader("Accept-Ranges", it) }
+                response.addHeader("Access-Control-Allow-Origin", "*")
+                return response
+            } catch (error: Exception) {
+                val message = error.message ?: error.javaClass.simpleName
+                lastProxyError = rememberProxyError(targetUrlStr, message)
+                Log.e("LocalVideoProxy", "HLS relay error", error)
+                return newFixedLengthResponse(
+                    Response.Status.INTERNAL_ERROR,
+                    MIME_PLAINTEXT,
+                    message
+                )
+            }
         } else if (session.uri == "/stream.ts") {
             if (targetUrlStr == null) return newFixedLengthResponse(Response.Status.BAD_REQUEST, MIME_PLAINTEXT, "Missing URL")
 
@@ -567,6 +776,10 @@ class LocalVideoProxyServer(
                 response.addHeader("contentFeatures.dlna.org", "DLNA.ORG_OP=00;DLNA.ORG_CI=0;DLNA.ORG_FLAGS=01700000000000000000000000000000")
                 return response
             } catch (e: Exception) {
+                lastProxyError = rememberProxyError(
+                    targetUrlStr,
+                    e.message ?: e.javaClass.simpleName
+                )
                 Log.e("LocalVideoProxy", "Proxy stitching error", e)
                 return newFixedLengthResponse(Response.Status.INTERNAL_ERROR, MIME_PLAINTEXT, e.message)
             }
@@ -622,8 +835,9 @@ class LocalVideoProxyServer(
 }
 
 class LocalVideoProxyModule : Module() {
-    private var server: LocalVideoProxyServer? = null
-    private var accessToken: String? = null
+    @Volatile private var server: LocalVideoProxyServer? = null
+    @Volatile private var accessToken: String? = null
+    @Volatile private var cronetEngine: CronetEngine? = null
     private var multicastLock: android.net.wifi.WifiManager.MulticastLock? = null
     private var wakeLock: android.os.PowerManager.WakeLock? = null
     private var wifiLock: android.net.wifi.WifiManager.WifiLock? = null
@@ -631,6 +845,25 @@ class LocalVideoProxyModule : Module() {
     @Volatile private var cacheThread: Thread? = null
     @Volatile private var activeCacheResource: Closeable? = null
     @Volatile private var activeCacheConnection: HttpURLConnection? = null
+
+    @Synchronized
+    private fun getOrCreateCronetEngine(): CronetEngine {
+        cronetEngine?.let { return it }
+        val context = appContext.reactContext?.applicationContext
+            ?: throw IllegalStateException("ReactContext unavailable")
+        Tasks.await(
+            CronetProviderInstaller.installProvider(context),
+            20,
+            TimeUnit.SECONDS
+        )
+        return CronetEngine.Builder(context)
+            .enableHttpCache(CronetEngine.Builder.HTTP_CACHE_DISABLED, 0)
+            .build()
+            .also {
+                cronetEngine = it
+                Log.i("LocalVideoProxy", "Chromium Cronet transport initialized")
+            }
+    }
 
     private fun getCacheDirectory(): File {
         val context = appContext.reactContext
@@ -730,21 +963,40 @@ class LocalVideoProxyModule : Module() {
         Events("onCacheProgress")
 
         AsyncFunction("startServer") { port: Int, promise: Promise ->
-            try {
-                if (server == null) {
-                    accessToken = UUID.randomUUID().toString().replace("-", "")
-                    server = LocalVideoProxyServer(port, accessToken!!, getCacheDirectory())
-                    server?.start(NanoHTTPD.SOCKET_READ_TIMEOUT, false)
-                    acquireLocks()
+            Thread {
+                try {
+                    synchronized(this@LocalVideoProxyModule) {
+                        if (server == null) {
+                            val transport = try {
+                                getOrCreateCronetEngine()
+                            } catch (error: Exception) {
+                                Log.e(
+                                    "LocalVideoProxy",
+                                    "Cronet unavailable; using the system HTTP transport",
+                                    error
+                                )
+                                null
+                            }
+                            accessToken = UUID.randomUUID().toString().replace("-", "")
+                            server = LocalVideoProxyServer(
+                                port,
+                                accessToken!!,
+                                getCacheDirectory(),
+                                transport
+                            )
+                            server?.start(NanoHTTPD.SOCKET_READ_TIMEOUT, false)
+                            acquireLocks()
+                        }
+                    }
+                    val ip = getLocalIpAddress() ?: "127.0.0.1"
+                    promise.resolve(mapOf(
+                        "ip" to ip,
+                        "token" to accessToken
+                    ))
+                } catch (e: Exception) {
+                    promise.reject("ERR_SERVER_START", "Failed to start server", e)
                 }
-                val ip = getLocalIpAddress() ?: "127.0.0.1"
-                promise.resolve(mapOf(
-                    "ip" to ip,
-                    "token" to accessToken
-                ))
-            } catch (e: Exception) {
-                promise.reject("ERR_SERVER_START", "Failed to start server", e)
-            }
+            }.start()
         }
 
         AsyncFunction("stopServer") { promise: Promise ->
@@ -757,6 +1009,10 @@ class LocalVideoProxyModule : Module() {
             } catch (e: Exception) {
                 promise.reject("ERR_SERVER_STOP", "Failed to stop server", e)
             }
+        }
+
+        AsyncFunction("getLastError") { promise: Promise ->
+            promise.resolve(server?.lastProxyError)
         }
 
         AsyncFunction("cacheMedia") {

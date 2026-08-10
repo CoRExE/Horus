@@ -4,8 +4,8 @@
   "private": true,
   "packageManager": "pnpm@10.24.0",
   "scripts": {
-    "typecheck": "pnpm --filter @horus/core typecheck && pnpm --filter horusremote typecheck",
-    "test": "pnpm --filter @horus/core test",
+    "typecheck": "pnpm --filter @horus/core typecheck && pnpm --filter horusremote typecheck && pnpm --filter horus-api typecheck",
+    "test": "pnpm --filter @horus/core test && pnpm --filter horus-api test",
     "check": "pnpm run typecheck && pnpm run test"
   },
   "engines": {

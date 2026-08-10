@@ -1,4 +1,4 @@
-export type ProviderId = 'anime-sama' | 'all-anime' | 'french-stream';
+export type ProviderId = 'anime-sama' | 'all-anime' | 'french-stream' | 'vidzy';
 
 export interface SearchResult {
   id: string; // URL path or unique identifier (e.g. "/catalogue/naruto")

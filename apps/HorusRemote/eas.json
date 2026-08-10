@@ -1,6 +1,6 @@
 {
   "cli": {
-    "version": ">= 16.0.0",
+    "version": ">= 21.0.0",
     "appVersionSource": "remote"
   },
   "build": {
@@ -13,6 +13,11 @@
     },
     "preview": {
       "distribution": "internal",
+      "node": "20.19.4",
+      "pnpm": "10.24.0",
+      "env": {
+        "EXPO_PUBLIC_HORUS_API_URL": "https://horus-api.horus-remote.workers.dev"
+      },
       "android": {
         "buildType": "apk"
       }

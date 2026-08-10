@@ -25,18 +25,12 @@ export const HorusMediaDetailsOverlay: React.FC<HorusMediaDetailsOverlayProps> =
   onInitStream,
 }) => {
   const toggleWishlist = useUserStore((state) => state.toggleWishlist);
-  const addToHistory = useUserStore((state) => state.addToHistory);
   const wishlist = useUserStore((state) => state.wishlist);
 
   // Sécurité si media est indéfini
   if (!media) return null;
 
   const isInWishlist = wishlist.some((item) => item.id === media.id);
-
-  const handleInitStream = () => {
-    addToHistory(media);
-    onInitStream();
-  };
 
   return (
     <Modal
@@ -88,7 +82,7 @@ export const HorusMediaDetailsOverlay: React.FC<HorusMediaDetailsOverlayProps> =
               <TouchableOpacity
                 style={styles.actionButton}
                 activeOpacity={0.7}
-                onPress={handleInitStream}
+                onPress={onInitStream}
               >
                 <Text style={styles.actionButtonText}>INITIALIZE STREAM</Text>
               </TouchableOpacity>

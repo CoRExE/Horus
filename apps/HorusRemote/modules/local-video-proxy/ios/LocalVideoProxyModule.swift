@@ -766,6 +766,21 @@ public class LocalVideoProxyModule: Module {
     }
   }
 
+  private func directContentType(for url: URL) -> String {
+    switch url.pathExtension.lowercased() {
+    case "ts", "m2ts":
+      return "video/mp2t"
+    case "mkv":
+      return "video/x-matroska"
+    case "webm":
+      return "video/webm"
+    case "m3u8":
+      return "application/vnd.apple.mpegurl"
+    default:
+      return "video/mp4"
+    }
+  }
+
   private func findCachedMedia(id: String) -> URL? {
     guard id.range(of: #"^[a-f0-9]{32}$"#, options: .regularExpression) != nil,
           let files = try? FileManager.default.contentsOfDirectory(
@@ -869,6 +884,32 @@ public class LocalVideoProxyModule: Module {
           )
         }
         
+        self.webServer?.addHandler(
+          forMethod: "HEAD",
+          path: "/stream.ts",
+          request: GCDWebServerRequest.self,
+          asyncProcessBlock: { request, completionBlock in
+            guard self.isAuthorized(request) else {
+              completionBlock(GCDWebServerDataResponse(statusCode: 401))
+              return
+            }
+            guard let targetUrlStr = request.query?["url"] as? String,
+                  self.validatedHttpUrl(targetUrlStr) != nil else {
+              completionBlock(GCDWebServerDataResponse(statusCode: 400))
+              return
+            }
+            let response = GCDWebServerDataResponse(statusCode: 200)
+            response.contentType = "video/mp2t"
+            response.setValue("Streaming", forAdditionalHeader: "transferMode.dlna.org")
+            response.setValue(
+              "DLNA.ORG_OP=00;DLNA.ORG_CI=1;" +
+                "DLNA.ORG_FLAGS=01700000000000000000000000000000",
+              forAdditionalHeader: "contentFeatures.dlna.org"
+            )
+            completionBlock(response)
+          }
+        )
+
         // Handler pour le MPEG-TS Stitching
         self.webServer?.addHandler(forMethod: "GET", path: "/stream.ts", request: GCDWebServerRequest.self, asyncProcessBlock: { request, completionBlock in
           guard self.isAuthorized(request) else {
@@ -905,6 +946,33 @@ public class LocalVideoProxyModule: Module {
               }
           }
         })
+
+        self.webServer?.addHandler(
+          forMethod: "HEAD",
+          path: "/proxy",
+          request: GCDWebServerRequest.self,
+          asyncProcessBlock: { request, completionBlock in
+            guard self.isAuthorized(request) else {
+              completionBlock(GCDWebServerDataResponse(statusCode: 401))
+              return
+            }
+            guard let targetUrlStr = request.query?["url"] as? String,
+                  let targetUrl = self.validatedHttpUrl(targetUrlStr) else {
+              completionBlock(GCDWebServerDataResponse(statusCode: 400))
+              return
+            }
+            let response = GCDWebServerDataResponse(statusCode: 200)
+            response.contentType = self.directContentType(for: targetUrl)
+            response.setValue("bytes", forAdditionalHeader: "Accept-Ranges")
+            response.setValue("Streaming", forAdditionalHeader: "transferMode.dlna.org")
+            response.setValue(
+              "DLNA.ORG_OP=01;DLNA.ORG_CI=0;" +
+                "DLNA.ORG_FLAGS=01700000000000000000000000000000",
+              forAdditionalHeader: "contentFeatures.dlna.org"
+            )
+            completionBlock(response)
+          }
+        )
 
         // Handler pour le Proxy Classique
         self.webServer?.addHandler(forMethod: "GET", path: "/proxy", request: GCDWebServerRequest.self, asyncProcessBlock: { request, completionBlock in
@@ -970,6 +1038,10 @@ public class LocalVideoProxyModule: Module {
       self.accessToken = nil
       self.activeStreamers.removeAll()
       self.activeStitchers.removeAll()
+      promise.resolve(nil)
+    }
+
+    AsyncFunction("getLastError") { (promise: Promise) in
       promise.resolve(nil)
     }
 

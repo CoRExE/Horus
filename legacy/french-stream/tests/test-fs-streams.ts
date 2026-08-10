@@ -1,7 +1,7 @@
-const fsProv = require('./packages/core/dist/providers/FrenchStream.js');
+import { FrenchStreamProvider } from '../FrenchStream';
 
 async function test() {
-  const prov = new fsProv.FrenchStreamProvider();
+  const prov = new FrenchStreamProvider();
   try {
     const streams = await prov.getStreams('15113782::movie');
     console.log("Streams found:", streams.length);

@@ -16,6 +16,10 @@ import {
   extractFsvidHlsSource,
   isPromotionalMediaUrl,
 } from '../src/utils/FsvidExtractor';
+import {
+  extractVidzyHlsSource,
+  extractVidzyIframeUrl,
+} from '../src/providers/Vidzy';
 
 const streams: Stream[] = [
   { url: 'https://example.test/vf.m3u8', language: 'VF', server: 'A' },
@@ -145,5 +149,35 @@ assert.equal(
 );
 assert.equal(isPromotionalMediaUrl('https://cdn.example/ad/master.m3u8'), true);
 assert.equal(isPromotionalMediaUrl(fsvidRealUrl), false);
+
+assert.equal(
+  extractVidzyIframeUrl(
+    '<iframe src="https://vidzy.cc/embed-safe.html"></iframe>'
+  ),
+  'https://vidzy.cc/embed-safe.html'
+);
+assert.equal(
+  extractVidzyIframeUrl(
+    '<iframe src="https://vidzy.cc.attacker.example/embed.html"></iframe>'
+  ),
+  null
+);
+
+const vidzyHlsUrl =
+  'https://u14.vidzy.cc/hls2/08/00019/video/master.m3u8?token=valid';
+assert.equal(
+  extractVidzyHlsSource(
+    `videojs('vjsplayer',{sources:[{src:"${vidzyHlsUrl}",type:"application/x-mpegURL"}]})`,
+    'vidzy.cc'
+  ),
+  vidzyHlsUrl
+);
+assert.equal(
+  extractVidzyHlsSource(
+    'videojs("vjsplayer",{sources:[{src:"https://evil.example/video/master.m3u8",type:"application/x-mpegURL"}]})',
+    'vidzy.cc'
+  ),
+  null
+);
 
 console.log('Core unit tests passed.');

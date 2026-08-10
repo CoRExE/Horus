@@ -125,7 +125,7 @@ export class AnimeSamaProvider implements HorusProvider {
       const TIMEOUT = 8000;
       
       try {
-          // Parse Sibnet — follow the 302 redirect to get the actual CDN URL
+          // Parse Sibnet without downloading the video body in JavaScript.
           if (providerUrl.includes('sibnet.ru')) {
               const idMatch = /videoid=(\d+)/.exec(providerUrl);
               if (idMatch) {
@@ -135,22 +135,12 @@ export class AnimeSamaProvider implements HorusProvider {
                  const hashMatch = /player\.src\(\[\{src: "\/v\/([^/]+)\//.exec(data);
                  if (hashMatch) {
                     const initialUrl = `https://video.sibnet.ru/v/${hashMatch[1]}/${videoId}.mp4`;
-                    const sibnetHeaders = { 'Referer': 'https://video.sibnet.ru/' };
-                    try {
-                        const redirectRes = await axios.get(initialUrl, {
-                            headers: { "user-agent": this.headers["user-agent"], "range": "bytes=0-", "accept-encoding": "identity", "referer": "https://video.sibnet.ru/" },
-                            maxRedirects: 0,
-                            validateStatus: (status) => status >= 200 && status < 400,
-                            timeout: TIMEOUT
-                        });
-                        if (redirectRes.status === 302 && redirectRes.headers.location) {
-                            return [{ url: redirectRes.headers.location, language: 'VOSTFR', quality: 'auto', server: 'Sibnet', headers: sibnetHeaders }];
-                        }
-                    } catch (e: any) {
-                        if (e.response?.status === 302 && e.response?.headers?.location) {
-                            return [{ url: e.response.headers.location, language: 'VOSTFR', quality: 'auto', server: 'Sibnet', headers: sibnetHeaders }];
-                        }
-                    }
+                    const sibnetHeaders = {
+                        'Referer': 'https://video.sibnet.ru/',
+                        'User-Agent': this.headers['user-agent']
+                    };
+                    // Let the native player/proxy follow Sibnet's redirect. Probing
+                    // it with an Axios GET can buffer the entire MP4 in React Native.
                     return [{ url: initialUrl, language: 'VOSTFR', quality: 'auto', server: 'Sibnet', headers: sibnetHeaders }];
                  }
               }

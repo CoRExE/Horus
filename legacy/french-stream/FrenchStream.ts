@@ -1,28 +1,43 @@
-import { HorusProvider, SearchResult, Episode, Stream } from '../types';
-import { HttpClient } from '../utils/HttpClient';
-import { Unpacker } from '../utils/Unpacker';
+// Legacy snapshot kept for reference only. This file is intentionally outside
+// every TypeScript project and must not be imported by production code.
+import { HorusProvider, SearchResult, Episode, Stream } from '../../packages/core/src/types';
+import { HttpClient } from '../../packages/core/src/utils/HttpClient';
+import { Unpacker } from '../../packages/core/src/utils/Unpacker';
 import {
   extractFsvidHlsSource,
   isPromotionalMediaUrl,
-} from '../utils/FsvidExtractor';
+} from '../../packages/core/src/utils/FsvidExtractor';
 import * as cheerio from 'cheerio';
 
 export class FrenchStreamProvider implements HorusProvider {
   name = 'French-Stream';
   private baseUrl = 'https://french-stream.lol';
   private http = HttpClient.create(this.baseUrl, 'https://fstream.info/');
+  private baseResolvedAt = 0;
+  private baseResolution?: Promise<void>;
 
   private async resolveBaseUrl() {
-    try {
-      const { data } = await HttpClient.create().get('https://fstream.info/');
-      const match = data.match(/https:\/\/fs[^/"]+\.lol/);
-      if (match) {
-        this.baseUrl = match[0];
-        this.http = HttpClient.create(this.baseUrl, 'https://fstream.info/');
-      }
-    } catch (e) {
-      console.warn("Could not resolve French-Stream base url, using fallback", this.baseUrl);
+    if (Date.now() - this.baseResolvedAt < 10 * 60 * 1000) return;
+    if (!this.baseResolution) {
+      this.baseResolution = (async () => {
+        try {
+          const { data } = await HttpClient.create().get('https://fstream.info/');
+          const match = data.match(/https:\/\/fs[^/"]+\.lol/);
+          if (match) {
+            this.baseUrl = match[0];
+            this.http = HttpClient.create(this.baseUrl, 'https://fstream.info/');
+          }
+        } catch (e) {
+          console.warn('Could not resolve French-Stream base url, using fallback', this.baseUrl);
+        } finally {
+          this.baseResolvedAt = Date.now();
+        }
+      })().finally(() => {
+        this.baseResolution = undefined;
+      });
     }
+
+    await this.baseResolution;
   }
 
   async search(query: string): Promise<SearchResult[]> {
@@ -109,6 +124,22 @@ export class FrenchStreamProvider implements HorusProvider {
       console.error(e);
       return [];
     }
+  }
+
+  async getTmdbId(mediaId: string): Promise<string> {
+    await this.resolveBaseUrl();
+    const apiResponse = await this.http.get(`/engine/ajax/film_api.php?id=${mediaId}`);
+    const apiData = typeof apiResponse.data === 'string'
+      ? JSON.parse(apiResponse.data)
+      : apiResponse.data;
+    const tag = String(apiData?.meta?.tagz || '');
+    const match = tag.match(/(?:^|[-_:])(\d+)$/);
+
+    if (!match) {
+      throw new Error('Identifiant TMDB introuvable pour ce média');
+    }
+
+    return match[1];
   }
 
   async getStreams(episodeId: string): Promise<Stream[]> {

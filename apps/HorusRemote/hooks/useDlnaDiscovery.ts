@@ -36,6 +36,27 @@ const fetchWithTimeout = async (url: string, timeoutMs = 5_000) => {
   }
 };
 
+const fetchDeviceDescription = async (url: string) => {
+  let lastError: unknown;
+
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      const response = await fetchWithTimeout(url, 2_500);
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      return response;
+    } catch (error) {
+      lastError = error;
+      if (attempt === 0) {
+        await new Promise(resolve => setTimeout(resolve, 250));
+      }
+    }
+  }
+
+  throw lastError instanceof Error
+    ? lastError
+    : new Error('Device description is unavailable');
+};
+
 export const useDlnaDiscovery = () => {
   const [devices, setDevices] = useState<Record<string, DlnaDevice>>({});
   const [isSearching, setIsSearching] = useState(false);
@@ -140,7 +161,7 @@ export const useDlnaDiscovery = () => {
 
           addLog(`Fetching XML description from ${locationUrl}...`);
           try {
-            const res = await fetchWithTimeout(locationUrl);
+            const res = await fetchDeviceDescription(locationUrl);
             addLog(`Fetch response status: ${res.status} for ${locationUrl}`);
             const xmlText = await res.text();
             addLog(`Fetched ${xmlText.length} bytes of XML from ${locationUrl}`);
@@ -202,6 +223,8 @@ export const useDlnaDiscovery = () => {
                addLog(`Device parsed but no AVTransport service found at ${locationUrl}`, true);
             }
           } catch (error: any) {
+            // A later SSDP response must be allowed to retry this device.
+            seenLocationsRef.current.delete(locationUrl);
             addLog(`Failed to fetch or parse DLNA description from ${locationUrl}: ${error.message || error}`, true);
           }
         } catch (error: any) {

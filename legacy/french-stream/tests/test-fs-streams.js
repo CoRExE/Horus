@@ -1,7 +1,8 @@
-import { FrenchStreamProvider } from '../src/providers/FrenchStream';
+// Legacy diagnostic script; retained for reference only.
+const fsProv = require('../dist/providers/FrenchStream.js');
 
 async function test() {
-  const prov = new FrenchStreamProvider();
+  const prov = new fsProv.FrenchStreamProvider();
   try {
     const streams = await prov.getStreams('15113782::movie');
     console.log("Streams found:", streams.length);

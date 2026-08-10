@@ -8,6 +8,7 @@ import {
 declare class LocalVideoProxyModule extends NativeModule<LocalVideoProxyEvents> {
   startServer(port: number): Promise<LocalVideoProxyServerInfo>;
   stopServer(): Promise<void>;
+  getLastError(): Promise<string | null>;
   cacheMedia(
     url: string,
     format: 'hls' | 'file',

@@ -138,7 +138,7 @@ const getContentType = (url: string, explicitContentType?: string) => {
 
 const prepareRemoteStream = async (
   stream: Pick<Stream, 'url' | 'format' | 'contentType' | 'headers'>,
-  options: { bridgeHls?: boolean } = {}
+  options: { bridgeHls?: boolean; preserveHls?: boolean } = {}
 ) => {
   const videoUrl = stream.url;
   const headers = stream.headers;
@@ -159,9 +159,11 @@ const prepareRemoteStream = async (
   }
 
   const { ip, token } = await LocalVideoProxy.startServer(8080);
-  // Un HLS protégé doit également être assemblé : un simple proxy du manifeste
-  // ne pourrait pas injecter ses en-têtes dans les requêtes de segments.
-  const proxyPath = format === 'hls' ? '/stream.ts' : '/proxy';
+  // Pour le lecteur local Android, le manifeste reste HLS mais toutes ses URI
+  // sont réécrites vers le proxy. Pour DLNA, il reste assemblé en MPEG-TS.
+  const proxyPath = format === 'hls'
+    ? (options.preserveHls ? '/hls' : '/stream.ts')
+    : '/proxy';
   const queryValues: Record<string, string> = {
     token,
     url: videoUrl,
@@ -173,7 +175,9 @@ const prepareRemoteStream = async (
 
   return {
     url: `http://${ip}:8080${proxyPath}?${query.toString()}`,
-    contentType: getContentType(proxyPath),
+    contentType: proxyPath === '/hls'
+      ? 'application/vnd.apple.mpegurl'
+      : getContentType(proxyPath),
   };
 };
 
@@ -185,10 +189,11 @@ export const dlnaController = {
     const referer = headers?.Referer || headers?.referer;
     const origin = headers?.Origin || headers?.origin;
     const userAgent = headers?.['User-Agent'] || headers?.['user-agent'];
+    const format = inferStreamFormat(stream);
     const { ip, token } = await LocalVideoProxy.startServer(8080);
     const cached = await LocalVideoProxy.cacheMedia(
       stream.url,
-      inferStreamFormat(stream),
+      format,
       referer,
       origin,
       userAgent
