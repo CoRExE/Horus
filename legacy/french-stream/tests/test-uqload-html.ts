@@ -1,5 +1,5 @@
 import { HttpClient } from '../src/utils/HttpClient';
-import { Unpacker } from '../src/utils/Unpacker';
+import { Unpacker } from '../../../packages/core/src/utils/Unpacker';
 
 async function test() {
   const http = HttpClient.create('https://uqload.is');

@@ -35,6 +35,8 @@ web-build/
 .env
 .env.*
 !.env.example
+.dev.vars
+.wrangler/
 *.jks
 *.keystore
 *.p8

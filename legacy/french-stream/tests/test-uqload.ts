@@ -1,4 +1,4 @@
-import { FrenchStreamProvider } from '../src/providers/FrenchStream';
+import { FrenchStreamProvider } from '../FrenchStream';
 
 async function test() {
   const prov = new FrenchStreamProvider();

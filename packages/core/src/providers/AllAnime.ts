@@ -120,11 +120,14 @@ export class AllAnimeProvider implements HorusProvider {
 
           for (const linkObj of linksData) {
             let directUrl = linkObj.link;
+            let format: Stream['format'];
             // Sometimes it's inside `hls: { url: ... }` or `mp4: { url: ... }`
             if (linkObj.hls && linkObj.hls.url) {
               directUrl = linkObj.hls.url;
+              format = 'hls';
             } else if (linkObj.mp4 && linkObj.mp4.url) {
                directUrl = linkObj.mp4.url;
+               format = 'file';
             }
 
             if (directUrl && typeof directUrl === 'string') {
@@ -148,7 +151,8 @@ export class AllAnimeProvider implements HorusProvider {
                   url: directUrl,
                   language: 'VOSTFR',
                   quality: linkObj.resolutionStr || 'auto',
-                  server: sourceName
+                  server: sourceName,
+                  format
                 });
               }
             }

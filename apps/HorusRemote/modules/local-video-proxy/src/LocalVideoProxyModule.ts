@@ -1,9 +1,24 @@
 import { NativeModule, requireNativeModule } from 'expo';
-import { LocalVideoProxyServerInfo } from './LocalVideoProxy.types';
+import {
+  CachedMediaInfo,
+  LocalVideoProxyEvents,
+  LocalVideoProxyServerInfo,
+} from './LocalVideoProxy.types';
 
-declare class LocalVideoProxyModule extends NativeModule<{}> {
+declare class LocalVideoProxyModule extends NativeModule<LocalVideoProxyEvents> {
   startServer(port: number): Promise<LocalVideoProxyServerInfo>;
   stopServer(): Promise<void>;
+  getLastError(): Promise<string | null>;
+  cacheMedia(
+    url: string,
+    format: 'hls' | 'file',
+    referer?: string,
+    origin?: string,
+    userAgent?: string
+  ): Promise<CachedMediaInfo>;
+  cancelCache(): Promise<void>;
+  removeCachedMedia(id: string): Promise<void>;
+  clearCache(): Promise<void>;
   acquireMulticastLock(): Promise<void>;
   releaseMulticastLock(): Promise<void>;
 }
