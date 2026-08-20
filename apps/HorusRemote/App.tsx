@@ -1,5 +1,5 @@
 import { StatusBar } from 'expo-status-bar';
-import { StyleSheet, Text, View, TextInput, ScrollView, Image, TouchableOpacity, Platform, ActivityIndicator, Modal } from 'react-native';
+import { StyleSheet, Text, View, TextInput, ScrollView, Image, TouchableOpacity, Platform, PermissionsAndroid, ActivityIndicator, Modal } from 'react-native';
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import * as NavigationBar from 'expo-navigation-bar';
@@ -88,6 +88,21 @@ const formatByteCount = (bytes: number) => {
 
 const isRemoteCacheCancellation = (error: unknown) =>
   error instanceof Error && error.message === REMOTE_CACHE_CANCELLED;
+
+const requestTvStreamingNotificationPermission = async () => {
+  if (Platform.OS !== 'android' || Number(Platform.Version) < 33) return;
+
+  const permission = PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS;
+  if (await PermissionsAndroid.check(permission)) return;
+
+  await PermissionsAndroid.request(permission, {
+    title: 'Notification de diffusion TV',
+    message:
+      'Horus affiche une notification pendant la diffusion afin qu’Android maintienne le serveur vidéo actif lorsque le téléphone est verrouillé.',
+    buttonPositive: 'Autoriser',
+    buttonNegative: 'Pas maintenant',
+  });
+};
 
 const inferProviderId = (media: {
   id: string | number;
@@ -272,6 +287,8 @@ export default function App() {
     if (!castSession && !activeDlnaDevice) {
       return false;
     }
+
+    await requestTvStreamingNotificationPermission();
 
     const shouldCache = remoteDeliveryMode === 'cache';
     cacheCancelledRef.current = false;

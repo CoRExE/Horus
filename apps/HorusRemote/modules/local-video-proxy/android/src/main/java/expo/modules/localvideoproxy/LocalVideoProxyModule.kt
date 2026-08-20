@@ -17,6 +17,7 @@ import java.io.Closeable
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
+import java.io.FilterInputStream
 import java.io.IOException
 import java.io.InputStream
 import java.net.URLDecoder
@@ -48,6 +49,48 @@ data class HlsVariant(
     val usesExternalAudio: Boolean
 )
 
+class ManagedHttpInputStream(
+    input: InputStream,
+    private val connection: HttpURLConnection,
+    private val onReadError: (IOException) -> Unit
+) : FilterInputStream(input) {
+    private val isClosed = AtomicBoolean(false)
+    private val didReportError = AtomicBoolean(false)
+
+    private fun report(error: IOException) {
+        if (didReportError.compareAndSet(false, true)) {
+            onReadError(error)
+        }
+    }
+
+    override fun read(): Int {
+        return try {
+            super.read()
+        } catch (error: IOException) {
+            report(error)
+            throw error
+        }
+    }
+
+    override fun read(buffer: ByteArray, offset: Int, length: Int): Int {
+        return try {
+            super.read(buffer, offset, length)
+        } catch (error: IOException) {
+            report(error)
+            throw error
+        }
+    }
+
+    override fun close() {
+        if (!isClosed.compareAndSet(false, true)) return
+        try {
+            super.close()
+        } finally {
+            connection.disconnect()
+        }
+    }
+}
+
 class HlsSequenceInputStream(
     private val rootPlaylistUrl: String,
     private var snapshot: HlsPlaylistSnapshot,
@@ -58,6 +101,9 @@ class HlsSequenceInputStream(
     private val strict: Boolean = false
 ) : InputStream() {
     private var nextSequence = snapshot.mediaSequence
+    private var currentSegment: HlsSegment? = null
+    private var currentSegmentBytesRead = 0L
+    private var currentSegmentReadRetries = 0
     private var currentStream: InputStream? = null
     private var currentConnection: HttpURLConnection? = null
     @Volatile private var closed = false
@@ -103,19 +149,33 @@ class HlsSequenceInputStream(
         return null
     }
 
+    private fun closeCurrentConnection() {
+        try {
+            currentStream?.close()
+        } catch (error: IOException) {
+            Log.d("LocalVideoProxy", "Ignoring HLS segment close error: ${error.message}")
+        } finally {
+            currentConnection?.disconnect()
+            currentStream = null
+            currentConnection = null
+        }
+    }
+
     private fun nextStream(): Boolean {
-        currentStream?.close()
-        currentConnection?.disconnect()
-        currentStream = null
-        currentConnection = null
+        closeCurrentConnection()
+        currentSegment = null
+        currentSegmentBytesRead = 0L
+        currentSegmentReadRetries = 0
 
         while (!closed) {
             val segment = nextSegment() ?: return false
             Log.d("LocalVideoProxy", "[Proxy] Pushing HLS segment sequence ${segment.sequence}")
 
             for (attempt in 0..2) {
+                var connection: HttpURLConnection? = null
                 try {
-                    var connection = server.openHttpConnection(
+                    var connectedSegment = segment
+                    connection = server.openHttpConnection(
                         segment.url,
                         referer,
                         origin,
@@ -131,6 +191,7 @@ class HlsSequenceInputStream(
                         val refreshedSegment = snapshot.segments
                             .firstOrNull { it.sequence == segment.sequence }
                         if (refreshedSegment != null) {
+                            connectedSegment = refreshedSegment
                             connection = server.openHttpConnection(
                                 refreshedSegment.url,
                                 referer,
@@ -145,6 +206,9 @@ class HlsSequenceInputStream(
                     if (responseCode in 200..299) {
                         currentStream = connection.inputStream
                         currentConnection = connection
+                        currentSegment = connectedSegment
+                        currentSegmentBytesRead = 0L
+                        currentSegmentReadRetries = 0
                         nextSequence = segment.sequence + 1
                         return true
                     }
@@ -156,6 +220,7 @@ class HlsSequenceInputStream(
                     )
                     connection.disconnect()
                 } catch (e: Exception) {
+                    connection?.disconnect()
                     Log.w(
                         "LocalVideoProxy",
                         "HLS segment ${segment.sequence} attempt ${attempt + 1} failed: " +
@@ -169,6 +234,10 @@ class HlsSequenceInputStream(
             }
 
             Log.w("LocalVideoProxy", "Skipping HLS segment ${segment.sequence} after retries")
+            server.recordProxyError(
+                segment.url,
+                "HLS segment ${segment.sequence} failed before transfer"
+            )
             if (strict) {
                 throw IOException("HLS segment ${segment.sequence} failed after retries")
             }
@@ -178,32 +247,146 @@ class HlsSequenceInputStream(
         return false
     }
 
-    override fun read(): Int {
-        if (currentStream == null && !nextStream()) return -1
+    private fun recoverCurrentSegment(readError: IOException): Boolean {
+        if (closed) return false
+        val failedSegment = currentSegment ?: return nextStream()
+        server.recordProxyError(
+            failedSegment.url,
+            "HLS segment ${failedSegment.sequence} transfer interrupted: " +
+                (readError.message ?: readError.javaClass.simpleName)
+        )
+        Log.w(
+            "LocalVideoProxy",
+            "HLS segment ${failedSegment.sequence} transfer interrupted after " +
+                "$currentSegmentBytesRead bytes",
+            readError
+        )
 
-        var b = currentStream?.read() ?: -1
-        while (b == -1) {
-            if (!nextStream()) return -1
-            b = currentStream?.read() ?: -1
+        closeCurrentConnection()
+
+        var resumeSegment = failedSegment
+        while (!closed && currentSegmentReadRetries < 2) {
+            currentSegmentReadRetries++
+            var connection: HttpURLConnection? = null
+            try {
+                val range = if (currentSegmentBytesRead > 0L) {
+                    "bytes=$currentSegmentBytesRead-"
+                } else {
+                    null
+                }
+                connection = server.openHttpConnection(
+                    resumeSegment.url,
+                    referer,
+                    origin,
+                    userAgent,
+                    range
+                )
+                connection.connect()
+                var responseCode = connection.responseCode
+                if (responseCode == 401 || responseCode == 403 || responseCode == 410) {
+                    connection.disconnect()
+                    refreshSnapshot()
+                    snapshot.segments
+                        .firstOrNull { it.sequence == failedSegment.sequence }
+                        ?.let { refreshedSegment ->
+                            resumeSegment = refreshedSegment
+                            currentSegment = refreshedSegment
+                            connection = server.openHttpConnection(
+                                refreshedSegment.url,
+                                referer,
+                                origin,
+                                userAgent,
+                                range
+                            )
+                            connection.connect()
+                            responseCode = connection.responseCode
+                        }
+                }
+                val resumedConnection = connection
+                    ?: throw IOException("HLS resume connection unavailable")
+                val canResume = responseCode in 200..299 &&
+                    (currentSegmentBytesRead == 0L || responseCode == 206)
+                if (canResume) {
+                    currentStream = resumedConnection.inputStream
+                    currentConnection = resumedConnection
+                    Log.i(
+                        "LocalVideoProxy",
+                        "Resumed HLS segment ${failedSegment.sequence} at byte " +
+                            "$currentSegmentBytesRead on attempt $currentSegmentReadRetries"
+                    )
+                    return true
+                }
+                Log.w(
+                    "LocalVideoProxy",
+                    "Unable to resume HLS segment ${failedSegment.sequence}: HTTP $responseCode"
+                )
+                resumedConnection.disconnect()
+            } catch (error: Exception) {
+                connection?.disconnect()
+                Log.w(
+                    "LocalVideoProxy",
+                    "HLS segment ${failedSegment.sequence} resume attempt " +
+                        "$currentSegmentReadRetries failed: ${error.message}"
+                )
+            }
+
+            if (currentSegmentReadRetries < 2 && !closed) {
+                Thread.sleep(500L * currentSegmentReadRetries)
+            }
         }
-        return b
+
+        if (strict) {
+            throw IOException(
+                "HLS segment ${failedSegment.sequence} transfer failed after retries",
+                readError
+            )
+        }
+
+        Log.w(
+            "LocalVideoProxy",
+            "Skipping the remainder of HLS segment ${failedSegment.sequence} to keep TV playback alive"
+        )
+        return nextStream()
+    }
+
+    override fun read(): Int {
+        while (!closed) {
+            if (currentStream == null && !nextStream()) return -1
+            try {
+                val value = currentStream?.read() ?: -1
+                if (value >= 0) {
+                    currentSegmentBytesRead++
+                    return value
+                }
+                if (!nextStream()) return -1
+            } catch (error: IOException) {
+                if (!recoverCurrentSegment(error)) return -1
+            }
+        }
+        return -1
     }
 
     override fun read(b: ByteArray, off: Int, len: Int): Int {
-        if (currentStream == null && !nextStream()) return -1
-
-        var bytesRead = currentStream?.read(b, off, len) ?: -1
-        while (bytesRead == -1) {
-            if (!nextStream()) return -1
-            bytesRead = currentStream?.read(b, off, len) ?: -1
+        if (len == 0) return 0
+        while (!closed) {
+            if (currentStream == null && !nextStream()) return -1
+            try {
+                val bytesRead = currentStream?.read(b, off, len) ?: -1
+                if (bytesRead >= 0) {
+                    currentSegmentBytesRead += bytesRead
+                    return bytesRead
+                }
+                if (!nextStream()) return -1
+            } catch (error: IOException) {
+                if (!recoverCurrentSegment(error)) return -1
+            }
         }
-        return bytesRead
+        return -1
     }
 
     override fun close() {
         closed = true
-        currentStream?.close()
-        currentConnection?.disconnect()
+        closeCurrentConnection()
         super.close()
     }
 }
@@ -377,6 +560,10 @@ class LocalVideoProxyServer(
         val transport = if (cronetEngine != null) "Cronet" else "HttpURLConnection"
         val detail = "$error (transport: $transport)"
         return if (target != null) "$target: $detail" else detail
+    }
+
+    fun recordProxyError(targetUrl: String?, error: String) {
+        lastProxyError = rememberProxyError(targetUrl, error)
     }
 
     private fun resolvePlaylistUri(playlistUrl: String, rawUri: String): String {
@@ -716,7 +903,16 @@ class LocalVideoProxyServer(
                     }
                 }
 
-                val input = connection.inputStream
+                val input = ManagedHttpInputStream(
+                    connection.inputStream,
+                    connection
+                ) { error ->
+                    lastProxyError = rememberProxyError(
+                        targetUrlStr,
+                        "Upstream transfer failed: ${error.message ?: error.javaClass.simpleName}"
+                    )
+                    Log.e("LocalVideoProxy", "HLS upstream transfer failed", error)
+                }
                 val contentType = upstreamContentType.ifBlank { "application/octet-stream" }
                 val contentLength = connection.contentLengthLong
                 val status = if (responseCode == 206) {
@@ -805,7 +1001,16 @@ class LocalVideoProxyServer(
                         "Upstream returned HTTP $responseCode"
                     )
                 }
-                val inputStream: InputStream = connection.inputStream
+                val inputStream: InputStream = ManagedHttpInputStream(
+                    connection.inputStream,
+                    connection
+                ) { error ->
+                    lastProxyError = rememberProxyError(
+                        targetUrlStr,
+                        "Upstream transfer failed: ${error.message ?: error.javaClass.simpleName}"
+                    )
+                    Log.e("LocalVideoProxy", "Media upstream transfer failed", error)
+                }
                 val contentType = connection.contentType ?: "video/mp4"
 
                 val status = if (responseCode == 206) Response.Status.PARTIAL_CONTENT else Response.Status.OK
@@ -839,8 +1044,6 @@ class LocalVideoProxyModule : Module() {
     @Volatile private var accessToken: String? = null
     @Volatile private var cronetEngine: CronetEngine? = null
     private var multicastLock: android.net.wifi.WifiManager.MulticastLock? = null
-    private var wakeLock: android.os.PowerManager.WakeLock? = null
-    private var wifiLock: android.net.wifi.WifiManager.WifiLock? = null
     private val cacheCancelled = AtomicBoolean(false)
     @Volatile private var cacheThread: Thread? = null
     @Volatile private var activeCacheResource: Closeable? = null
@@ -892,51 +1095,6 @@ class LocalVideoProxyModule : Module() {
         }
     }
 
-    private fun acquireLocks() {
-        try {
-            val context = appContext.reactContext ?: return
-
-            // WakeLock - prevents CPU sleep
-            val powerManager = context.applicationContext.getSystemService(android.content.Context.POWER_SERVICE) as? android.os.PowerManager
-            if (powerManager != null && wakeLock == null) {
-                wakeLock = powerManager.newWakeLock(android.os.PowerManager.PARTIAL_WAKE_LOCK, "Horus:LocalVideoProxyWakeLock")
-                wakeLock?.setReferenceCounted(false)
-            }
-            if (wakeLock?.isHeld == false) {
-                wakeLock?.acquire(120 * 60 * 1000L) // Limit to 2 hours max
-                Log.d("LocalVideoProxy", "WakeLock acquired")
-            }
-
-            // WifiLock - keeps Wifi active and high-performance
-            val wifiManager = context.applicationContext.getSystemService(android.content.Context.WIFI_SERVICE) as? android.net.wifi.WifiManager
-            if (wifiManager != null && wifiLock == null) {
-                wifiLock = wifiManager.createWifiLock(android.net.wifi.WifiManager.WIFI_MODE_FULL_HIGH_PERF, "Horus:LocalVideoProxyWifiLock")
-                wifiLock?.setReferenceCounted(false)
-            }
-            if (wifiLock?.isHeld == false) {
-                wifiLock?.acquire()
-                Log.d("LocalVideoProxy", "WifiLock acquired")
-            }
-        } catch (e: Exception) {
-            Log.e("LocalVideoProxy", "Failed to acquire locks", e)
-        }
-    }
-
-    private fun releaseLocks() {
-        try {
-            if (wakeLock?.isHeld == true) {
-                wakeLock?.release()
-                Log.d("LocalVideoProxy", "WakeLock released")
-            }
-            if (wifiLock?.isHeld == true) {
-                wifiLock?.release()
-                Log.d("LocalVideoProxy", "WifiLock released")
-            }
-        } catch (e: Exception) {
-            Log.e("LocalVideoProxy", "Failed to release locks", e)
-        }
-    }
-
     private fun getLocalIpAddress(): String? {
         try {
             val interfaces = NetworkInterface.getNetworkInterfaces()
@@ -965,6 +1123,8 @@ class LocalVideoProxyModule : Module() {
         AsyncFunction("startServer") { port: Int, promise: Promise ->
             Thread {
                 try {
+                    val context = appContext.reactContext?.applicationContext
+                        ?: throw IllegalStateException("ReactContext unavailable")
                     synchronized(this@LocalVideoProxyModule) {
                         if (server == null) {
                             val transport = try {
@@ -985,15 +1145,23 @@ class LocalVideoProxyModule : Module() {
                                 transport
                             )
                             server?.start(NanoHTTPD.SOCKET_READ_TIMEOUT, false)
-                            acquireLocks()
                         }
                     }
+                    // Republie la notification si l'autorisation vient d'être accordée
+                    // alors que le serveur local fonctionnait déjà.
+                    StreamingForegroundService.start(context)
                     val ip = getLocalIpAddress() ?: "127.0.0.1"
                     promise.resolve(mapOf(
                         "ip" to ip,
                         "token" to accessToken
                     ))
                 } catch (e: Exception) {
+                    server?.stop()
+                    server = null
+                    accessToken = null
+                    appContext.reactContext?.applicationContext?.let {
+                        StreamingForegroundService.stop(it)
+                    }
                     promise.reject("ERR_SERVER_START", "Failed to start server", e)
                 }
             }.start()
@@ -1004,7 +1172,9 @@ class LocalVideoProxyModule : Module() {
                 server?.stop()
                 server = null
                 accessToken = null
-                releaseLocks()
+                appContext.reactContext?.applicationContext?.let {
+                    StreamingForegroundService.stop(it)
+                }
                 promise.resolve(null)
             } catch (e: Exception) {
                 promise.reject("ERR_SERVER_STOP", "Failed to stop server", e)
