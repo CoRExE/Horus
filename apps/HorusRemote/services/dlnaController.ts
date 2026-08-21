@@ -184,19 +184,32 @@ const prepareRemoteStream = async (
 export const dlnaController = {
   prepareRemoteStream,
 
-  cacheStream: async (stream: Stream) => {
+  cacheStream: async (
+    stream: Stream,
+    maxHeight: 720 | 1080 = 720,
+    notification?: { title: string; imageUrl?: string }
+  ) => {
     const headers = stream.headers;
     const referer = headers?.Referer || headers?.referer;
     const origin = headers?.Origin || headers?.origin;
     const userAgent = headers?.['User-Agent'] || headers?.['user-agent'];
     const format = inferStreamFormat(stream);
     const { ip, token } = await LocalVideoProxy.startServer(8080);
+    await LocalVideoProxy.setTvNotificationMode(
+      'preparing',
+      notification?.title,
+      notification?.imageUrl,
+      false
+    ).catch(error => {
+      console.warn('[Notification] Unable to show cache preparation', error);
+    });
     const cached = await LocalVideoProxy.cacheMedia(
       stream.url,
       format,
       referer,
       origin,
-      userAgent
+      userAgent,
+      maxHeight
     );
     const query = new URLSearchParams({
       token,
@@ -208,7 +221,9 @@ export const dlnaController = {
       stream: {
         ...stream,
         url: `http://${ip}:8080/cache?${query.toString()}`,
-        server: `Cache • ${stream.server}`,
+        server: cached.contentType === 'video/mp4'
+          ? `Cache MP4 • ${stream.server}`
+          : `Cache TS (compatibilité) • ${stream.server}`,
         format: 'file' as const,
         contentType: cached.contentType,
         headers: undefined,

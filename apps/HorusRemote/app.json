@@ -2,6 +2,7 @@
   "expo": {
     "name": "HorusRemote",
     "slug": "HorusRemote",
+    "scheme": "horusremote",
     "version": "1.3.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",

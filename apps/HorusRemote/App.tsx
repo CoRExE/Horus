@@ -1,5 +1,5 @@
 import { StatusBar } from 'expo-status-bar';
-import { StyleSheet, Text, View, TextInput, ScrollView, Image, TouchableOpacity, Platform, PermissionsAndroid, ActivityIndicator, Modal } from 'react-native';
+import { StyleSheet, Text, View, TextInput, ScrollView, Image, TouchableOpacity, Platform, PermissionsAndroid, ActivityIndicator, Modal, Linking } from 'react-native';
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import * as NavigationBar from 'expo-navigation-bar';
@@ -22,7 +22,7 @@ import {
   useCastSession,
 } from 'react-native-google-cast';
 import { CastController } from './components/CastController';
-import { RemoteDeliveryMode, UnifiedCastModal } from './components/UnifiedCastModal';
+import { RemoteCacheQuality, RemoteDeliveryMode, UnifiedCastModal } from './components/UnifiedCastModal';
 import { DisconnectModal } from './components/DisconnectModal';
 import { DlnaDevice } from './hooks/useDlnaDiscovery';
 import { dlnaController } from './services/dlnaController';
@@ -136,6 +136,7 @@ interface PlaybackContext {
 interface RemotePlaybackSession extends PlaybackContext {
   language: string;
   canSeek: boolean;
+  usesCachedMedia: boolean;
 }
 
 export default function App() {
@@ -176,12 +177,14 @@ export default function App() {
   const [isDisconnectModalVisible, setIsDisconnectModalVisible] = useState(false);
   const [activeDlnaDevice, setActiveDlnaDevice] = useState<DlnaDevice | null>(null);
   const [remoteDeliveryMode, setRemoteDeliveryMode] = useState<RemoteDeliveryMode>('direct');
+  const [remoteCacheQuality, setRemoteCacheQuality] = useState<RemoteCacheQuality>(720);
   const [isCachingMedia, setIsCachingMedia] = useState(false);
   const [cacheProgress, setCacheProgress] = useState<CacheProgressEvent>({
     bytesDownloaded: 0,
   });
   const cacheCancelledRef = useRef(false);
   const lastCacheProgressAtRef = useRef(0);
+  const notificationCommandInFlightRef = useRef(false);
   const searchRequestIdRef = useRef(0);
   const mediaRequestIdRef = useRef(0);
   const localPlaybackUsesProxyRef = useRef(false);
@@ -293,7 +296,7 @@ export default function App() {
     const shouldCache = remoteDeliveryMode === 'cache';
     cacheCancelledRef.current = false;
     if (shouldCache) {
-      setCacheProgress({ bytesDownloaded: 0 });
+      setCacheProgress({ bytesDownloaded: 0, phase: 'downloading' });
       setIsCachingMedia(true);
     }
 
@@ -303,7 +306,10 @@ export default function App() {
         let cacheId: string | undefined;
         try {
           if (shouldCache) {
-            const cached = await dlnaController.cacheStream(stream);
+            const cached = await dlnaController.cacheStream(stream, remoteCacheQuality, {
+              title: context.title,
+              imageUrl: context.imageUrl,
+            });
             candidate = cached.stream;
             cacheId = cached.cacheId;
           }
@@ -339,16 +345,29 @@ export default function App() {
     }
 
     if (!selectedStream) {
+      if (shouldCache && Platform.OS === 'android') {
+        LocalVideoProxy.setTvNotificationMode(
+          'direct',
+          undefined,
+          undefined,
+          false
+        ).catch(console.error);
+      }
       throw lastError instanceof Error
         ? lastError
         : new Error('No remote stream could be started');
     }
 
     setPendingCastInfo({ title: context.title, imageUrl: context.imageUrl });
+    const selectedContentType = selectedStream.contentType?.toLowerCase() || '';
+    const isMpegTsFallback = selectedContentType.includes('mp2t');
     setRemotePlayback({
       ...context,
       language,
-      canSeek: Boolean(castSession) || inferStreamFormat(selectedStream) === 'file',
+      canSeek: !isMpegTsFallback && (
+        Boolean(castSession) || inferStreamFormat(selectedStream) === 'file'
+      ),
+      usesCachedMedia: shouldCache,
     });
     recordPlaybackInHistory(context);
     setIsCastRemoteVisible(true);
@@ -647,10 +666,180 @@ export default function App() {
         if (!isComplete && now - lastCacheProgressAtRef.current < 200) return;
         lastCacheProgressAtRef.current = now;
         setCacheProgress(progress);
+        if (Platform.OS === 'android') {
+          const phase = progress.phase === 'optimizing' ? 'optimizing' : 'downloading';
+          const notificationProgress = phase === 'optimizing'
+            ? progress.phaseProgress ?? -1
+            : progress.totalBytes && progress.totalBytes > 0
+              ? progress.bytesDownloaded / progress.totalBytes
+              : -1;
+          LocalVideoProxy.updateTvCacheProgress(
+            Math.min(1, Math.max(-1, notificationProgress)),
+            phase
+          ).catch(error => {
+            console.warn('[Notification] Unable to update cache progress', error);
+          });
+        }
       }
     );
     return () => subscription.remove();
   }, []);
+
+  useEffect(() => {
+    if (
+      Platform.OS !== 'android' ||
+      !remotePlayback?.usesCachedMedia
+    ) {
+      return;
+    }
+
+    let cancelled = false;
+    let refreshInProgress = false;
+    const updateNotification = (
+      isPlaying: boolean,
+      positionSeconds: number,
+      durationSeconds: number
+    ) => {
+      if (cancelled) return;
+      LocalVideoProxy.updateTvPlaybackState(
+        isPlaying,
+        positionSeconds,
+        durationSeconds
+      ).catch(error => {
+        console.warn('[Notification] Unable to synchronize TV playback', error);
+      });
+    };
+
+    void LocalVideoProxy.setTvNotificationMode(
+      'player',
+      remotePlayback.title,
+      remotePlayback.imageUrl,
+      remotePlayback.canSeek
+    ).then(() => updateNotification(true, 0, 0)).catch(error => {
+      console.warn('[Notification] Unable to show TV player', error);
+    });
+
+    if (castSession) {
+      const client = castSession.client;
+      let castIsPlaying = true;
+      let castPosition = 0;
+      let castDuration = 0;
+      const applyCastStatus = (
+        status: Awaited<ReturnType<typeof client.getMediaStatus>>
+      ) => {
+        if (!status || cancelled) return;
+        castIsPlaying = status.playerState === 'playing' || status.playerState === 'buffering';
+        castPosition = status.streamPosition ?? castPosition;
+        castDuration = status.mediaInfo?.streamDuration ?? castDuration;
+        updateNotification(castIsPlaying, castPosition, castDuration);
+      };
+
+      void client.getMediaStatus().then(applyCastStatus);
+      const statusSubscription = client.onMediaStatusUpdated(applyCastStatus);
+      const progressSubscription = client.onMediaProgressUpdated((progress, total) => {
+        castPosition = progress;
+        castDuration = total;
+        updateNotification(castIsPlaying, castPosition, castDuration);
+      }, 1_000);
+      return () => {
+        cancelled = true;
+        statusSubscription.remove();
+        progressSubscription.remove();
+      };
+    }
+
+    if (activeDlnaDevice) {
+      const refreshDlnaStatus = async () => {
+        if (refreshInProgress) return;
+        refreshInProgress = true;
+        try {
+          const status = await dlnaController.getPlaybackStatus(
+            activeDlnaDevice.controlUrl,
+            activeDlnaDevice.renderingControlUrl
+          );
+          updateNotification(
+            status.transportState === 'PLAYING' || status.transportState === 'TRANSITIONING',
+            status.positionSeconds,
+            status.durationSeconds
+          );
+        } catch (error) {
+          if (!cancelled) {
+            console.warn('[Notification] TV status temporarily unavailable', error);
+          }
+        } finally {
+          refreshInProgress = false;
+        }
+      };
+      void refreshDlnaStatus();
+      const interval = setInterval(() => void refreshDlnaStatus(), 2_000);
+      return () => {
+        cancelled = true;
+        clearInterval(interval);
+      };
+    }
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeDlnaDevice, castSession, remotePlayback]);
+
+  useEffect(() => {
+    if (Platform.OS !== 'android' || !remotePlayback?.usesCachedMedia) return;
+
+    const subscription = LocalVideoProxy.addListener('onMediaControl', event => {
+      if (notificationCommandInFlightRef.current && event.action !== 'stop') return;
+      notificationCommandInFlightRef.current = true;
+      void (async () => {
+        const castClient = castSession?.client;
+        if (event.action === 'play') {
+          if (castClient) await castClient.play();
+          else if (activeDlnaDevice) await dlnaController.play(activeDlnaDevice.controlUrl);
+        } else if (event.action === 'pause') {
+          if (castClient) await castClient.pause();
+          else if (activeDlnaDevice) await dlnaController.pause(activeDlnaDevice.controlUrl);
+        } else if (
+          event.action === 'seek' &&
+          remotePlayback.canSeek &&
+          event.positionSeconds !== undefined
+        ) {
+          if (castClient) await castClient.seek({ position: event.positionSeconds });
+          else if (activeDlnaDevice) {
+            await dlnaController.seek(activeDlnaDevice.controlUrl, event.positionSeconds);
+          }
+        } else if (event.action === 'stop') {
+          try {
+            if (castClient) await castClient.stop();
+            else if (activeDlnaDevice) await dlnaController.stop(activeDlnaDevice.controlUrl);
+          } finally {
+            setIsCastRemoteVisible(false);
+            setRemotePlayback(null);
+            stopProxyAndClearCache();
+          }
+        }
+      })().catch(error => {
+        console.warn('[Notification] TV command failed', error);
+      }).finally(() => {
+        notificationCommandInFlightRef.current = false;
+      });
+    });
+
+    return () => subscription.remove();
+  }, [activeDlnaDevice, castSession, remotePlayback]);
+
+  useEffect(() => {
+    const openTvRemote = ({ url }: { url: string }) => {
+      if (url === 'horusremote://tv-remote' && remotePlayback) {
+        setIsCastRemoteVisible(true);
+      }
+    };
+    void Linking.getInitialURL().then(url => {
+      if (url) openTvRemote({ url });
+    }).catch(error => {
+      console.warn('[Notification] Unable to read notification link', error);
+    });
+    const subscription = Linking.addEventListener('url', openTvRemote);
+    return () => subscription.remove();
+  }, [remotePlayback]);
 
   if (isBooting) {
     return <HorusBootSequence onBootComplete={() => setIsBooting(false)} />;
@@ -879,10 +1068,14 @@ export default function App() {
         <UnifiedCastModal
           visible={isUnifiedCastModalVisible}
           onClose={() => setIsUnifiedCastModalVisible(false)}
-          onSelectCast={setRemoteDeliveryMode}
-          onSelectDlna={(device, mode) => {
+          onSelectCast={(mode, quality) => {
+            setRemoteDeliveryMode(mode);
+            setRemoteCacheQuality(quality);
+          }}
+          onSelectDlna={(device, mode, quality) => {
             setActiveDlnaDevice(device);
             setRemoteDeliveryMode(mode);
+            setRemoteCacheQuality(quality);
           }}
         />
 
@@ -900,15 +1093,23 @@ export default function App() {
               <ActivityIndicator size="large" color="#00FFFF" />
               <Text style={styles.cacheModalTitle}>Préparation pour la TV</Text>
               <Text style={styles.cacheModalText}>
-                Téléchargement complet du média
+                {cacheProgress.phase === 'optimizing'
+                  ? 'Optimisation du fichier MP4'
+                  : `Téléchargement complet du média en ${remoteCacheQuality}p`}
               </Text>
-              <Text style={styles.cacheModalProgress}>
-                {formatByteCount(cacheProgress.bytesDownloaded)}
-                {cacheProgress.totalBytes
-                  ? ` / ${formatByteCount(cacheProgress.totalBytes)}`
-                  : ' téléchargés'}
-              </Text>
-              {cacheProgress.totalBytes ? (
+              {cacheProgress.phase === 'optimizing' ? (
+                <Text style={styles.cacheModalProgress}>
+                  {Math.round((cacheProgress.phaseProgress || 0) * 100)} %
+                </Text>
+              ) : (
+                <Text style={styles.cacheModalProgress}>
+                  {formatByteCount(cacheProgress.bytesDownloaded)}
+                  {cacheProgress.totalBytes
+                    ? ` / ${cacheProgress.totalBytesEstimated ? '~' : ''}${formatByteCount(cacheProgress.totalBytes)}`
+                    : ' téléchargés'}
+                </Text>
+              )}
+              {cacheProgress.phase === 'optimizing' || cacheProgress.totalBytes ? (
                 <View style={styles.cacheProgressTrack}>
                   <View
                     style={[
@@ -916,7 +1117,9 @@ export default function App() {
                       {
                         width: `${Math.min(
                           100,
-                          (cacheProgress.bytesDownloaded / cacheProgress.totalBytes) * 100
+                          cacheProgress.phase === 'optimizing'
+                            ? (cacheProgress.phaseProgress || 0) * 100
+                            : (cacheProgress.bytesDownloaded / (cacheProgress.totalBytes || 1)) * 100
                         )}%`,
                       },
                     ]}
@@ -924,7 +1127,7 @@ export default function App() {
                 </View>
               ) : (
                 <Text style={styles.cacheModalHint}>
-                  La taille totale du flux HLS sera connue à la fin.
+                  Calcul de la taille estimée du flux HLS…
                 </Text>
               )}
               <TouchableOpacity

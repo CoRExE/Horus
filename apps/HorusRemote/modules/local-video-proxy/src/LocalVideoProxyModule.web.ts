@@ -12,6 +12,12 @@ class LocalVideoProxyModule extends NativeModule<LocalVideoProxyEvents> {
 
   async stopServer(): Promise<void> {}
 
+  async setTvNotificationMode(): Promise<void> {}
+
+  async updateTvPlaybackState(): Promise<void> {}
+
+  async updateTvCacheProgress(): Promise<void> {}
+
   async cacheMedia(): Promise<CachedMediaInfo> {
     throw new Error('Le cache média TV nécessite l’application native.');
   }
