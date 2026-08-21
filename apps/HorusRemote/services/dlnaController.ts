@@ -187,7 +187,8 @@ export const dlnaController = {
   cacheStream: async (
     stream: Stream,
     maxHeight: 720 | 1080 = 720,
-    notification?: { title: string; imageUrl?: string }
+    notification?: { title: string; imageUrl?: string },
+    dlnaControlUrl?: string
   ) => {
     const headers = stream.headers;
     const referer = headers?.Referer || headers?.referer;
@@ -209,7 +210,14 @@ export const dlnaController = {
       referer,
       origin,
       userAgent,
-      maxHeight
+      maxHeight,
+      dlnaControlUrl
+        ? {
+            controlUrl: dlnaControlUrl,
+            ...(notification?.title ? { title: notification.title } : {}),
+            ...(notification?.imageUrl ? { imageUrl: notification.imageUrl } : {}),
+          }
+        : undefined
     );
     const query = new URLSearchParams({
       token,
@@ -218,6 +226,9 @@ export const dlnaController = {
 
     return {
       cacheId: cached.id,
+      startedRemotely: cached.dlnaStarted === true,
+      remoteStartError: cached.dlnaStartError,
+      fallbackReason: cached.fallbackReason,
       stream: {
         ...stream,
         url: `http://${ip}:8080/cache?${query.toString()}`,
@@ -226,6 +237,9 @@ export const dlnaController = {
           : `Cache TS (compatibilité) • ${stream.server}`,
         format: 'file' as const,
         contentType: cached.contentType,
+        durationSeconds: cached.durationSeconds,
+        sizeBytes: cached.sizeBytes,
+        seekable: cached.seekable,
         headers: undefined,
       },
     };
@@ -240,7 +254,7 @@ export const dlnaController = {
    */
   castVideo: async (
     controlUrl: string,
-    stream: Pick<Stream, 'url' | 'format' | 'contentType' | 'headers'>,
+    stream: Pick<Stream, 'url' | 'format' | 'contentType' | 'headers' | 'durationSeconds' | 'sizeBytes'>,
     title: string
   ) => {
     const preparedStream = await prepareRemoteStream(stream);
@@ -262,11 +276,17 @@ export const dlnaController = {
       : '*';
     const protocolInfo = `http-get:*:${mimeType}:${dlnaFeatures}`;
 
+    const durationAttribute = stream.durationSeconds && stream.durationSeconds > 0
+      ? ` duration="${formatDlnaTime(stream.durationSeconds)}"`
+      : '';
+    const sizeAttribute = stream.sizeBytes && stream.sizeBytes > 0
+      ? ` size="${Math.floor(stream.sizeBytes)}"`
+      : '';
     const metaData = `<DIDL-Lite xmlns="urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:upnp="urn:schemas-upnp-org:metadata-1-0/upnp/">
   <item id="1" parentID="0" restricted="1">
     <dc:title>${escapedTitle}</dc:title>
     <upnp:class>object.item.videoItem</upnp:class>
-    <res protocolInfo="${protocolInfo}">${escapedVideoUrl}</res>
+    <res protocolInfo="${protocolInfo}"${durationAttribute}${sizeAttribute}>${escapedVideoUrl}</res>
   </item>
 </DIDL-Lite>`;
 
@@ -338,10 +358,27 @@ export const dlnaController = {
   },
 
   seek: async (controlUrl: string, positionSeconds: number) => {
-    await sendSoapCommand(controlUrl, 'AVTransport', 'Seek', {
-      Unit: 'REL_TIME',
-      Target: formatDlnaTime(positionSeconds),
-    });
+    const target = formatDlnaTime(positionSeconds);
+    try {
+      await sendSoapCommand(controlUrl, 'AVTransport', 'Seek', {
+        Unit: 'REL_TIME',
+        Target: target,
+      });
+    } catch (relativeError) {
+      try {
+        await sendSoapCommand(controlUrl, 'AVTransport', 'Seek', {
+          Unit: 'ABS_TIME',
+          Target: target,
+        });
+      } catch (absoluteError) {
+        throw new Error(
+          `DLNA seek failed with REL_TIME and ABS_TIME: ${
+            absoluteError instanceof Error ? absoluteError.message : String(absoluteError)
+          }`,
+          { cause: relativeError }
+        );
+      }
+    }
   },
 
   getTransportState: async (controlUrl: string): Promise<DlnaTransportState> => {

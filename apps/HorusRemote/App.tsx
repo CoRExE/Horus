@@ -5,7 +5,7 @@ import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import * as NavigationBar from 'expo-navigation-bar';
 
 // Imports de notre librairie locale @horus/core
-import { AnimeSamaProvider, VidzyProvider, SearchResult, Episode, Stream, ProviderId, formatRemoteMediaTitle, groupStreamsByLanguage, inferStreamFormat, normalizeStreamLanguage, sortStreamLanguages, sortStreamsForRemotePlayback } from '@horus/core';
+import { AnimeSamaProvider, VidzyProvider, SearchResult, Episode, Stream, ProviderId, formatRemoteMediaTitle, groupStreamsByLanguage, inferStreamFormat, normalizeStreamLanguage, selectPlaybackDuration, sortStreamLanguages, sortStreamsForRemotePlayback } from '@horus/core';
 
 import VideoPlayer from './components/VideoPlayer';
 import { HorusBootSequence } from './components/HorusBootSequence';
@@ -137,6 +137,8 @@ interface RemotePlaybackSession extends PlaybackContext {
   language: string;
   canSeek: boolean;
   usesCachedMedia: boolean;
+  durationSeconds?: number;
+  playbackNotice?: string;
 }
 
 export default function App() {
@@ -285,6 +287,7 @@ export default function App() {
 
     const orderedStreams = sortStreamsForRemotePlayback(streams);
     let selectedStream: Stream | null = null;
+    let selectedFallbackReason: string | undefined;
     let lastError: unknown;
 
     if (!castSession && !activeDlnaDevice) {
@@ -304,19 +307,26 @@ export default function App() {
       for (const stream of orderedStreams) {
         let candidate = stream;
         let cacheId: string | undefined;
+        let startedRemotely = false;
+        let fallbackReason: string | undefined;
         try {
           if (shouldCache) {
             const cached = await dlnaController.cacheStream(stream, remoteCacheQuality, {
               title: context.title,
               imageUrl: context.imageUrl,
-            });
+            }, !castSession ? activeDlnaDevice?.controlUrl : undefined);
             candidate = cached.stream;
             cacheId = cached.cacheId;
+            startedRemotely = cached.startedRemotely;
+            fallbackReason = cached.fallbackReason;
+            if (cached.remoteStartError) {
+              console.warn('[DLNA] Native start failed; retrying from JavaScript:', cached.remoteStartError);
+            }
           }
 
           if (castSession) {
             await loadOnChromecast(candidate, context.title, context.imageUrl);
-          } else if (activeDlnaDevice) {
+          } else if (activeDlnaDevice && !startedRemotely) {
             console.log(`[DLNA] Trying server ${stream.server} (${language})`);
             await dlnaController.castVideo(
               activeDlnaDevice.controlUrl,
@@ -325,6 +335,7 @@ export default function App() {
             );
           }
           selectedStream = candidate;
+          selectedFallbackReason = fallbackReason;
           break;
         } catch (error) {
           lastError = error;
@@ -361,13 +372,20 @@ export default function App() {
     setPendingCastInfo({ title: context.title, imageUrl: context.imageUrl });
     const selectedContentType = selectedStream.contentType?.toLowerCase() || '';
     const isMpegTsFallback = selectedContentType.includes('mp2t');
+    const canSeekSelectedStream = selectedStream.seekable ?? (
+      !isMpegTsFallback && (
+        Boolean(castSession) || inferStreamFormat(selectedStream) === 'file'
+      )
+    );
     setRemotePlayback({
       ...context,
       language,
-      canSeek: !isMpegTsFallback && (
-        Boolean(castSession) || inferStreamFormat(selectedStream) === 'file'
-      ),
+      canSeek: canSeekSelectedStream,
       usesCachedMedia: shouldCache,
+      durationSeconds: selectedStream.durationSeconds,
+      playbackNotice: isMpegTsFallback
+        ? selectedFallbackReason || 'La conversion MP4 a échoué. Lecture MPEG-TS sans déplacement temporel.'
+        : undefined,
     });
     recordPlaybackInHistory(context);
     setIsCastRemoteVisible(true);
@@ -760,7 +778,11 @@ export default function App() {
           updateNotification(
             status.transportState === 'PLAYING' || status.transportState === 'TRANSITIONING',
             status.positionSeconds,
-            status.durationSeconds
+            selectPlaybackDuration(
+              remotePlayback.durationSeconds,
+              status.durationSeconds,
+              remotePlayback.canSeek
+            )
           );
         } catch (error) {
           if (!cancelled) {
@@ -1153,6 +1175,8 @@ export default function App() {
               dlnaDevice={activeDlnaDevice}
               dlnaTitle={pendingCastInfo?.title}
               canSeek={remotePlayback?.canSeek ?? true}
+              expectedDurationSeconds={remotePlayback?.durationSeconds}
+              playbackNotice={remotePlayback?.playbackNotice}
               hasPreviousEpisode={hasPreviousRemoteEpisode}
               hasNextEpisode={hasNextRemoteEpisode}
               isChangingEpisode={isChangingRemoteEpisode}

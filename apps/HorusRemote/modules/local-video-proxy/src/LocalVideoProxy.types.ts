@@ -8,6 +8,11 @@ export type CachedMediaInfo = {
   id: string;
   contentType: string;
   sizeBytes: number;
+  durationSeconds?: number;
+  seekable: boolean;
+  fallbackReason?: string;
+  dlnaStarted?: boolean;
+  dlnaStartError?: string;
 };
 
 export type CacheProgressEvent = {

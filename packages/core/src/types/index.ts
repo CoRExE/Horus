@@ -21,6 +21,9 @@ export interface Stream {
   server: string; // "Sibnet", "Sendvid", "Voe", etc.
   format?: 'hls' | 'file'; // Explicit hint when the URL does not expose its container
   contentType?: string; // MIME type when it cannot be inferred from the URL
+  durationSeconds?: number; // Known duration for cached/seekable files
+  sizeBytes?: number; // Known byte size for DLNA metadata and range playback
+  seekable?: boolean; // Native validation result for cached media
   headers?: Record<string, string>; // HTTP headers needed for playback (e.g. Referer)
 }
 
@@ -150,4 +153,20 @@ export function formatPlaybackTime(totalSeconds: number): string {
   }
 
   return `${minutes}:${String(seconds).padStart(2, '0')}`;
+}
+
+export function selectPlaybackDuration(
+  expectedDurationSeconds: number | undefined,
+  reportedDurationSeconds: number,
+  canSeek: boolean
+): number {
+  if (
+    expectedDurationSeconds !== undefined &&
+    Number.isFinite(expectedDurationSeconds) &&
+    expectedDurationSeconds > 0
+  ) {
+    return expectedDurationSeconds;
+  }
+  if (!canSeek || !Number.isFinite(reportedDurationSeconds)) return 0;
+  return Math.max(0, reportedDurationSeconds);
 }

@@ -28,7 +28,12 @@ declare class LocalVideoProxyModule extends NativeModule<LocalVideoProxyEvents> 
     referer?: string,
     origin?: string,
     userAgent?: string,
-    maxHeight?: number
+    maxHeight?: number,
+    dlnaOptions?: {
+      controlUrl: string;
+      title?: string;
+      imageUrl?: string;
+    }
   ): Promise<CachedMediaInfo>;
   cancelCache(): Promise<void>;
   removeCachedMedia(id: string): Promise<void>;

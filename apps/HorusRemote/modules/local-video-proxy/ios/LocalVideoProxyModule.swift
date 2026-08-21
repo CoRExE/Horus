@@ -1071,6 +1071,7 @@ public class LocalVideoProxyModule: Module {
         origin: String?,
         requestedUserAgent: String?,
         requestedMaxHeight: Int?,
+        dlnaOptions: [String: String]?,
         promise: Promise
       ) in
       self.cacheStateLock.lock()
@@ -1160,11 +1161,17 @@ public class LocalVideoProxyModule: Module {
               "bytesDownloaded": Double(sizeBytes),
               "totalBytes": Double(sizeBytes)
             ])
-            promise.resolve([
+            var result: [String: Any] = [
               "id": cacheId,
               "contentType": contentType,
-              "sizeBytes": Double(sizeBytes)
-            ])
+              "sizeBytes": Double(sizeBytes),
+              "seekable": contentType.lowercased() == "video/mp4",
+              "dlnaStarted": false
+            ]
+            if isHls {
+              result["fallbackReason"] = "La conversion MP4 n’est pas disponible sur iOS."
+            }
+            promise.resolve(result)
           } catch {
             try? FileManager.default.removeItem(at: partialFile)
             try? FileManager.default.removeItem(at: finalFile)

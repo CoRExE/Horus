@@ -72,6 +72,18 @@ data class HlsVariant(
     val usesExternalAudio: Boolean
 )
 
+data class MediaFileInspection(
+    val hasVideo: Boolean,
+    val hasAudio: Boolean,
+    val durationUs: Long
+)
+
+data class Mp4RemuxResult(
+    val succeeded: Boolean,
+    val durationUs: Long = 0L,
+    val fallbackReason: String? = null
+)
+
 class ManagedHttpInputStream(
     input: InputStream,
     private val connection: HttpURLConnection,
@@ -1085,6 +1097,8 @@ class LocalVideoProxyServer(
 class LocalVideoProxyModule : Module() {
     @Volatile private var server: LocalVideoProxyServer? = null
     @Volatile private var accessToken: String? = null
+    @Volatile private var localServerIp: String? = null
+    @Volatile private var localServerPort: Int = 8080
     @Volatile private var cronetEngine: CronetEngine? = null
     private var multicastLock: android.net.wifi.WifiManager.MulticastLock? = null
     private val cacheCancelled = AtomicBoolean(false)
@@ -1127,20 +1141,51 @@ class LocalVideoProxyModule : Module() {
         }
     }
 
+    private fun inspectMediaFile(inputFile: File): MediaFileInspection {
+        val extractor = MediaExtractor()
+        return try {
+            extractor.setDataSource(inputFile.absolutePath)
+            var hasVideo = false
+            var hasAudio = false
+            var durationUs = 0L
+            for (index in 0 until extractor.trackCount) {
+                val format = extractor.getTrackFormat(index)
+                val mime = format.getString(MediaFormat.KEY_MIME).orEmpty()
+                if (mime.startsWith("video/")) hasVideo = true
+                if (mime.startsWith("audio/")) hasAudio = true
+                if (format.containsKey(MediaFormat.KEY_DURATION)) {
+                    durationUs = maxOf(durationUs, format.getLong(MediaFormat.KEY_DURATION))
+                }
+            }
+            MediaFileInspection(hasVideo, hasAudio, durationUs)
+        } catch (error: Exception) {
+            Log.w("LocalVideoProxy", "Unable to inspect finalized cached media", error)
+            MediaFileInspection(false, false, 0L)
+        } finally {
+            extractor.release()
+        }
+    }
+
     @androidx.annotation.OptIn(UnstableApi::class)
     private fun remuxTsToMp4(
         context: android.content.Context,
         inputFile: File,
         outputFile: File,
         downloadedBytes: Long
-    ): Boolean {
+    ): Mp4RemuxResult {
         if (!hasMp4CompatibleTracks(inputFile)) {
             Log.w("LocalVideoProxy", "Cached TS is not H.264/AAC; keeping MPEG-TS fallback")
-            return false
+            return Mp4RemuxResult(
+                false,
+                fallbackReason = "Le flux n’utilise pas des pistes H.264/AAC compatibles MP4."
+            )
         }
         if (cacheDirectoryUsableSpace(inputFile.parentFile) < inputFile.length() + 64L * 1024L * 1024L) {
             Log.w("LocalVideoProxy", "Not enough free space to remux cached TS to MP4")
-            return false
+            return Mp4RemuxResult(
+                false,
+                fallbackReason = "Espace de stockage insuffisant pour finaliser le MP4."
+            )
         }
 
         outputFile.delete()
@@ -1225,7 +1270,25 @@ class LocalVideoProxyModule : Module() {
             exportError?.let {
                 Log.w("LocalVideoProxy", "MP4 remux failed; keeping MPEG-TS fallback", it)
             }
-            return false
+            return Mp4RemuxResult(
+                false,
+                fallbackReason = exportError?.message
+                    ?.takeIf { it.isNotBlank() }
+                    ?.let { "Conversion MP4 impossible : ${it.take(240)}" }
+                    ?: "La conversion MP4 a échoué."
+            )
+        }
+        val inspection = inspectMediaFile(outputFile)
+        if (
+            !outputFile.isFile || outputFile.length() <= 0L ||
+            !inspection.hasVideo || !inspection.hasAudio || inspection.durationUs <= 0L
+        ) {
+            outputFile.delete()
+            Log.w("LocalVideoProxy", "MP4 validation failed; keeping MPEG-TS fallback")
+            return Mp4RemuxResult(
+                false,
+                fallbackReason = "Le MP4 produit est incomplet ou ne contient pas de durée exploitable."
+            )
         }
         sendEvent(
             "onCacheProgress",
@@ -1236,7 +1299,7 @@ class LocalVideoProxyModule : Module() {
                 "phaseProgress" to 1.0
             )
         )
-        return outputFile.isFile && outputFile.length() > 0L
+        return Mp4RemuxResult(true, durationUs = inspection.durationUs)
     }
 
     private fun cacheDirectoryUsableSpace(directory: File?): Long =
@@ -1477,6 +1540,126 @@ class LocalVideoProxyModule : Module() {
         }
     }
 
+    private fun escapeXml(value: String): String = value
+        .replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+        .replace("\"", "&quot;")
+        .replace("'", "&apos;")
+
+    private fun formatDlnaTime(totalSeconds: Double): String {
+        val safeSeconds = totalSeconds.coerceAtLeast(0.0).toLong()
+        val hours = safeSeconds / 3_600L
+        val minutes = (safeSeconds % 3_600L) / 60L
+        val seconds = safeSeconds % 60L
+        return "%02d:%02d:%02d".format(hours, minutes, seconds)
+    }
+
+    private fun sendNativeDlnaCommand(
+        controlUrl: String,
+        action: String,
+        arguments: Map<String, String> = emptyMap()
+    ): String {
+        val target = URL(controlUrl)
+        require(target.protocol == "http" || target.protocol == "https") {
+            "Invalid DLNA control URL"
+        }
+        require(target.host.isNotBlank()) { "Invalid DLNA control host" }
+        val argsXml = arguments.entries.joinToString("") { (key, value) ->
+            "<$key>${escapeXml(value)}</$key>"
+        }
+        val body = """<?xml version="1.0" encoding="utf-8"?>
+<s:Envelope s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/" xmlns:s="http://schemas.xmlsoap.org/soap/envelope/">
+  <s:Body>
+    <u:$action xmlns:u="urn:schemas-upnp-org:service:AVTransport:1">
+      <InstanceID>0</InstanceID>$argsXml
+    </u:$action>
+  </s:Body>
+</s:Envelope>""".toByteArray(StandardCharsets.UTF_8)
+        val connection = target.openConnection() as HttpURLConnection
+        try {
+            connection.requestMethod = "POST"
+            connection.connectTimeout = 5_000
+            connection.readTimeout = 5_000
+            connection.doOutput = true
+            connection.setRequestProperty("Content-Type", "text/xml; charset=utf-8")
+            connection.setRequestProperty(
+                "SOAPAction",
+                "\"urn:schemas-upnp-org:service:AVTransport:1#$action\""
+            )
+            connection.setFixedLengthStreamingMode(body.size)
+            connection.outputStream.use { it.write(body) }
+            val responseCode = connection.responseCode
+            val responseText = (if (responseCode in 200..299) {
+                connection.inputStream
+            } else {
+                connection.errorStream
+            })?.bufferedReader()?.use { it.readText() }.orEmpty()
+            if (responseCode !in 200..299) {
+                throw IOException("DLNA $action returned HTTP $responseCode: ${responseText.take(240)}")
+            }
+            return responseText
+        } finally {
+            connection.disconnect()
+        }
+    }
+
+    private fun startCachedMediaOnDlna(
+        controlUrl: String,
+        mediaUrl: String,
+        title: String,
+        contentType: String,
+        sizeBytes: Long,
+        durationSeconds: Double
+    ) {
+        val conversionIndicator = if (contentType == "video/mp2t") "1" else "0"
+        val features =
+            "DLNA.ORG_OP=01;DLNA.ORG_CI=$conversionIndicator;" +
+                "DLNA.ORG_FLAGS=01700000000000000000000000000000"
+        val durationAttribute = if (durationSeconds > 0.0) {
+            " duration=\"${formatDlnaTime(durationSeconds)}\""
+        } else {
+            ""
+        }
+        val metadata = """<DIDL-Lite xmlns="urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:upnp="urn:schemas-upnp-org:metadata-1-0/upnp/">
+  <item id="1" parentID="0" restricted="1">
+    <dc:title>${escapeXml(title)}</dc:title>
+    <upnp:class>object.item.videoItem</upnp:class>
+    <res protocolInfo="http-get:*:$contentType:$features"$durationAttribute size="$sizeBytes">${escapeXml(mediaUrl)}</res>
+  </item>
+</DIDL-Lite>"""
+        sendNativeDlnaCommand(
+            controlUrl,
+            "SetAVTransportURI",
+            mapOf(
+                "CurrentURI" to mediaUrl,
+                "CurrentURIMetaData" to metadata
+            )
+        )
+
+        var lastError: Throwable? = null
+        repeat(5) { attempt ->
+            Thread.sleep(750L + attempt * 500L)
+            try {
+                sendNativeDlnaCommand(controlUrl, "Play", mapOf("Speed" to "1"))
+            } catch (error: Throwable) {
+                lastError = error
+            }
+            Thread.sleep(600L)
+            try {
+                val status = sendNativeDlnaCommand(controlUrl, "GetTransportInfo")
+                val state = Regex(
+                    "<(?:[A-Za-z0-9_-]+:)?CurrentTransportState>([^<]+)</(?:[A-Za-z0-9_-]+:)?CurrentTransportState>"
+                ).find(status)?.groupValues?.get(1)
+                if (state == "PLAYING") return
+                lastError = IOException("DLNA renderer remained in ${state ?: "UNKNOWN"}")
+            } catch (error: Throwable) {
+                lastError = error
+            }
+        }
+        throw IOException("Unable to start cached media on DLNA", lastError)
+    }
+
     private fun getLocalIpAddress(): String? {
         try {
             val interfaces = NetworkInterface.getNetworkInterfaces()
@@ -1625,6 +1808,8 @@ class LocalVideoProxyModule : Module() {
                     // alors que le serveur local fonctionnait déjà.
                     StreamingForegroundService.start(context)
                     val ip = getLocalIpAddress() ?: "127.0.0.1"
+                    localServerIp = ip
+                    localServerPort = port
                     promise.resolve(mapOf(
                         "ip" to ip,
                         "token" to accessToken
@@ -1633,6 +1818,7 @@ class LocalVideoProxyModule : Module() {
                     server?.stop()
                     server = null
                     accessToken = null
+                    localServerIp = null
                     appContext.reactContext?.applicationContext?.let {
                         StreamingForegroundService.stop(it)
                     }
@@ -1646,6 +1832,7 @@ class LocalVideoProxyModule : Module() {
                 server?.stop()
                 server = null
                 accessToken = null
+                localServerIp = null
                 appContext.reactContext?.applicationContext?.let {
                     StreamingForegroundService.stop(it)
                 }
@@ -1666,6 +1853,7 @@ class LocalVideoProxyModule : Module() {
             origin: String?,
             requestedUserAgent: String?,
             requestedMaxHeight: Int?,
+            dlnaOptions: Map<String, String>?,
             promise: Promise ->
             synchronized(this@LocalVideoProxyModule) {
                 if (cacheThread?.isAlive == true) {
@@ -1705,6 +1893,8 @@ class LocalVideoProxyModule : Module() {
                         var contentType = if (isHls) "video/mp2t" else "video/mp4"
                         var totalBytes = -1L
                         var downloadedBytes = 0L
+                        var durationUs = 0L
+                        var fallbackReason: String? = null
 
                         if (isHls) {
                             val snapshot = activeServer.fetchHlsSnapshot(
@@ -1717,6 +1907,7 @@ class LocalVideoProxyModule : Module() {
                                     ?: 720
                             )
                             val estimatedBytes = estimatedHlsSize(snapshot)
+                            durationUs = snapshot.segments.sumOf { it.durationUs }
                             if (
                                 estimatedBytes != null &&
                                 estimatedBytes + 100L * 1024L * 1024L > cacheDirectory.usableSpace
@@ -1816,14 +2007,18 @@ class LocalVideoProxyModule : Module() {
                             )
                             val context = appContext.reactContext?.applicationContext
                                 ?: throw IllegalStateException("ReactContext unavailable")
-                            if (remuxTsToMp4(
-                                    context,
-                                    partialFile,
-                                    remuxFile,
-                                    downloadedBytes
-                                )) {
+                            val remuxResult = remuxTsToMp4(
+                                context,
+                                partialFile,
+                                remuxFile,
+                                downloadedBytes
+                            )
+                            if (remuxResult.succeeded) {
                                 sourceFile = remuxFile
                                 contentType = "video/mp4"
+                                durationUs = remuxResult.durationUs
+                            } else {
+                                fallbackReason = remuxResult.fallbackReason
                             }
                         }
 
@@ -1836,6 +2031,13 @@ class LocalVideoProxyModule : Module() {
                             partialFile.delete()
                         }
                         val finalSizeBytes = finalFile.length()
+                        val isSeekableMp4 = contentType.equals("video/mp4", ignoreCase = true)
+                        if (isSeekableMp4) {
+                            val inspection = inspectMediaFile(finalFile)
+                            if (inspection.durationUs > 0L) durationUs = inspection.durationUs
+                        }
+                        val seekable = isSeekableMp4 && durationUs > 0L
+                        val durationSeconds = durationUs.toDouble() / 1_000_000.0
                         sendEvent(
                             "onCacheProgress",
                             mapOf(
@@ -1849,12 +2051,60 @@ class LocalVideoProxyModule : Module() {
                                 "phaseProgress" to 1.0
                             )
                         )
+                        var dlnaStarted = false
+                        var dlnaStartError: String? = null
+                        val dlnaControlUrl = dlnaOptions?.get("controlUrl")
+                        val dlnaTitle = dlnaOptions?.get("title")
+                        val dlnaImageUrl = dlnaOptions?.get("imageUrl")
+                        if (!dlnaControlUrl.isNullOrBlank()) {
+                            val ip = localServerIp ?: getLocalIpAddress() ?: "127.0.0.1"
+                            val token = accessToken
+                                ?: throw IllegalStateException("Local video server token unavailable")
+                            val mediaUrl = "http://$ip:$localServerPort/cache?token=" +
+                                URLEncoder.encode(token, StandardCharsets.UTF_8.name()) +
+                                "&id=" + URLEncoder.encode(cacheId, StandardCharsets.UTF_8.name())
+                            try {
+                                startCachedMediaOnDlna(
+                                    dlnaControlUrl,
+                                    mediaUrl,
+                                    dlnaTitle?.takeIf { it.isNotBlank() } ?: "Lecture Horus",
+                                    contentType,
+                                    finalSizeBytes,
+                                    durationSeconds
+                                )
+                                dlnaStarted = true
+                                val context = appContext.reactContext?.applicationContext
+                                    ?: throw IllegalStateException("ReactContext unavailable")
+                                StreamingForegroundService.setNotificationMode(
+                                    context,
+                                    StreamingForegroundService.MODE_PLAYER,
+                                    dlnaTitle,
+                                    dlnaImageUrl,
+                                    seekable
+                                )
+                                StreamingForegroundService.updatePlayback(
+                                    context,
+                                    true,
+                                    0.0,
+                                    durationSeconds
+                                )
+                            } catch (error: Throwable) {
+                                dlnaStartError = error.message ?: "Native DLNA start failed"
+                                Log.w("LocalVideoProxy", "Unable to start DLNA after caching", error)
+                            }
+                        }
                         promise.resolve(
-                            mapOf(
+                            mutableMapOf<String, Any>(
                                 "id" to cacheId,
                                 "contentType" to contentType,
-                                "sizeBytes" to finalSizeBytes.toDouble()
-                            )
+                                "sizeBytes" to finalSizeBytes.toDouble(),
+                                "durationSeconds" to durationSeconds,
+                                "seekable" to seekable,
+                                "dlnaStarted" to dlnaStarted
+                            ).apply {
+                                fallbackReason?.let { put("fallbackReason", it) }
+                                dlnaStartError?.let { put("dlnaStartError", it) }
+                            }
                         )
                     } catch (error: Exception) {
                         partialFile.delete()
