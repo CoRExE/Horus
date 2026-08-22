@@ -213,6 +213,7 @@ class HlsStitcher: NSObject, URLSessionDataDelegate {
     private var cacheProgressBlock: ((Int64) -> Void)?
     private var cacheCompletionBlock: ((Bool, Int64, Error?) -> Void)?
     private var cachedBytes: Int64 = 0
+    private var maxHeight = 1080
 
     override init() {
         super.init()
@@ -253,6 +254,7 @@ class HlsStitcher: NSObject, URLSessionDataDelegate {
     }
 
     private func selectCompatibleVariant(_ variants: [HlsVariant]) -> HlsVariant? {
+        let maxWidth = maxHeight <= 720 ? 1280 : 1920
         let codecCompatible = variants.filter { variant in
             let codecs = variant.codecs?.lowercased() ?? ""
             return codecs.isEmpty ||
@@ -262,8 +264,8 @@ class HlsStitcher: NSObject, URLSessionDataDelegate {
                  !codecs.contains("av01"))
         }
         let resolutionCompatible = codecCompatible.filter { variant in
-            (variant.width == nil || variant.width! <= 1920) &&
-                (variant.height == nil || variant.height! <= 1080)
+            (variant.width == nil || variant.width! <= maxWidth) &&
+                (variant.height == nil || variant.height! <= maxHeight)
         }
         let muxedCandidates = resolutionCompatible.filter { !$0.usesExternalAudio }
         let candidates: [HlsVariant]
@@ -271,10 +273,9 @@ class HlsStitcher: NSObject, URLSessionDataDelegate {
             candidates = muxedCandidates
         } else if !resolutionCompatible.isEmpty {
             candidates = resolutionCompatible
-        } else if !codecCompatible.isEmpty {
-            candidates = codecCompatible
         } else {
-            candidates = variants
+            return codecCompatible.min(by: { $0.bandwidth < $1.bandwidth })
+                ?? variants.min(by: { $0.bandwidth < $1.bandwidth })
         }
         return candidates.max(by: { $0.bandwidth < $1.bandwidth })
             ?? variants.min(by: { $0.bandwidth < $1.bandwidth })
@@ -477,10 +478,12 @@ class HlsStitcher: NSObject, URLSessionDataDelegate {
         referer: String?,
         origin: String?,
         userAgent: String,
+        maxHeight: Int,
         destination: URL,
         progress: @escaping (Int64) -> Void,
         completion: @escaping (Bool, Int64, Error?) -> Void
     ) {
+        self.maxHeight = maxHeight <= 720 ? 720 : 1080
         isCaching = true
         cacheProgressBlock = progress
         cacheCompletionBlock = completion
@@ -840,7 +843,22 @@ public class LocalVideoProxyModule: Module {
 
   public func definition() -> ModuleDefinition {
     Name("LocalVideoProxy")
-    Events("onCacheProgress")
+    Events("onCacheProgress", "onMediaControl")
+
+    AsyncFunction("setTvNotificationMode") {
+      (_: String, _: String?, _: String?, _: Bool, promise: Promise) in
+      promise.resolve(nil)
+    }
+
+    AsyncFunction("updateTvPlaybackState") {
+      (_: Bool, _: Double, _: Double, promise: Promise) in
+      promise.resolve(nil)
+    }
+
+    AsyncFunction("updateTvCacheProgress") {
+      (_: Double, _: String, promise: Promise) in
+      promise.resolve(nil)
+    }
 
     AsyncFunction("startServer") { (port: Int, promise: Promise) in
       if self.webServer == nil {
@@ -1028,6 +1046,7 @@ public class LocalVideoProxyModule: Module {
       let ip = self.getLocalIpAddress() ?? "127.0.0.1"
       promise.resolve([
         "ip": ip,
+        "port": port,
         "token": self.accessToken ?? ""
       ])
     }
@@ -1052,6 +1071,8 @@ public class LocalVideoProxyModule: Module {
         referer: String?,
         origin: String?,
         requestedUserAgent: String?,
+        requestedMaxHeight: Int?,
+        dlnaOptions: [String: String]?,
         promise: Promise
       ) in
       self.cacheStateLock.lock()
@@ -1141,11 +1162,17 @@ public class LocalVideoProxyModule: Module {
               "bytesDownloaded": Double(sizeBytes),
               "totalBytes": Double(sizeBytes)
             ])
-            promise.resolve([
+            var result: [String: Any] = [
               "id": cacheId,
               "contentType": contentType,
-              "sizeBytes": Double(sizeBytes)
-            ])
+              "sizeBytes": Double(sizeBytes),
+              "seekable": contentType.lowercased() == "video/mp4",
+              "dlnaStarted": false
+            ]
+            if isHls {
+              result["fallbackReason"] = "La conversion MP4 n’est pas disponible sur iOS."
+            }
+            promise.resolve(result)
           } catch {
             try? FileManager.default.removeItem(at: partialFile)
             try? FileManager.default.removeItem(at: finalFile)
@@ -1164,6 +1191,7 @@ public class LocalVideoProxyModule: Module {
             referer: referer,
             origin: origin,
             userAgent: userAgent,
+            maxHeight: requestedMaxHeight ?? 720,
             destination: partialFile,
             progress: { downloadedBytes in
               self.sendEvent("onCacheProgress", [
@@ -1230,6 +1258,33 @@ public class LocalVideoProxyModule: Module {
       if let file = self.findCachedMedia(id: id) {
         try? FileManager.default.removeItem(at: file)
       }
+      promise.resolve(nil)
+    }
+
+    AsyncFunction("persistCachedMedia") { (_: String, promise: Promise) in
+      promise.reject(
+        "ERR_UNSUPPORTED",
+        "Offline media storage is currently available only on Android"
+      )
+    }
+
+    AsyncFunction("getOfflineMediaUri") { (_: String, promise: Promise) in
+      promise.reject(
+        "ERR_UNSUPPORTED",
+        "Offline media playback is currently available only on Android"
+      )
+    }
+
+    AsyncFunction("removeOfflineMedia") { (_: String, promise: Promise) in
+      promise.resolve(nil)
+    }
+
+    AsyncFunction("listOfflineMediaIds") { (promise: Promise) in
+      promise.resolve([])
+    }
+
+    AsyncFunction("exitApp") { (promise: Promise) in
+      // iOS applications must not terminate themselves programmatically.
       promise.resolve(nil)
     }
 

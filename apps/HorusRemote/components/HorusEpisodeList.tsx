@@ -2,6 +2,7 @@ import React from 'react';
 import { View, Text, StyleSheet, Modal, Pressable, TouchableOpacity, ScrollView, ActivityIndicator } from 'react-native';
 import { MotiView } from 'moti';
 import { Episode } from '@horus/core';
+import { Check, Download } from 'lucide-react-native';
 
 export interface HorusEpisodeListProps {
   visible: boolean;
@@ -12,6 +13,10 @@ export interface HorusEpisodeListProps {
   episodes: Episode[];
   isExtracting: boolean;
   onPlayEpisode: (episode: Episode) => void;
+  onDownloadEpisode?: (episode: Episode) => void;
+  downloadedEpisodeIds?: string[];
+  downloadingEpisodeId?: string | null;
+  isLoading?: boolean;
 }
 
 const COLOR_OVERLAY = 'rgba(11, 15, 25, 0.75)';
@@ -29,6 +34,10 @@ export const HorusEpisodeList: React.FC<HorusEpisodeListProps> = ({
   episodes,
   isExtracting,
   onPlayEpisode,
+  onDownloadEpisode,
+  downloadedEpisodeIds = [],
+  downloadingEpisodeId,
+  isLoading = false,
 }) => {
   return (
     <Modal
@@ -101,37 +110,59 @@ export const HorusEpisodeList: React.FC<HorusEpisodeListProps> = ({
                       delay: Math.min(idx * 50, 1000) // Effet d'apparition en cascade rapide
                     }}
                   >
-                    <TouchableOpacity
-                      style={styles.episodeCard}
-                      onPress={() => onPlayEpisode(ep)}
-                      disabled={isExtracting}
-                      activeOpacity={0.7}
-                    >
-                      <View style={styles.episodeIndexBox}>
-                        <Text style={styles.episodeIndexText}>
-                           EP.{String(idx + 1).padStart(2, '0')}
-                        </Text>
-                      </View>
-                      
-                      <View style={styles.episodeInfo}>
-                        <Text style={styles.episodeTitle} numberOfLines={2}>
-                          {displayTitle}
-                        </Text>
-                      </View>
-
-                      <View style={styles.playAction}>
-                        {isExtracting ? (
-                          <ActivityIndicator size="small" color={COLOR_ACCENT_PURPLE} />
-                        ) : (
-                          <Text style={styles.playIconText}>▶</Text>
-                        )}
-                      </View>
-                    </TouchableOpacity>
+                    <View style={styles.episodeCard}>
+                      <TouchableOpacity
+                        style={styles.episodePlayArea}
+                        onPress={() => onPlayEpisode(ep)}
+                        disabled={isExtracting}
+                        activeOpacity={0.7}
+                      >
+                        <View style={styles.episodeIndexBox}>
+                          <Text style={styles.episodeIndexText}>
+                            EP.{String(idx + 1).padStart(2, '0')}
+                          </Text>
+                        </View>
+                        <View style={styles.episodeInfo}>
+                          <Text style={styles.episodeTitle} numberOfLines={2}>
+                            {displayTitle}
+                          </Text>
+                        </View>
+                        <View style={styles.playAction}>
+                          {isExtracting ? (
+                            <ActivityIndicator size="small" color={COLOR_ACCENT_PURPLE} />
+                          ) : (
+                            <Text style={styles.playIconText}>▶</Text>
+                          )}
+                        </View>
+                      </TouchableOpacity>
+                      {onDownloadEpisode && (
+                        <TouchableOpacity
+                          style={styles.downloadAction}
+                          onPress={() => onDownloadEpisode(ep)}
+                          disabled={Boolean(downloadingEpisodeId) || downloadedEpisodeIds.includes(ep.id)}
+                        >
+                          {downloadingEpisodeId === ep.id ? (
+                            <ActivityIndicator size="small" color={COLOR_ACCENT_CYAN} />
+                          ) : downloadedEpisodeIds.includes(ep.id) ? (
+                            <Check color="#10B981" size={20} />
+                          ) : (
+                            <Download color={COLOR_ACCENT_CYAN} size={20} />
+                          )}
+                        </TouchableOpacity>
+                      )}
+                    </View>
                   </MotiView>
                 );
               })}
 
-              {episodes.length === 0 && (
+              {isLoading && (
+                <View style={styles.emptyContainer}>
+                  <ActivityIndicator size="large" color={COLOR_ACCENT_CYAN} />
+                  <Text style={styles.emptyText}>LOADING DATABANK…</Text>
+                </View>
+              )}
+
+              {!isLoading && episodes.length === 0 && (
                 <View style={styles.emptyContainer}>
                   <Text style={styles.emptyText}>NO DATA FOUND IN THIS BANK</Text>
                 </View>
@@ -269,7 +300,13 @@ const styles = StyleSheet.create({
     borderLeftWidth: 2,
     borderColor: COLOR_ACCENT_PURPLE,
     marginBottom: 12,
-    padding: 12,
+    padding: 8,
+  },
+  episodePlayArea: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 4,
   },
   episodeIndexBox: {
     backgroundColor: 'rgba(139, 92, 246, 0.1)',
@@ -301,6 +338,14 @@ const styles = StyleSheet.create({
   playIconText: {
     color: COLOR_ACCENT_CYAN,
     fontSize: 14,
+  },
+  downloadAction: {
+    width: 40,
+    height: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderLeftWidth: 1,
+    borderLeftColor: '#1E293B',
   },
   emptyContainer: {
     marginTop: 40,

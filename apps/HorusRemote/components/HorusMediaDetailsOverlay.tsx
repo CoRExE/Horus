@@ -1,7 +1,7 @@
 import React from 'react';
-import { View, Text, Image, StyleSheet, Modal, Pressable, TouchableOpacity } from 'react-native';
+import { View, Text, Image, StyleSheet, Modal, Pressable, TouchableOpacity, ActivityIndicator } from 'react-native';
 import { MotiView } from 'moti';
-import { Bookmark } from 'lucide-react-native';
+import { Bookmark, Check, Download } from 'lucide-react-native';
 import { useUserStore, MediaItem } from '../store/useUserStore';
 
 export interface HorusMediaDetailsOverlayProps {
@@ -9,6 +9,10 @@ export interface HorusMediaDetailsOverlayProps {
   onClose: () => void;
   media: MediaItem | null;
   onInitStream: () => void;
+  onDownload?: () => void;
+  isDownloading?: boolean;
+  isDownloaded?: boolean;
+  isLoading?: boolean;
 }
 
 const COLOR_OVERLAY = 'rgba(11, 15, 25, 0.85)';
@@ -23,6 +27,10 @@ export const HorusMediaDetailsOverlay: React.FC<HorusMediaDetailsOverlayProps> =
   onClose,
   media,
   onInitStream,
+  onDownload,
+  isDownloading = false,
+  isDownloaded = false,
+  isLoading = false,
 }) => {
   const toggleWishlist = useUserStore((state) => state.toggleWishlist);
   const wishlist = useUserStore((state) => state.wishlist);
@@ -83,9 +91,29 @@ export const HorusMediaDetailsOverlay: React.FC<HorusMediaDetailsOverlayProps> =
                 style={styles.actionButton}
                 activeOpacity={0.7}
                 onPress={onInitStream}
+                disabled={isLoading}
               >
-                <Text style={styles.actionButtonText}>INITIALIZE STREAM</Text>
+                {isLoading ? (
+                  <ActivityIndicator size="small" color={COLOR_ACCENT_CYAN} />
+                ) : (
+                  <Text style={styles.actionButtonText}>INITIALIZE STREAM</Text>
+                )}
               </TouchableOpacity>
+
+              {onDownload && (
+                <TouchableOpacity
+                  style={styles.downloadButton}
+                  activeOpacity={0.7}
+                  onPress={onDownload}
+                  disabled={isLoading || isDownloading || isDownloaded}
+                >
+                  {isDownloaded ? (
+                    <Check color="#10B981" size={23} />
+                  ) : (
+                    <Download color={COLOR_ACCENT_CYAN} size={23} />
+                  )}
+                </TouchableOpacity>
+              )}
 
               <TouchableOpacity
                 style={[
@@ -204,6 +232,15 @@ const styles = StyleSheet.create({
     letterSpacing: 2,
   },
   wishlistButton: {
+    width: 52,
+    height: 52,
+    borderWidth: 1,
+    borderColor: COLOR_ACCENT_CYAN,
+    backgroundColor: 'rgba(0, 255, 255, 0.05)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  downloadButton: {
     width: 52,
     height: 52,
     borderWidth: 1,

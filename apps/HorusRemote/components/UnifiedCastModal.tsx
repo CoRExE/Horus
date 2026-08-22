@@ -5,12 +5,17 @@ import { useDlnaDiscovery, DlnaDevice } from '../hooks/useDlnaDiscovery';
 import { Download, Monitor, Radio, Tv, X, RefreshCw, Terminal } from 'lucide-react-native';
 
 export type RemoteDeliveryMode = 'direct' | 'cache';
+export type RemoteCacheQuality = 720 | 1080;
 
 interface UnifiedCastModalProps {
   visible: boolean;
   onClose: () => void;
-  onSelectCast: (mode: RemoteDeliveryMode) => void;
-  onSelectDlna: (device: DlnaDevice, mode: RemoteDeliveryMode) => void;
+  onSelectCast: (mode: RemoteDeliveryMode, quality: RemoteCacheQuality) => void;
+  onSelectDlna: (
+    device: DlnaDevice,
+    mode: RemoteDeliveryMode,
+    quality: RemoteCacheQuality
+  ) => void;
 }
 
 export const UnifiedCastModal: React.FC<UnifiedCastModalProps> = ({
@@ -26,6 +31,7 @@ export const UnifiedCastModal: React.FC<UnifiedCastModalProps> = ({
   const { devices: dlnaDevices, isSearching, startDiscovery, logs } = useDlnaDiscovery();
   const [showDebug, setShowDebug] = useState(false);
   const [deliveryMode, setDeliveryMode] = useState<RemoteDeliveryMode>('direct');
+  const [cacheQuality, setCacheQuality] = useState<RemoteCacheQuality>(720);
 
   useEffect(() => {
     if (visible) {
@@ -34,13 +40,13 @@ export const UnifiedCastModal: React.FC<UnifiedCastModalProps> = ({
   }, [visible, startDiscovery]);
 
   const handleCastSelect = (deviceId: string) => {
-    onSelectCast(deliveryMode);
+    onSelectCast(deliveryMode, cacheQuality);
     CastContext.getSessionManager().startSession(deviceId).catch(console.error);
     onClose();
   };
 
   const handleDlnaSelect = (device: DlnaDevice) => {
-    onSelectDlna(device, deliveryMode);
+    onSelectDlna(device, deliveryMode, cacheQuality);
     onClose();
   };
 
@@ -111,6 +117,33 @@ export const UnifiedCastModal: React.FC<UnifiedCastModalProps> = ({
                   <Text style={styles.modeButtonText}>Lecture TV stabilisée</Text>
                 </TouchableOpacity>
               </View>
+              {deliveryMode === 'cache' && (
+                <View style={styles.qualitySection}>
+                  <Text style={styles.sectionTitle}>Qualité du téléchargement</Text>
+                  <View style={styles.modeRow}>
+                    <TouchableOpacity
+                      style={[
+                        styles.qualityButton,
+                        cacheQuality === 720 && styles.modeButtonActive,
+                      ]}
+                      onPress={() => setCacheQuality(720)}
+                    >
+                      <Text style={styles.modeButtonTitle}>720p rapide</Text>
+                      <Text style={styles.modeButtonText}>Moins lourd et plus rapide</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[
+                        styles.qualityButton,
+                        cacheQuality === 1080 && styles.modeButtonActive,
+                      ]}
+                      onPress={() => setCacheQuality(1080)}
+                    >
+                      <Text style={styles.modeButtonTitle}>1080p maximale</Text>
+                      <Text style={styles.modeButtonText}>Plus net, téléchargement plus long</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              )}
             </View>
           )}
 
@@ -271,6 +304,18 @@ const styles = StyleSheet.create({
     minHeight: 112,
     padding: 14,
     borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#253044',
+    backgroundColor: '#0B0F19',
+  },
+  qualitySection: {
+    marginTop: 18,
+  },
+  qualityButton: {
+    flex: 1,
+    minHeight: 78,
+    padding: 12,
+    borderRadius: 12,
     borderWidth: 1,
     borderColor: '#253044',
     backgroundColor: '#0B0F19',

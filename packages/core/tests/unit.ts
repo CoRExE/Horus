@@ -7,6 +7,7 @@ import {
   inferStreamFormat,
   normalizeStreamLanguage,
   parseDlnaTime,
+  selectPlaybackDuration,
   sortStreamLanguages,
   sortStreamsForRemotePlayback,
   Stream,
@@ -86,9 +87,14 @@ assert.equal(parseDlnaTime('invalid'), 0);
 assert.equal(formatDlnaTime(3723.9), '01:02:03');
 assert.equal(formatPlaybackTime(83), '1:23');
 assert.equal(formatPlaybackTime(3723), '1:02:03');
+assert.equal(selectPlaybackDuration(7_200, 42, true), 7_200);
+assert.equal(selectPlaybackDuration(undefined, 42, false), 0);
+assert.equal(selectPlaybackDuration(undefined, 7_200, true), 7_200);
 
 const packed = "eval(function(p,a,c,k,e,d){return p}('0 1',2,2,'hello|world'.split('|'),0,{}))";
 assert.equal(Unpacker.unpack(packed), 'hello world');
+const invalidPacked = "eval(function(p,a,c,k,e,d){return p}('0',1,1,'boom'.split('|'),0,{}))";
+assert.equal(Unpacker.unpack(invalidPacked), invalidPacked);
 
 const fsvidKey = [214, 91, 173, 44, 122, 250, 19, 88];
 const fsvidRealUrl = 'https://r1.fsvid.lol/hls2/media/master.m3u8?token=valid';

@@ -16,14 +16,39 @@ export interface HistoryItem extends MediaItem {
   lastEpisode?: Episode;
 }
 
+export interface OfflineMediaItem {
+  id: string;
+  media: MediaItem;
+  episode: Episode;
+  title: string;
+  language: string;
+  contentType: string;
+  sizeBytes: number;
+  durationSeconds?: number;
+  seekable: boolean;
+  downloadedAt: number;
+}
+
+export interface PendingOfflineDownload {
+  media: MediaItem;
+  episode: Episode;
+  quality: 720 | 1080;
+  requestedAt: number;
+}
+
 interface UserStore {
   history: HistoryItem[];
   wishlist: MediaItem[];
+  offlineMedia: OfflineMediaItem[];
+  pendingOfflineDownload: PendingOfflineDownload | null;
   addToWishlist: (media: MediaItem) => void;
   removeFromWishlist: (mediaId: string | number) => void;
   toggleWishlist: (media: MediaItem) => void;
   addToHistory: (media: MediaItem, episodeDetails?: { lastEpisode?: Episode }) => void;
   clearHistory: () => void;
+  addOfflineMedia: (item: OfflineMediaItem) => void;
+  removeOfflineMedia: (id: string) => void;
+  setPendingOfflineDownload: (download: PendingOfflineDownload | null) => void;
 }
 
 export const useUserStore = create<UserStore>()(
@@ -31,6 +56,8 @@ export const useUserStore = create<UserStore>()(
     (set, get) => ({
       history: [],
       wishlist: [],
+      offlineMedia: [],
+      pendingOfflineDownload: null,
 
       addToWishlist: (media) => {
         const { wishlist } = get();
@@ -75,6 +102,27 @@ export const useUserStore = create<UserStore>()(
 
       clearHistory: () => {
         set({ history: [] });
+      },
+
+      addOfflineMedia: (item) => {
+        set((state) => ({
+          offlineMedia: [
+            item,
+            ...state.offlineMedia.filter(existing =>
+              existing.media.id !== item.media.id || existing.episode.id !== item.episode.id
+            ),
+          ],
+        }));
+      },
+
+      removeOfflineMedia: (id) => {
+        set((state) => ({
+          offlineMedia: state.offlineMedia.filter(item => item.id !== id),
+        }));
+      },
+
+      setPendingOfflineDownload: (download) => {
+        set({ pendingOfflineDownload: download });
       },
     }),
     {

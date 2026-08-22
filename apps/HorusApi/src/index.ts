@@ -29,21 +29,34 @@ export interface HorusCatalogResult {
   year?: number;
 }
 
-const CORS_HEADERS = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'GET, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type',
-};
+const SEARCH_LIMIT_PER_MINUTE = 60;
+const searchWindows = new Map<string, { startedAt: number; count: number }>();
 
 const json = (value: unknown, status = 200, headers: HeadersInit = {}) =>
   Response.json(value, {
     status,
     headers: {
-      ...CORS_HEADERS,
       'Cache-Control': 'no-store',
+      'X-Content-Type-Options': 'nosniff',
       ...headers,
     },
   });
+
+export const consumeSearchQuota = (clientId: string, now = Date.now()) => {
+  const current = searchWindows.get(clientId);
+  if (!current || now - current.startedAt >= 60_000) {
+    searchWindows.set(clientId, { startedAt: now, count: 1 });
+    return true;
+  }
+  if (current.count >= SEARCH_LIMIT_PER_MINUTE) return false;
+  current.count += 1;
+  if (searchWindows.size > 2_048) {
+    for (const [key, value] of searchWindows) {
+      if (now - value.startedAt >= 60_000) searchWindows.delete(key);
+    }
+  }
+  return true;
+};
 
 const readYear = (value?: string) => {
   const year = Number(value?.slice(0, 4));
@@ -115,6 +128,10 @@ const handleSearch = async (request: Request, env: Env, ctx: ExecutionContext) =
   }
 
   const url = new URL(request.url);
+  const clientId = request.headers.get('CF-Connecting-IP') || 'unknown';
+  if (!consumeSearchQuota(clientId)) {
+    return json({ error: 'Too many search requests' }, 429, { 'Retry-After': '60' });
+  }
   const query = (url.searchParams.get('query') || '').trim();
   const requestedPage = Number(url.searchParams.get('page') || '1');
   const page = Number.isInteger(requestedPage)
@@ -146,7 +163,10 @@ const handleSearch = async (request: Request, env: Env, ctx: ExecutionContext) =
 export default {
   async fetch(request, env, ctx): Promise<Response> {
     if (request.method === 'OPTIONS') {
-      return new Response(null, { status: 204, headers: CORS_HEADERS });
+      return new Response(null, {
+        status: 204,
+        headers: { Allow: 'GET, OPTIONS' },
+      });
     }
     if (request.method !== 'GET') {
       return json({ error: 'Method not allowed' }, 405, { Allow: 'GET, OPTIONS' });

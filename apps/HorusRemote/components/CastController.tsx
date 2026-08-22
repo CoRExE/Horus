@@ -25,7 +25,7 @@ import {
   X,
 } from 'lucide-react-native';
 import { MotiView } from 'moti';
-import { formatPlaybackTime } from '@horus/core';
+import { formatPlaybackTime, selectPlaybackDuration } from '@horus/core';
 import { DlnaDevice } from '../hooks/useDlnaDiscovery';
 import { dlnaController, DlnaTransportState } from '../services/dlnaController';
 
@@ -36,6 +36,8 @@ interface CastControllerProps {
   dlnaDevice?: DlnaDevice | null;
   dlnaTitle?: string;
   canSeek?: boolean;
+  expectedDurationSeconds?: number;
+  playbackNotice?: string;
   hasPreviousEpisode?: boolean;
   hasNextEpisode?: boolean;
   isChangingEpisode?: boolean;
@@ -56,6 +58,8 @@ export const CastController: React.FC<CastControllerProps> = ({
   dlnaDevice,
   dlnaTitle,
   canSeek = true,
+  expectedDurationSeconds,
+  playbackNotice,
   hasPreviousEpisode = false,
   hasNextEpisode = false,
   isChangingEpisode = false,
@@ -70,6 +74,7 @@ export const CastController: React.FC<CastControllerProps> = ({
   const [volume, setVolume] = useState(50);
   const [isMuted, setIsMuted] = useState(false);
   const [progressWidth, setProgressWidth] = useState(1);
+  const [seekPreview, setSeekPreview] = useState<number | null>(null);
   const [isCommandPending, setIsCommandPending] = useState(false);
   const [commandError, setCommandError] = useState<string | null>(null);
   const [transportState, setTransportState] = useState<DlnaTransportState>('UNKNOWN');
@@ -96,7 +101,11 @@ export const CastController: React.FC<CastControllerProps> = ({
         setTransportState(status.transportState);
         setIsPlaying(isPlayingState(status.transportState));
         setPosition(status.positionSeconds);
-        setDuration(status.durationSeconds);
+        setDuration(selectPlaybackDuration(
+          expectedDurationSeconds,
+          status.durationSeconds,
+          canSeek
+        ));
         if (status.volume !== undefined) setVolume(status.volume);
         if (status.muted !== undefined) setIsMuted(status.muted);
         setCommandError(null);
@@ -113,7 +122,7 @@ export const CastController: React.FC<CastControllerProps> = ({
       cancelled = true;
       clearInterval(interval);
     };
-  }, [dlnaDevice]);
+  }, [canSeek, dlnaDevice, expectedDurationSeconds]);
 
   useEffect(() => {
     if (dlnaDevice || !client) return;
@@ -206,10 +215,18 @@ export const CastController: React.FC<CastControllerProps> = ({
     }, 'Ce téléviseur ne permet pas le déplacement dans la vidéo');
   };
 
-  const handleProgressPress = (event: GestureResponderEvent) => {
+  const previewProgress = (event: GestureResponderEvent) => {
     if (!canSeek || duration <= 0) return;
     const ratio = clamp(event.nativeEvent.locationX / progressWidth, 0, 1);
-    seekTo(duration * ratio);
+    setSeekPreview(duration * ratio);
+  };
+
+  const commitProgress = (event: GestureResponderEvent) => {
+    if (!canSeek || duration <= 0) return;
+    const ratio = clamp(event.nativeEvent.locationX / progressWidth, 0, 1);
+    const target = duration * ratio;
+    setSeekPreview(null);
+    seekTo(target);
   };
 
   const handleProgressLayout = (event: LayoutChangeEvent) => {
@@ -246,7 +263,8 @@ export const CastController: React.FC<CastControllerProps> = ({
   };
 
   const canControlVolume = Boolean(!dlnaDevice || dlnaDevice.renderingControlUrl);
-  const progress = duration > 0 ? clamp(position / duration, 0, 1) : 0;
+  const displayedPosition = seekPreview ?? position;
+  const progress = duration > 0 ? clamp(displayedPosition / duration, 0, 1) : 0;
   const sourceLabel = dlnaDevice
     ? `DLNA • ${dlnaDevice.name}`
     : 'GOOGLE CAST';
@@ -288,18 +306,21 @@ export const CastController: React.FC<CastControllerProps> = ({
           <Text style={styles.title} numberOfLines={3}>{mediaTitle}</Text>
 
           <View style={styles.timeline}>
-            <TouchableOpacity
+            <View
               style={styles.progressTrack}
-              activeOpacity={0.8}
               onLayout={handleProgressLayout}
-              onPress={handleProgressPress}
-              disabled={!canSeek || duration <= 0}
+              onStartShouldSetResponder={() => canSeek && duration > 0}
+              onMoveShouldSetResponder={() => canSeek && duration > 0}
+              onResponderGrant={previewProgress}
+              onResponderMove={previewProgress}
+              onResponderRelease={commitProgress}
+              onResponderTerminate={() => setSeekPreview(null)}
             >
               <View style={[styles.progressFill, { width: `${progress * 100}%` }]} />
               <View style={[styles.progressThumb, { left: `${progress * 100}%` }]} />
-            </TouchableOpacity>
+            </View>
             <View style={styles.timeRow}>
-              <Text style={styles.timeText}>{formatPlaybackTime(position)}</Text>
+              <Text style={styles.timeText}>{formatPlaybackTime(displayedPosition)}</Text>
               <Text style={styles.timeText}>
                 {duration > 0 ? formatPlaybackTime(duration) : '--:--'}
               </Text>
@@ -411,7 +432,7 @@ export const CastController: React.FC<CastControllerProps> = ({
           )}
           {!canSeek && (
             <Text style={styles.hintText}>
-              Le déplacement temporel n’est pas disponible sur un flux HLS relayé en DLNA.
+              {playbackNotice || 'Le déplacement temporel n’est pas disponible pour ce média.'}
             </Text>
           )}
           {commandError && <Text style={styles.errorText}>{commandError}</Text>}

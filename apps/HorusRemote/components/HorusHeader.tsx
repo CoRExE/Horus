@@ -1,16 +1,24 @@
 import React, { useState } from 'react';
 import { View, StyleSheet, TextInput, TextInputProps, TouchableOpacity } from 'react-native';
 import { MotiText, MotiView } from 'moti';
-import { Search, Cast } from 'lucide-react-native';
+import { Search, Cast, Power } from 'lucide-react-native';
 
 interface HorusHeaderProps extends TextInputProps {
   title?: string;
   hideSearch?: boolean;
   onPressCast?: () => void;
+  onPressExit?: () => void;
   isCasting?: boolean;
 }
 
-export const HorusHeader: React.FC<HorusHeaderProps> = ({ title = "HORUS", hideSearch = false, ...props }) => {
+export const HorusHeader: React.FC<HorusHeaderProps> = ({
+  title = "HORUS",
+  hideSearch = false,
+  onPressCast,
+  onPressExit,
+  isCasting = false,
+  ...inputProps
+}) => {
   const [isFocused, setIsFocused] = useState(false);
 
   // --- Palette de Couleurs Strictes ---
@@ -56,9 +64,26 @@ export const HorusHeader: React.FC<HorusHeaderProps> = ({ title = "HORUS", hideS
 
         {/* Actions à droite (Cast + Statut Système) */}
         <View style={styles.rightActions}>
-          <TouchableOpacity style={styles.castButton} onPress={props.onPressCast}>
-            <Cast color={COLOR_ACCENT} size={24} fill={props.isCasting ? COLOR_ACCENT : 'transparent'} />
-          </TouchableOpacity>
+          <View style={styles.actionRow}>
+            <TouchableOpacity
+              style={styles.iconButton}
+              onPress={onPressCast}
+              accessibilityRole="button"
+              accessibilityLabel="Diffuser sur une télévision"
+            >
+              <Cast color={COLOR_ACCENT} size={24} fill={isCasting ? COLOR_ACCENT : 'transparent'} />
+            </TouchableOpacity>
+            {onPressExit && (
+              <TouchableOpacity
+                style={styles.iconButton}
+                onPress={onPressExit}
+                accessibilityRole="button"
+                accessibilityLabel="Quitter Horus proprement"
+              >
+                <Power color="#FB7185" size={23} />
+              </TouchableOpacity>
+            )}
+          </View>
           {/* Indicateur d'état système animé (Pulsation lente) */}
           <MotiView 
             style={styles.systemStatus}
@@ -93,13 +118,13 @@ export const HorusHeader: React.FC<HorusHeaderProps> = ({ title = "HORUS", hideS
             selectionColor={COLOR_FOCUS} // Couleur de surlignage/curseur native
             onFocus={(e) => {
                setIsFocused(true);
-               if (props.onFocus) props.onFocus(e);
+               if (inputProps.onFocus) inputProps.onFocus(e);
             }}
             onBlur={(e) => {
                setIsFocused(false);
-               if (props.onBlur) props.onBlur(e);
+               if (inputProps.onBlur) inputProps.onBlur(e);
             }}
-            {...props}
+            {...inputProps}
           />
 
           {/* Détails fragmentés : Les encoches Cyber aux extrémités non-bordées */}
@@ -147,10 +172,16 @@ const styles = StyleSheet.create({
   rightActions: {
     alignItems: 'flex-end',
   },
-  castButton: {
-    width: 24,
-    height: 24,
+  actionRow: {
+    flexDirection: 'row',
+    gap: 14,
     marginBottom: 8,
+  },
+  iconButton: {
+    width: 30,
+    height: 30,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   systemStatus: {
     flexDirection: 'row',

@@ -21,4 +21,6 @@ android {
 dependencies {
   implementation 'org.nanohttpd:nanohttpd:2.3.1'
   implementation 'com.google.android.gms:play-services-cronet:18.0.1'
+  // Keep Media3 aligned with expo-video to avoid duplicate/incompatible media stacks.
+  implementation 'androidx.media3:media3-transformer:1.8.0'
 }

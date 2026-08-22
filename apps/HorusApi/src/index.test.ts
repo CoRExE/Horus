@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { mapTmdbResults, searchTmdb } from './index';
+import { consumeSearchQuota, mapTmdbResults, searchTmdb } from './index';
 
 test('maps only safe movie and TV results', () => {
   assert.deepEqual(mapTmdbResults({
@@ -59,4 +59,13 @@ test('uses bearer authentication and French search parameters', async () => {
     totalResults: 0,
     results: [],
   });
+});
+
+test('limits repeated searches per Cloudflare client address', () => {
+  const client = `test-${Date.now()}`;
+  for (let index = 0; index < 60; index += 1) {
+    assert.equal(consumeSearchQuota(client, 1_000), true);
+  }
+  assert.equal(consumeSearchQuota(client, 1_000), false);
+  assert.equal(consumeSearchQuota(client, 61_000), true);
 });
