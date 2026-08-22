@@ -158,11 +158,11 @@ const prepareRemoteStream = async (
     };
   }
 
-  const { ip, token } = await LocalVideoProxy.startServer(8080);
+  const { ip, port, token } = await LocalVideoProxy.startServer(8080);
   // Pour le lecteur local Android, le manifeste reste HLS mais toutes ses URI
   // sont réécrites vers le proxy. Pour DLNA, il reste assemblé en MPEG-TS.
   const proxyPath = format === 'hls'
-    ? (options.preserveHls ? '/hls' : '/stream.ts')
+    ? (options.preserveHls || !bridgeHls ? '/hls' : '/stream.ts')
     : '/proxy';
   const queryValues: Record<string, string> = {
     token,
@@ -174,7 +174,7 @@ const prepareRemoteStream = async (
   const query = new URLSearchParams(queryValues);
 
   return {
-    url: `http://${ip}:8080${proxyPath}?${query.toString()}`,
+    url: `http://${ip}:${port}${proxyPath}?${query.toString()}`,
     contentType: proxyPath === '/hls'
       ? 'application/vnd.apple.mpegurl'
       : getContentType(proxyPath),
@@ -195,7 +195,7 @@ export const dlnaController = {
     const origin = headers?.Origin || headers?.origin;
     const userAgent = headers?.['User-Agent'] || headers?.['user-agent'];
     const format = inferStreamFormat(stream);
-    const { ip, token } = await LocalVideoProxy.startServer(8080);
+    const { ip, port, token } = await LocalVideoProxy.startServer(8080);
     await LocalVideoProxy.setTvNotificationMode(
       'preparing',
       notification?.title,
@@ -231,7 +231,7 @@ export const dlnaController = {
       fallbackReason: cached.fallbackReason,
       stream: {
         ...stream,
-        url: `http://${ip}:8080/cache?${query.toString()}`,
+        url: `http://${ip}:${port}/cache?${query.toString()}`,
         server: cached.contentType === 'video/mp4'
           ? `Cache MP4 • ${stream.server}`
           : `Cache TS (compatibilité) • ${stream.server}`,
@@ -268,7 +268,7 @@ export const dlnaController = {
     const mimeType = preparedStream.contentType;
     
     // Les box strictes requièrent un protocolInfo valide dans la balise <res>
-    const isCachedFile = finalUrl.includes('/cache?');
+    const isCachedFile = finalUrl.includes('/cache?') || finalUrl.includes('/offline?');
     const conversionIndicator =
       isCachedFile && mimeType === 'video/mp2t' ? '1' : '0';
     const dlnaFeatures = isCachedFile

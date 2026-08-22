@@ -1,5 +1,5 @@
 import { StatusBar } from 'expo-status-bar';
-import { StyleSheet, Text, View, TextInput, ScrollView, Image, TouchableOpacity, Platform, PermissionsAndroid, ActivityIndicator, Modal, Linking } from 'react-native';
+import { StyleSheet, Text, View, TextInput, ScrollView, Image, TouchableOpacity, Platform, PermissionsAndroid, ActivityIndicator, Modal, Linking, Alert } from 'react-native';
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import * as NavigationBar from 'expo-navigation-bar';
@@ -13,7 +13,7 @@ import { HorusHeader } from './components/HorusHeader';
 import { HorusMediaCard } from './components/HorusMediaCard';
 import { HorusMediaDetailsOverlay } from './components/HorusMediaDetailsOverlay';
 import { HorusEpisodeList } from './components/HorusEpisodeList';
-import { HistoryItem, MediaItem, useUserStore } from './store/useUserStore';
+import { HistoryItem, MediaItem, OfflineMediaItem, useUserStore } from './store/useUserStore';
 import {
   CastContext,
   MediaPlayerIdleReason,
@@ -37,7 +37,7 @@ const vidzy = new VidzyProvider({
 const REMOTE_CACHE_CANCELLED = 'REMOTE_CACHE_CANCELLED';
 const CAST_START_TIMEOUT_MS = 20_000;
 
-type MediaSection = 'anime' | 'film_series' | 'wishlist' | 'history';
+type MediaSection = 'anime' | 'film_series' | 'wishlist' | 'history' | 'downloads';
 
 const waitForChromecastPlayback = (
   client: RemoteMediaClient,
@@ -89,6 +89,26 @@ const formatByteCount = (bytes: number) => {
 const isRemoteCacheCancellation = (error: unknown) =>
   error instanceof Error && error.message === REMOTE_CACHE_CANCELLED;
 
+const verifyOfflineTvStream = async (url: string) => {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 5_000);
+  try {
+    const response = await fetch(url, {
+      headers: { Range: 'bytes=0-4095' },
+      signal: controller.signal,
+    });
+    if (!response.ok) {
+      throw new Error(`Le serveur hors ligne a répondu HTTP ${response.status}`);
+    }
+    const firstBytes = await response.arrayBuffer();
+    if (firstBytes.byteLength === 0) {
+      throw new Error('Le serveur hors ligne a renvoyé un fichier vide');
+    }
+  } finally {
+    clearTimeout(timeout);
+  }
+};
+
 const requestTvStreamingNotificationPermission = async () => {
   if (Platform.OS !== 'android' || Number(Platform.Version) < 33) return;
 
@@ -131,6 +151,7 @@ interface PlaybackContext {
   episodeQueue: Episode[];
   title: string;
   imageUrl: string;
+  offlineMediaId?: string;
 }
 
 interface RemotePlaybackSession extends PlaybackContext {
@@ -150,7 +171,11 @@ export default function App() {
 
   const wishlist = useUserStore(state => state.wishlist);
   const history = useUserStore(state => state.history);
+  const offlineMedia = useUserStore(state => state.offlineMedia);
   const addToHistory = useUserStore(state => state.addToHistory);
+  const addOfflineMedia = useUserStore(state => state.addOfflineMedia);
+  const removeOfflineMediaFromStore = useUserStore(state => state.removeOfflineMedia);
+  const setPendingOfflineDownload = useUserStore(state => state.setPendingOfflineDownload);
 
   // Modal State pour voir les épisodes d'un média cliqué
   const [selectedMedia, setSelectedMedia] = useState<SearchResult | null>(null);
@@ -178,9 +203,11 @@ export default function App() {
   const [isUnifiedCastModalVisible, setIsUnifiedCastModalVisible] = useState(false);
   const [isDisconnectModalVisible, setIsDisconnectModalVisible] = useState(false);
   const [activeDlnaDevice, setActiveDlnaDevice] = useState<DlnaDevice | null>(null);
+  const [isTvModeEnabled, setIsTvModeEnabled] = useState(false);
   const [remoteDeliveryMode, setRemoteDeliveryMode] = useState<RemoteDeliveryMode>('direct');
   const [remoteCacheQuality, setRemoteCacheQuality] = useState<RemoteCacheQuality>(720);
   const [isCachingMedia, setIsCachingMedia] = useState(false);
+  const [downloadingEpisodeId, setDownloadingEpisodeId] = useState<string | null>(null);
   const [cacheProgress, setCacheProgress] = useState<CacheProgressEvent>({
     bytesDownloaded: 0,
   });
@@ -190,6 +217,9 @@ export default function App() {
   const searchRequestIdRef = useRef(0);
   const mediaRequestIdRef = useRef(0);
   const localPlaybackUsesProxyRef = useRef(false);
+  const cacheOperationRef = useRef<string | null>(null);
+  const remoteCleanupInFlightRef = useRef(false);
+  const isExitingRef = useRef(false);
 
   const recordPlaybackInHistory = (context: PlaybackContext) => {
     const historyEpisode = context.media.type === 'movie'
@@ -204,10 +234,19 @@ export default function App() {
     }, historyEpisode);
   };
 
-  const stopProxyAndClearCache = () => {
-    LocalVideoProxy.stopServer()
-      .catch(console.error)
-      .finally(() => LocalVideoProxy.clearCache().catch(console.error));
+  const stopProxyAndClearCache = async (cancelActiveCache = false) => {
+    if (cancelActiveCache) {
+      await LocalVideoProxy.cancelCache().catch(console.error);
+    }
+    await LocalVideoProxy.stopServer().catch(console.error);
+    await LocalVideoProxy.clearCache().catch(console.error);
+  };
+
+  const claimCacheOperation = (kind: 'tv' | 'offline') => {
+    if (cacheOperationRef.current) return null;
+    const id = `${kind}:${Date.now()}:${Math.random()}`;
+    cacheOperationRef.current = id;
+    return id;
   };
 
   const prepareStreamsForLocalPlayback = async (streams: Stream[]) => {
@@ -243,6 +282,9 @@ export default function App() {
       throw error;
     }
 
+    if (localPlaybackUsesProxyRef.current && !usesProxy) {
+      await stopProxyAndClearCache();
+    }
     localPlaybackUsesProxyRef.current = usesProxy;
     return preparedStreams;
   };
@@ -290,13 +332,17 @@ export default function App() {
     let selectedFallbackReason: string | undefined;
     let lastError: unknown;
 
-    if (!castSession && !activeDlnaDevice) {
+    if (!isTvModeEnabled || (!castSession && !activeDlnaDevice)) {
       return false;
     }
 
     await requestTvStreamingNotificationPermission();
 
     const shouldCache = remoteDeliveryMode === 'cache';
+    const operationId = shouldCache ? claimCacheOperation('tv') : null;
+    if (shouldCache && !operationId) {
+      throw new Error('Un autre téléchargement est déjà en cours');
+    }
     cacheCancelledRef.current = false;
     if (shouldCache) {
       setCacheProgress({ bytesDownloaded: 0, phase: 'downloading' });
@@ -343,6 +389,7 @@ export default function App() {
             await dlnaController.removeCachedMedia(cacheId).catch(console.error);
           }
           if (cacheCancelledRef.current) {
+            await stopProxyAndClearCache(true);
             throw new Error(REMOTE_CACHE_CANCELLED);
           }
           const protocol = castSession ? 'Cast' : 'DLNA';
@@ -352,6 +399,9 @@ export default function App() {
     } finally {
       if (shouldCache) {
         setIsCachingMedia(false);
+        if (cacheOperationRef.current === operationId) {
+          cacheOperationRef.current = null;
+        }
       }
     }
 
@@ -364,6 +414,7 @@ export default function App() {
           false
         ).catch(console.error);
       }
+      await stopProxyAndClearCache();
       throw lastError instanceof Error
         ? lastError
         : new Error('No remote stream could be started');
@@ -562,6 +613,272 @@ export default function App() {
     }
   };
 
+  const downloadEpisodeForOffline = async (
+    episode: Episode,
+    overrideMedia?: SearchResult,
+    isRecovery = false,
+    cacheQuality: RemoteCacheQuality = remoteCacheQuality
+  ) => {
+    const targetMedia = overrideMedia || selectedMedia;
+    if (!targetMedia) return;
+
+    if (Platform.OS !== 'android') {
+      Alert.alert(
+        'Téléchargement indisponible',
+        'La bibliothèque hors ligne est pour le moment disponible uniquement sur Android.'
+      );
+      return;
+    }
+    if (cacheOperationRef.current || allStreams.length > 0 || remotePlayback) {
+      Alert.alert(
+        'Lecture en cours',
+        'Arrête la lecture ou la diffusion actuelle avant de télécharger un autre média.'
+      );
+      return;
+    }
+    if (useUserStore.getState().offlineMedia.some(item =>
+      item.media.id === targetMedia.id && item.episode.id === episode.id
+    )) {
+      Alert.alert('Déjà téléchargé', 'Ce média est déjà présent dans la bibliothèque hors ligne.');
+      return;
+    }
+
+    const operationId = claimCacheOperation('offline');
+    if (!operationId) return;
+
+    cacheCancelledRef.current = false;
+    setDownloadingEpisodeId(episode.id);
+    setCacheProgress({ bytesDownloaded: 0, phase: 'downloading' });
+    setIsCachingMedia(true);
+    let persistedId: string | undefined;
+
+    if (!isRecovery) {
+      setPendingOfflineDownload({
+        media: {
+          id: targetMedia.id,
+          title: targetMedia.title,
+          imageUrl: targetMedia.coverUrl || '',
+          type: targetMedia.type,
+          providerId: targetMedia.providerId,
+        },
+        episode,
+        quality: cacheQuality,
+        requestedAt: Date.now(),
+      });
+    }
+
+    try {
+      await requestTvStreamingNotificationPermission();
+      const provider = getProviderForMedia(targetMedia);
+      const streams = await provider.getStreams(episode.id);
+      if (cacheCancelledRef.current) {
+        throw new Error(REMOTE_CACHE_CANCELLED);
+      }
+      const grouped = groupStreamsByLanguage(streams);
+      const languages = sortStreamLanguages(Object.keys(grouped));
+      const language = grouped.VF ? 'VF' : languages[0];
+      const candidates = language
+        ? sortStreamsForRemotePlayback(grouped[language] || [])
+        : [];
+      if (candidates.length === 0) {
+        throw new Error('Aucun flux téléchargeable trouvé pour ce média.');
+      }
+
+      let downloadedItem: OfflineMediaItem | undefined;
+      let lastError: unknown;
+      for (const stream of candidates) {
+        let cacheId: string | undefined;
+        try {
+          const cached = await dlnaController.cacheStream(
+            stream,
+            cacheQuality,
+            {
+              title: `Téléchargement • ${formatRemoteMediaTitle(targetMedia, episode)}`,
+              imageUrl: targetMedia.coverUrl || '',
+            }
+          );
+          cacheId = cached.cacheId;
+          await LocalVideoProxy.persistCachedMedia(cacheId);
+          persistedId = cacheId;
+          downloadedItem = {
+            id: cacheId,
+            media: {
+              id: targetMedia.id,
+              title: targetMedia.title,
+              imageUrl: targetMedia.coverUrl || '',
+              type: targetMedia.type,
+              providerId: targetMedia.providerId,
+            },
+            episode,
+            title: formatRemoteMediaTitle(targetMedia, episode),
+            language,
+            contentType: cached.stream.contentType || 'video/mp4',
+            sizeBytes: cached.stream.sizeBytes || 0,
+            durationSeconds: cached.stream.durationSeconds,
+            seekable: cached.stream.seekable ?? false,
+            downloadedAt: Date.now(),
+          };
+          break;
+        } catch (error) {
+          lastError = error;
+          if (cacheId && cacheId !== persistedId) {
+            await dlnaController.removeCachedMedia(cacheId).catch(console.error);
+          }
+          if (cacheCancelledRef.current) {
+            throw new Error(REMOTE_CACHE_CANCELLED);
+          }
+          console.warn(`[Offline] Server ${stream.server} failed, trying the next one.`);
+        }
+      }
+
+      if (!downloadedItem) {
+        throw lastError instanceof Error
+          ? lastError
+          : new Error('Aucun serveur n’a permis de télécharger ce média.');
+      }
+
+      addOfflineMedia(downloadedItem);
+      setPendingOfflineDownload(null);
+      Alert.alert(
+        'Téléchargement terminé',
+        `${downloadedItem.title} est disponible hors ligne (${formatByteCount(downloadedItem.sizeBytes)}).`
+      );
+    } catch (error) {
+      setPendingOfflineDownload(null);
+      if (persistedId) {
+        await LocalVideoProxy.removeOfflineMedia(persistedId).catch(console.error);
+      }
+      if (!isRemoteCacheCancellation(error)) {
+        console.error('[Offline] Download failed', error);
+        Alert.alert(
+          'Échec du téléchargement',
+          error instanceof Error ? error.message : 'Impossible de télécharger ce média.'
+        );
+      }
+    } finally {
+      if (cacheOperationRef.current === operationId) {
+        await stopProxyAndClearCache();
+        cacheOperationRef.current = null;
+        setIsCachingMedia(false);
+        setDownloadingEpisodeId(null);
+      }
+    }
+  };
+
+  const playOfflineMedia = async (item: OfflineMediaItem) => {
+    if (Platform.OS !== 'android') return;
+
+    let startedOfflineServer = false;
+    try {
+      const context: PlaybackContext = {
+        media: toSearchResult(item.media),
+        episode: item.episode,
+        episodeQueue: [item.episode],
+        title: item.title,
+        imageUrl: item.media.imageUrl,
+        offlineMediaId: item.id,
+      };
+      const shouldPlayOnTv = isTvModeEnabled && Boolean(castSession || activeDlnaDevice);
+      let streamUrl: string;
+
+      if (shouldPlayOnTv) {
+        const { ip, port, token } = await LocalVideoProxy.startServer(8080);
+        startedOfflineServer = true;
+        const query = new URLSearchParams({
+          token,
+          id: item.id,
+          contentType: item.contentType,
+        });
+        streamUrl = `http://${ip}:${port}/offline?${query.toString()}`;
+        await verifyOfflineTvStream(streamUrl);
+      } else {
+        streamUrl = await LocalVideoProxy.getOfflineMediaUri(item.id);
+      }
+
+      const stream: Stream = {
+        url: streamUrl,
+        language: item.language,
+        quality: 'offline',
+        server: 'Bibliothèque hors ligne',
+        format: 'file',
+        contentType: item.contentType,
+        durationSeconds: item.durationSeconds,
+        sizeBytes: item.sizeBytes,
+        seekable: item.seekable,
+      };
+
+      setPendingPlayback(context);
+      setPendingCastInfo({ title: context.title, imageUrl: context.imageUrl });
+      setAvailableLanguages({ [item.language]: [stream] });
+
+      if (shouldPlayOnTv) {
+        await requestTvStreamingNotificationPermission();
+        if (castSession) {
+          await loadOnChromecast(stream, context.title, context.imageUrl);
+        } else if (activeDlnaDevice) {
+          await dlnaController.castVideo(activeDlnaDevice.controlUrl, stream, context.title);
+        }
+        setRemotePlayback({
+          ...context,
+          language: item.language,
+          canSeek: item.seekable,
+          usesCachedMedia: true,
+          durationSeconds: item.durationSeconds,
+          playbackNotice: item.seekable
+            ? undefined
+            : 'Ce téléchargement utilise un format de compatibilité sans déplacement temporel.',
+        });
+        recordPlaybackInHistory(context);
+        setIsCastRemoteVisible(true);
+      } else {
+        localPlaybackUsesProxyRef.current = false;
+        setAllStreams([stream]);
+        setCurrentStreamIndex(0);
+      }
+    } catch (error) {
+      if (startedOfflineServer) {
+        await LocalVideoProxy.stopServer().catch(console.error);
+      }
+      console.error('[Offline] Playback failed', error);
+      Alert.alert(
+        'Lecture impossible',
+        error instanceof Error
+          ? error.message
+          : 'Le fichier hors ligne est absent ou ne peut plus être lu.'
+      );
+    }
+  };
+
+  const deleteOfflineMedia = (item: OfflineMediaItem) => {
+    if (
+      pendingPlayback?.offlineMediaId === item.id &&
+      (allStreams.length > 0 || remotePlayback)
+    ) {
+      Alert.alert('Média en cours de lecture', 'Arrête la lecture avant de supprimer ce média.');
+      return;
+    }
+
+    Alert.alert(
+      'Supprimer le téléchargement',
+      `Supprimer « ${item.title} » du téléphone ?`,
+      [
+        { text: 'Annuler', style: 'cancel' },
+        {
+          text: 'Supprimer',
+          style: 'destructive',
+          onPress: () => {
+            void LocalVideoProxy.removeOfflineMedia(item.id)
+              .then(() => removeOfflineMediaFromStore(item.id))
+              .catch(error => {
+                console.error('[Offline] Delete failed', error);
+                Alert.alert('Suppression impossible', 'Le téléchargement n’a pas pu être supprimé.');
+              });
+          },
+        },
+      ]
+    );
+  };
+
   const handleLanguageSelect = async (lang: string) => {
     setIsLangModalVisible(false);
     const selectedStreams = availableLanguages[lang];
@@ -647,6 +964,60 @@ export default function App() {
     setPendingPlayback(null);
   };
 
+  const finishRemotePlayback = async () => {
+    if (remoteCleanupInFlightRef.current) return;
+    remoteCleanupInFlightRef.current = true;
+    setIsCastRemoteVisible(false);
+    setRemotePlayback(null);
+    setPendingPlayback(null);
+    try {
+      await stopProxyAndClearCache();
+    } finally {
+      remoteCleanupInFlightRef.current = false;
+    }
+  };
+
+  const confirmExitApp = () => {
+    if (Platform.OS !== 'android' || isExitingRef.current) return;
+    Alert.alert(
+      'Quitter Horus',
+      'La lecture et les tâches en cours seront arrêtées. Les médias téléchargés resteront disponibles.',
+      [
+        { text: 'Annuler', style: 'cancel' },
+        {
+          text: 'Quitter',
+          style: 'destructive',
+          onPress: () => {
+            isExitingRef.current = true;
+            cacheCancelledRef.current = true;
+            setPendingOfflineDownload(null);
+            void (async () => {
+              await Promise.allSettled([
+                LocalVideoProxy.cancelCache(),
+                activeDlnaDevice
+                  ? dlnaController.stop(activeDlnaDevice.controlUrl)
+                  : Promise.resolve(),
+                castSession
+                  ? CastContext.getSessionManager().endCurrentSession(true)
+                  : Promise.resolve(),
+              ]);
+              setAllStreams([]);
+              setRemotePlayback(null);
+              setActiveDlnaDevice(null);
+              setIsTvModeEnabled(false);
+              setIsCastRemoteVisible(false);
+              await LocalVideoProxy.exitApp();
+            })().catch(error => {
+              isExitingRef.current = false;
+              console.error('[Exit] Clean shutdown failed', error);
+              Alert.alert('Fermeture impossible', 'Horus n’a pas pu terminer toutes ses tâches proprement.');
+            });
+          },
+        },
+      ]
+    );
+  };
+
   // Grouper les épisodes par saisons
   const seasonGroups = useMemo(() => {
     const groups: { [key: string]: Episode[] } = {};
@@ -671,9 +1042,6 @@ export default function App() {
   }, [seasonKeys, selectedSeason]);
 
   useEffect(() => {
-    LocalVideoProxy.clearCache().catch(error => {
-      console.warn('[Cache] Initial cleanup failed', error);
-    });
     const subscription = LocalVideoProxy.addListener(
       'onCacheProgress',
       (progress) => {
@@ -704,21 +1072,69 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    if (
-      Platform.OS !== 'android' ||
-      !remotePlayback?.usesCachedMedia
-    ) {
-      return;
-    }
+    if (Platform.OS !== 'android') return;
+    let disposed = false;
+
+    const reconcileAndRecover = async () => {
+      await LocalVideoProxy.clearCache().catch(error => {
+        console.warn('[Cache] Initial cleanup failed', error);
+      });
+      const storedIds = new Set(await LocalVideoProxy.listOfflineMediaIds());
+      const state = useUserStore.getState();
+      const metadataIds = new Set(state.offlineMedia.map(item => item.id));
+
+      state.offlineMedia
+        .filter(item => !storedIds.has(item.id))
+        .forEach(item => state.removeOfflineMedia(item.id));
+      await Promise.all(
+        [...storedIds]
+          .filter(id => !metadataIds.has(id))
+          .map(id => LocalVideoProxy.removeOfflineMedia(id))
+      );
+
+      if (disposed) return;
+      const pending = useUserStore.getState().pendingOfflineDownload;
+      if (!pending) return;
+      const alreadyDownloaded = useUserStore.getState().offlineMedia.some(item =>
+        item.media.id === pending.media.id && item.episode.id === pending.episode.id
+      );
+      if (alreadyDownloaded) {
+        useUserStore.getState().setPendingOfflineDownload(null);
+        return;
+      }
+      void downloadEpisodeForOffline(
+        pending.episode,
+        toSearchResult(pending.media),
+        true,
+        pending.quality
+      );
+    };
+
+    const run = () => void reconcileAndRecover().catch(error => {
+      console.warn('[Offline] Unable to reconcile the local library', error);
+    });
+    if (useUserStore.persist.hasHydrated()) run();
+    const unsubscribe = useUserStore.persist.onFinishHydration(run);
+    return () => {
+      disposed = true;
+      unsubscribe();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!remotePlayback) return;
 
     let cancelled = false;
     let refreshInProgress = false;
+    let dlnaPlaybackStarted = false;
+    const shouldSyncNotification =
+      Platform.OS === 'android' && remotePlayback.usesCachedMedia;
     const updateNotification = (
       isPlaying: boolean,
       positionSeconds: number,
       durationSeconds: number
     ) => {
-      if (cancelled) return;
+      if (cancelled || !shouldSyncNotification) return;
       LocalVideoProxy.updateTvPlaybackState(
         isPlaying,
         positionSeconds,
@@ -728,14 +1144,16 @@ export default function App() {
       });
     };
 
-    void LocalVideoProxy.setTvNotificationMode(
-      'player',
-      remotePlayback.title,
-      remotePlayback.imageUrl,
-      remotePlayback.canSeek
-    ).then(() => updateNotification(true, 0, 0)).catch(error => {
-      console.warn('[Notification] Unable to show TV player', error);
-    });
+    if (shouldSyncNotification) {
+      void LocalVideoProxy.setTvNotificationMode(
+        'player',
+        remotePlayback.title,
+        remotePlayback.imageUrl,
+        remotePlayback.canSeek
+      ).then(() => updateNotification(true, 0, 0)).catch(error => {
+        console.warn('[Notification] Unable to show TV player', error);
+      });
+    }
 
     if (castSession) {
       const client = castSession.client;
@@ -746,6 +1164,14 @@ export default function App() {
         status: Awaited<ReturnType<typeof client.getMediaStatus>>
       ) => {
         if (!status || cancelled) return;
+        if (
+          status.playerState === MediaPlayerState.IDLE &&
+          status.idleReason !== MediaPlayerIdleReason.INTERRUPTED
+        ) {
+          cancelled = true;
+          void finishRemotePlayback();
+          return;
+        }
         castIsPlaying = status.playerState === 'playing' || status.playerState === 'buffering';
         castPosition = status.streamPosition ?? castPosition;
         castDuration = status.mediaInfo?.streamDuration ?? castDuration;
@@ -775,6 +1201,20 @@ export default function App() {
             activeDlnaDevice.controlUrl,
             activeDlnaDevice.renderingControlUrl
           );
+          if (
+            status.transportState === 'PLAYING' ||
+            status.transportState === 'PAUSED_PLAYBACK' ||
+            status.transportState === 'TRANSITIONING'
+          ) {
+            dlnaPlaybackStarted = true;
+          } else if (
+            dlnaPlaybackStarted &&
+            (status.transportState === 'STOPPED' || status.transportState === 'NO_MEDIA_PRESENT')
+          ) {
+            cancelled = true;
+            void finishRemotePlayback();
+            return;
+          }
           updateNotification(
             status.transportState === 'PLAYING' || status.transportState === 'TRANSITIONING',
             status.positionSeconds,
@@ -799,6 +1239,8 @@ export default function App() {
         clearInterval(interval);
       };
     }
+
+    void finishRemotePlayback();
 
     return () => {
       cancelled = true;
@@ -833,9 +1275,7 @@ export default function App() {
             if (castClient) await castClient.stop();
             else if (activeDlnaDevice) await dlnaController.stop(activeDlnaDevice.controlUrl);
           } finally {
-            setIsCastRemoteVisible(false);
-            setRemotePlayback(null);
-            stopProxyAndClearCache();
+            await finishRemotePlayback();
           }
         }
       })().catch(error => {
@@ -878,21 +1318,22 @@ export default function App() {
           onChangeText={setSearch}
           onSubmitEditing={handleSearch}
           returnKeyType="search"
-          hideSearch={mediaType === 'wishlist' || mediaType === 'history'}
+          hideSearch={mediaType === 'wishlist' || mediaType === 'history' || mediaType === 'downloads'}
           onPressCast={() => {
-            if (castSession || (activeDlnaDevice && remotePlayback)) {
+            if (isTvModeEnabled && (castSession || (activeDlnaDevice && remotePlayback))) {
               setIsCastRemoteVisible(true);
-            } else if (activeDlnaDevice) {
+            } else if (isTvModeEnabled && activeDlnaDevice) {
               setIsDisconnectModalVisible(true);
             } else {
               setIsUnifiedCastModalVisible(true);
             }
           }}
-          isCasting={!!castSession || !!activeDlnaDevice}
+          isCasting={isTvModeEnabled && (!!castSession || !!activeDlnaDevice)}
+          onPressExit={Platform.OS === 'android' ? confirmExitApp : undefined}
         />
 
         {/* Pilules de Sélection de Type de Média */}
-        <View style={[styles.pillsContainer, { paddingHorizontal: 20, marginBottom: 15, marginTop: (mediaType === 'wishlist' || mediaType === 'history') ? 20 : 0 }]}>
+        <View style={[styles.pillsContainer, { paddingHorizontal: 20, marginBottom: 15, marginTop: (mediaType === 'wishlist' || mediaType === 'history' || mediaType === 'downloads') ? 20 : 0 }]}>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ alignItems: 'center' }}>
             <TouchableOpacity
               style={[styles.pill, mediaType === 'anime' && styles.pillActive]}
@@ -918,6 +1359,12 @@ export default function App() {
             >
               <Text style={[styles.pillText, mediaType === 'history' && styles.pillTextActive]}>Historique</Text>
             </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.pill, mediaType === 'downloads' && styles.pillActive]}
+              onPress={() => selectMediaType('downloads')}
+            >
+              <Text style={[styles.pillText, mediaType === 'downloads' && styles.pillTextActive]}>Hors ligne</Text>
+            </TouchableOpacity>
           </ScrollView>
         </View>
 
@@ -926,10 +1373,24 @@ export default function App() {
             <ActivityIndicator size="large" color="#8B5CF6" style={{ marginTop: 50 }} />
           ) : (
             <View style={styles.grid}>
+              {mediaType === 'downloads' && offlineMedia.length > 0 && (
+                <Text style={styles.offlineHint}>
+                  Touchez un média pour le lire ou le diffuser. Maintenez sa carte pour le supprimer.
+                </Text>
+              )}
               {(() => {
-                const dataToDisplay: Array<SearchResult & { sourceItem?: HistoryItem }> =
+                const dataToDisplay: Array<SearchResult & {
+                  sourceItem?: HistoryItem;
+                  sourceOffline?: OfflineMediaItem;
+                }> =
                   (mediaType === 'wishlist') ? wishlist.map(toSearchResult)
                   : (mediaType === 'history') ? history.map(item => ({ ...toSearchResult(item), sourceItem: item }))
+                  : (mediaType === 'downloads') ? offlineMedia.map(item => ({
+                      ...toSearchResult(item.media),
+                      id: item.id,
+                      title: item.title,
+                      sourceOffline: item,
+                    }))
                   : results;
 
                 if (dataToDisplay.length === 0) {
@@ -938,6 +1399,9 @@ export default function App() {
                   }
                   if (mediaType === 'history') {
                      return <Text style={styles.emptyText}>Votre Historique est vide.</Text>;
+                  }
+                  if (mediaType === 'downloads') {
+                     return <Text style={styles.emptyText}>Aucun média téléchargé. Utilisez l’icône de téléchargement depuis un film ou un épisode.</Text>;
                   }
                   if (search.length > 0) {
                      return <Text style={styles.emptyText}>Aucun résultat trouvé pour votre recherche.</Text>;
@@ -951,20 +1415,27 @@ export default function App() {
 
                 return dataToDisplay.map((item, idx) => (
                   <HorusMediaCard
-                    key={item.id + idx}
+                    key={`${item.id}-${idx}`}
                     title={item.title}
-                    subtitle={item.type}
+                    subtitle={mediaType === 'downloads' ? 'hors ligne' : item.type}
                     highlightText={
-                      mediaType === 'history' &&
-                      item.type !== 'movie' &&
-                      item.sourceItem?.lastEpisode?.number
-                        ? `ÉPISODE ${item.sourceItem.lastEpisode.number}`
-                        : undefined
+                      mediaType === 'downloads' && item.sourceOffline
+                        ? formatByteCount(item.sourceOffline.sizeBytes)
+                        : mediaType === 'history' &&
+                          item.type !== 'movie' &&
+                          item.sourceItem?.lastEpisode?.number
+                          ? `ÉPISODE ${item.sourceItem.lastEpisode.number}`
+                          : undefined
                     }
                     imageUrl={item.coverUrl}
                     index={idx}
+                    onLongPress={item.sourceOffline
+                      ? () => deleteOfflineMedia(item.sourceOffline!)
+                      : undefined}
                     onPress={() => {
-                      if (mediaType === 'history' && item.sourceItem?.lastEpisode) {
+                      if (mediaType === 'downloads' && item.sourceOffline) {
+                        void playOfflineMedia(item.sourceOffline);
+                      } else if (mediaType === 'history' && item.sourceItem?.lastEpisode) {
                         // Reprise directe de l'épisode sans passer par l'overlay de détails
                         mediaRequestIdRef.current += 1;
                         setSelectedMedia(item as SearchResult);
@@ -997,6 +1468,7 @@ export default function App() {
             type: selectedMedia.type,
             providerId: selectedMedia.providerId,
           } : null}
+          isLoading={isLoadingEpisodes}
           onInitStream={() => {
             if (seasonKeys.length === 1 && seasonGroups[seasonKeys[0]].length === 1) {
               extractStreamsAndCast(seasonGroups[seasonKeys[0]][0]);
@@ -1004,6 +1476,23 @@ export default function App() {
               setIsEpisodeListVisible(true);
             }
           }}
+          onDownload={
+            Platform.OS === 'android' &&
+            seasonKeys.length === 1 &&
+            seasonGroups[seasonKeys[0]].length === 1
+              ? () => downloadEpisodeForOffline(seasonGroups[seasonKeys[0]][0])
+              : undefined
+          }
+          isDownloading={Boolean(downloadingEpisodeId)}
+          isDownloaded={Boolean(
+            selectedMedia &&
+            seasonKeys.length === 1 &&
+            seasonGroups[seasonKeys[0]].length === 1 &&
+            offlineMedia.some(item =>
+              item.media.id === selectedMedia.id &&
+              item.episode.id === seasonGroups[seasonKeys[0]][0].id
+            )
+          )}
         />
 
         {/* Phase 5 : Liste des épisodes Cyber UI */}
@@ -1016,6 +1505,16 @@ export default function App() {
           episodes={seasonGroups[selectedSeason] || []}
           isExtracting={isExtracting}
           onPlayEpisode={(ep) => extractStreamsAndCast(ep)}
+          onDownloadEpisode={Platform.OS === 'android'
+            ? (episode) => downloadEpisodeForOffline(episode)
+            : undefined}
+          downloadedEpisodeIds={selectedMedia
+            ? offlineMedia
+                .filter(item => item.media.id === selectedMedia.id)
+                .map(item => item.episode.id)
+            : []}
+          downloadingEpisodeId={downloadingEpisodeId}
+          isLoading={isLoadingEpisodes}
         />
 
         {/* --- Modal de sélection de la langue (façon Bottom Sheet) --- */}
@@ -1091,11 +1590,13 @@ export default function App() {
           visible={isUnifiedCastModalVisible}
           onClose={() => setIsUnifiedCastModalVisible(false)}
           onSelectCast={(mode, quality) => {
+            setIsTvModeEnabled(true);
             setRemoteDeliveryMode(mode);
             setRemoteCacheQuality(quality);
           }}
           onSelectDlna={(device, mode, quality) => {
             setActiveDlnaDevice(device);
+            setIsTvModeEnabled(true);
             setRemoteDeliveryMode(mode);
             setRemoteCacheQuality(quality);
           }}
@@ -1107,13 +1608,16 @@ export default function App() {
           animationType="fade"
           onRequestClose={() => {
             cacheCancelledRef.current = true;
+            if (downloadingEpisodeId) setPendingOfflineDownload(null);
             LocalVideoProxy.cancelCache().catch(console.error);
           }}
         >
           <View style={styles.cacheModalOverlay}>
             <View style={styles.cacheModalContent}>
               <ActivityIndicator size="large" color="#00FFFF" />
-              <Text style={styles.cacheModalTitle}>Préparation pour la TV</Text>
+              <Text style={styles.cacheModalTitle}>
+                {downloadingEpisodeId ? 'Téléchargement hors ligne' : 'Préparation pour la TV'}
+              </Text>
               <Text style={styles.cacheModalText}>
                 {cacheProgress.phase === 'optimizing'
                   ? 'Optimisation du fichier MP4'
@@ -1156,6 +1660,7 @@ export default function App() {
                 style={styles.cacheCancelButton}
                 onPress={() => {
                   cacheCancelledRef.current = true;
+                  if (downloadingEpisodeId) setPendingOfflineDownload(null);
                   LocalVideoProxy.cancelCache().catch(console.error);
                 }}
               >
@@ -1183,8 +1688,7 @@ export default function App() {
               onPreviousEpisode={() => changeRemoteEpisode(-1)}
               onNextEpisode={() => changeRemoteEpisode(1)}
               onStopped={() => {
-                setRemotePlayback(null);
-                stopProxyAndClearCache();
+                void finishRemotePlayback();
               }}
               onRequestDisconnect={() => {
                 setIsCastRemoteVisible(false);
@@ -1207,8 +1711,8 @@ export default function App() {
             if (castSession) {
               CastContext.getSessionManager().endCurrentSession(true).catch(console.error);
             }
-            stopProxyAndClearCache();
-            setRemotePlayback(null);
+            setIsTvModeEnabled(false);
+            void finishRemotePlayback();
             setIsCastRemoteVisible(false);
             setIsDisconnectModalVisible(false);
           }}
@@ -1254,6 +1758,7 @@ const styles = StyleSheet.create({
   cardSubtitle: { color: '#8B5CF6', fontSize: 12, fontWeight: '500', textTransform: 'capitalize' },
 
   emptyText: { color: '#94A3B8', textAlign: 'center', width: '100%', marginTop: 20, paddingHorizontal: 20, lineHeight: 22 },
+  offlineHint: { color: '#64748B', width: '100%', marginBottom: 14, paddingHorizontal: 5, fontSize: 12, lineHeight: 18 },
 
   // Modal Custom Styling
   modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 20 },

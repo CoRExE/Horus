@@ -1046,6 +1046,7 @@ public class LocalVideoProxyModule: Module {
       let ip = self.getLocalIpAddress() ?? "127.0.0.1"
       promise.resolve([
         "ip": ip,
+        "port": port,
         "token": self.accessToken ?? ""
       ])
     }
@@ -1257,6 +1258,33 @@ public class LocalVideoProxyModule: Module {
       if let file = self.findCachedMedia(id: id) {
         try? FileManager.default.removeItem(at: file)
       }
+      promise.resolve(nil)
+    }
+
+    AsyncFunction("persistCachedMedia") { (_: String, promise: Promise) in
+      promise.reject(
+        "ERR_UNSUPPORTED",
+        "Offline media storage is currently available only on Android"
+      )
+    }
+
+    AsyncFunction("getOfflineMediaUri") { (_: String, promise: Promise) in
+      promise.reject(
+        "ERR_UNSUPPORTED",
+        "Offline media playback is currently available only on Android"
+      )
+    }
+
+    AsyncFunction("removeOfflineMedia") { (_: String, promise: Promise) in
+      promise.resolve(nil)
+    }
+
+    AsyncFunction("listOfflineMediaIds") { (promise: Promise) in
+      promise.resolve([])
+    }
+
+    AsyncFunction("exitApp") { (promise: Promise) in
+      // iOS applications must not terminate themselves programmatically.
       promise.resolve(nil)
     }
 

@@ -37,9 +37,14 @@ declare class LocalVideoProxyModule extends NativeModule<LocalVideoProxyEvents> 
   ): Promise<CachedMediaInfo>;
   cancelCache(): Promise<void>;
   removeCachedMedia(id: string): Promise<void>;
+  persistCachedMedia(id: string): Promise<void>;
+  getOfflineMediaUri(id: string): Promise<string>;
+  removeOfflineMedia(id: string): Promise<void>;
+  listOfflineMediaIds(): Promise<string[]>;
   clearCache(): Promise<void>;
   acquireMulticastLock(): Promise<void>;
   releaseMulticastLock(): Promise<void>;
+  exitApp(): Promise<void>;
 }
 
 export default requireNativeModule<LocalVideoProxyModule>('LocalVideoProxy');

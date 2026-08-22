@@ -157,7 +157,14 @@ class StreamingForegroundService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        val commandIntent = intent ?: Intent().setAction(ACTION_START)
+        // A sticky restart cannot recreate the in-memory HTTP/cache engine on
+        // its own. Do not keep an orphan wake/Wi-Fi lock; the persisted app job
+        // will be retried when Horus is opened again.
+        if (intent == null) {
+            stopSelf(startId)
+            return START_NOT_STICKY
+        }
+        val commandIntent = intent
         when (commandIntent.action ?: ACTION_START) {
             ACTION_START -> resetToDirectMode()
             ACTION_SET_MODE -> applyNotificationMode(commandIntent)
@@ -175,7 +182,10 @@ class StreamingForegroundService : Service() {
         }
         publishNotification()
         acquireLocks()
-        return START_NOT_STICKY
+        // Keep the foreground service eligible for recreation after Android
+        // reclaims the process. The app also persists enough state to retry an
+        // interrupted offline download when its UI is recreated.
+        return START_STICKY
     }
 
     override fun onDestroy() {

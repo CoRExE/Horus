@@ -1,6 +1,7 @@
 // Define your exported module types here.
 export type LocalVideoProxyServerInfo = {
   ip: string;
+  port: number;
   token: string;
 };
 

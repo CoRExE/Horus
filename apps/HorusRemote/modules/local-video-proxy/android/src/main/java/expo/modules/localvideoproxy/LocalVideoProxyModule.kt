@@ -1,7 +1,10 @@
 package expo.modules.localvideoproxy
 
+import android.content.Context
 import android.media.MediaExtractor
 import android.media.MediaFormat
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import android.net.Uri
 import android.os.Handler
 import android.os.Looper
@@ -10,6 +13,8 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.transformer.Composition
+import androidx.media3.transformer.EditedMediaItem
+import androidx.media3.transformer.EditedMediaItemSequence
 import androidx.media3.transformer.ExportException
 import androidx.media3.transformer.ExportResult
 import androidx.media3.transformer.ProgressHolder
@@ -25,6 +30,8 @@ import java.net.HttpURLConnection
 import java.net.URI
 import java.net.URL
 import java.net.NetworkInterface
+import java.net.Inet4Address
+import java.net.InetAddress
 import java.net.URLEncoder
 import java.io.Closeable
 import java.io.File
@@ -45,6 +52,7 @@ import java.util.concurrent.Future
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicLong
 
 data class HlsSegment(
     val sequence: Long,
@@ -60,7 +68,9 @@ data class HlsPlaylistSnapshot(
     val hasEndList: Boolean,
     val selectedBandwidth: Long? = null,
     val selectedWidth: Int? = null,
-    val selectedHeight: Int? = null
+    val selectedHeight: Int? = null,
+    val externalAudioSegments: List<HlsSegment> = emptyList(),
+    val externalAudioHasEndList: Boolean = false
 )
 
 data class HlsVariant(
@@ -69,7 +79,7 @@ data class HlsVariant(
     val codecs: String?,
     val width: Int?,
     val height: Int?,
-    val usesExternalAudio: Boolean
+    val audioGroupId: String?
 )
 
 data class MediaFileInspection(
@@ -427,11 +437,13 @@ class HlsSequenceInputStream(
 }
 
 class LocalVideoProxyServer(
+    host: String,
     port: Int,
     private val accessToken: String,
     private val cacheDirectory: File,
+    private val offlineDirectory: File,
     private val cronetEngine: CronetEngine?
-) : NanoHTTPD(port) {
+) : NanoHTTPD(host, port) {
 
     @Volatile
     var lastProxyError: String? = null
@@ -451,6 +463,12 @@ class LocalVideoProxyServer(
         require((protocol == "http" || protocol == "https") && url.host.isNotBlank()) {
             "Only absolute HTTP(S) URLs are allowed"
         }
+        val addresses = InetAddress.getAllByName(url.host)
+        require(addresses.isNotEmpty() && addresses.none { address ->
+            address.isAnyLocalAddress || address.isLoopbackAddress ||
+                address.isLinkLocalAddress || address.isSiteLocalAddress ||
+                address.isMulticastAddress
+        }) { "Private or local upstream addresses are not allowed" }
         return url
     }
 
@@ -461,23 +479,43 @@ class LocalVideoProxyServer(
         userAgent: String,
         range: String? = null
     ): HttpURLConnection {
-        val url = requireHttpUrl(urlString)
-        val connection = (cronetEngine?.openConnection(url) ?: url.openConnection())
-            as HttpURLConnection
-        connection.requestMethod = "GET"
-        connection.connectTimeout = 15_000
-        connection.readTimeout = 45_000
-        connection.setRequestProperty("User-Agent", userAgent)
-        connection.setRequestProperty("Accept", "*/*")
-        connection.setRequestProperty("Accept-Language", "fr-FR,fr;q=0.9,en;q=0.8")
-        referer
-            ?.takeIf { it.startsWith("http://") || it.startsWith("https://") }
-            ?.let { connection.setRequestProperty("Referer", it) }
-        origin
-            ?.takeIf { it.startsWith("http://") || it.startsWith("https://") }
-            ?.let { connection.setRequestProperty("Origin", it) }
-        range?.let { connection.setRequestProperty("Range", it) }
-        return connection
+        var currentUrl = requireHttpUrl(urlString)
+        repeat(6) { redirectCount ->
+            val connection = (cronetEngine?.openConnection(currentUrl) ?: currentUrl.openConnection())
+                as HttpURLConnection
+            connection.instanceFollowRedirects = false
+            connection.requestMethod = "GET"
+            connection.connectTimeout = 15_000
+            connection.readTimeout = 45_000
+            connection.setRequestProperty("User-Agent", userAgent)
+            connection.setRequestProperty("Accept", "*/*")
+            connection.setRequestProperty("Accept-Language", "fr-FR,fr;q=0.9,en;q=0.8")
+            referer
+                ?.takeIf { it.startsWith("http://") || it.startsWith("https://") }
+                ?.let { connection.setRequestProperty("Referer", it) }
+            origin
+                ?.takeIf { it.startsWith("http://") || it.startsWith("https://") }
+                ?.let { connection.setRequestProperty("Origin", it) }
+            range?.let { connection.setRequestProperty("Range", it) }
+            connection.connect()
+
+            if (connection.responseCode !in setOf(301, 302, 303, 307, 308)) {
+                return connection
+            }
+            if (redirectCount == 5) {
+                connection.disconnect()
+                throw IOException("Too many upstream redirects")
+            }
+            val location = connection.getHeaderField("Location")
+                ?: run {
+                    connection.disconnect()
+                    throw IOException("Upstream redirect has no Location header")
+                }
+            val nextUrl = URL(currentUrl, location)
+            connection.disconnect()
+            currentUrl = requireHttpUrl(nextUrl.toString())
+        }
+        throw IOException("Unable to open upstream connection")
     }
 
     private fun openHlsRelayConnection(
@@ -637,13 +675,15 @@ class LocalVideoProxyServer(
             (variant.width == null || variant.width <= 1920) &&
                 (variant.height == null || variant.height <= maxHeight)
         }
-        val muxedCandidates = resolutionCompatible.filterNot { it.usesExternalAudio }
+        val muxedCandidates = resolutionCompatible.filter { it.audioGroupId == null }
+        val allMuxedCandidates = codecCompatible.filter { it.audioGroupId == null }
         val candidates = when {
             muxedCandidates.isNotEmpty() -> muxedCandidates
-            resolutionCompatible.isNotEmpty() -> resolutionCompatible
-            codecCompatible.isNotEmpty() -> listOf(
-                codecCompatible.minByOrNull { it.bandwidth } ?: codecCompatible.first()
+            allMuxedCandidates.isNotEmpty() -> listOf(
+                allMuxedCandidates.minByOrNull { it.bandwidth } ?: allMuxedCandidates.first()
             )
+            resolutionCompatible.isNotEmpty() -> resolutionCompatible
+            codecCompatible.isNotEmpty() -> codecCompatible
             else -> variants
         }
 
@@ -684,6 +724,40 @@ class LocalVideoProxyServer(
         }
     }
 
+    fun persistCachedMedia(id: String): Boolean {
+        val source = findCachedMedia(id) ?: return false
+        offlineDirectory.mkdirs()
+        File(offlineDirectory, ".nomedia").let { marker ->
+            if (!marker.exists()) marker.createNewFile()
+        }
+        val destination = File(offlineDirectory, "$id.horus-media")
+        if (destination.exists() && !destination.delete()) return false
+        if (source.renameTo(destination)) return true
+        return try {
+            source.copyTo(destination, overwrite = false)
+            if (!source.delete()) {
+                destination.delete()
+                false
+            } else {
+                true
+            }
+        } catch (_: IOException) {
+            destination.delete()
+            false
+        }
+    }
+
+    fun removeOfflineMedia(id: String) {
+        if (!Regex("^[a-f0-9]{32}$").matches(id)) return
+        File(offlineDirectory, "$id.horus-media").delete()
+    }
+
+    private fun findOfflineMedia(id: String): File? {
+        if (!Regex("^[a-f0-9]{32}$").matches(id)) return null
+        return File(offlineDirectory, "$id.horus-media")
+            .takeIf { it.isFile }
+    }
+
     private fun serveCachedMedia(session: IHTTPSession): Response {
         val id = session.parameters["id"]?.firstOrNull()
             ?: return newFixedLengthResponse(
@@ -697,6 +771,33 @@ class LocalVideoProxyServer(
                 MIME_PLAINTEXT,
                 "Cached media not found"
             )
+        return serveMediaFile(session, file, cachedContentType(file))
+    }
+
+    private fun serveOfflineMedia(session: IHTTPSession): Response {
+        val id = session.parameters["id"]?.firstOrNull()
+            ?: return newFixedLengthResponse(
+                Response.Status.BAD_REQUEST,
+                MIME_PLAINTEXT,
+                "Missing offline media identifier"
+            )
+        val file = findOfflineMedia(id)
+            ?: return newFixedLengthResponse(
+                Response.Status.NOT_FOUND,
+                MIME_PLAINTEXT,
+                "Offline media not found"
+            )
+        val contentType = session.parameters["contentType"]?.firstOrNull()
+            ?.takeIf { it in setOf("video/mp4", "video/mp2t", "video/webm", "video/x-matroska") }
+            ?: "video/mp4"
+        return serveMediaFile(session, file, contentType)
+    }
+
+    private fun serveMediaFile(
+        session: IHTTPSession,
+        file: File,
+        contentType: String
+    ): Response {
         val fileLength = file.length()
         if (fileLength <= 0L) {
             return newFixedLengthResponse(
@@ -742,14 +843,14 @@ class LocalVideoProxyServer(
         val input = FileInputStream(file)
         input.channel.position(start)
         val status = if (isPartial) Response.Status.PARTIAL_CONTENT else Response.Status.OK
-        return newFixedLengthResponse(status, cachedContentType(file), input, length).apply {
+        return newFixedLengthResponse(status, contentType, input, length).apply {
             addHeader("Accept-Ranges", "bytes")
             addHeader("Content-Length", length.toString())
             addHeader("transferMode.dlna.org", "Streaming")
             addHeader(
                 "contentFeatures.dlna.org",
                 "DLNA.ORG_OP=01;DLNA.ORG_CI=" +
-                    (if (file.extension.equals("ts", ignoreCase = true)) "1" else "0") +
+                    (if (contentType == "video/mp2t") "1" else "0") +
                     ";DLNA.ORG_FLAGS=01700000000000000000000000000000"
             )
             if (isPartial) {
@@ -787,6 +888,7 @@ class LocalVideoProxyServer(
 
         val segments = mutableListOf<HlsSegment>()
         val variants = mutableListOf<HlsVariant>()
+        val audioGroups = mutableMapOf<String, Pair<String, Boolean>>()
         var pendingVariant: HlsVariant? = null
         var unsupportedEncryption = false
         var usesFragmentedMp4 = false
@@ -797,7 +899,26 @@ class LocalVideoProxyServer(
 
         text.split("\n").forEach { line ->
             val trimmed = line.trim()
-            if (trimmed.startsWith("#EXT-X-STREAM-INF:")) {
+            if (trimmed.startsWith("#EXT-X-MEDIA:") && trimmed.contains("TYPE=AUDIO")) {
+                val attributes = trimmed.substringAfter(":")
+                val groupId = Regex("""(?:^|,)GROUP-ID="([^"]+)"""")
+                    .find(attributes)
+                    ?.groupValues
+                    ?.get(1)
+                val uri = Regex("""(?:^|,)URI="([^"]+)"""")
+                    .find(attributes)
+                    ?.groupValues
+                    ?.get(1)
+                val isDefault = Regex("""(?:^|,)DEFAULT=YES(?:,|$)""")
+                    .containsMatchIn(attributes)
+                if (!groupId.isNullOrBlank() && !uri.isNullOrBlank()) {
+                    val existing = audioGroups[groupId]
+                    if (existing == null || (isDefault && !existing.second)) {
+                        audioGroups[groupId] =
+                            resolvePlaylistUri(playlistUrl, uri) to isDefault
+                    }
+                }
+            } else if (trimmed.startsWith("#EXT-X-STREAM-INF:")) {
                 val attributes = trimmed.substringAfter(":")
                 val bandwidth = Regex("""(?:^|,)BANDWIDTH=(\d+)""")
                     .find(attributes)
@@ -817,8 +938,10 @@ class LocalVideoProxyServer(
                     codecs = codecs,
                     width = resolution?.groupValues?.get(1)?.toIntOrNull(),
                     height = resolution?.groupValues?.get(2)?.toIntOrNull(),
-                    usesExternalAudio = Regex("""(?:^|,)AUDIO="[^"]+"""")
-                        .containsMatchIn(attributes)
+                    audioGroupId = Regex("""(?:^|,)AUDIO="([^"]+)"""")
+                        .find(attributes)
+                        ?.groupValues
+                        ?.get(1)
                 )
             } else if (trimmed.startsWith("#EXT-X-KEY:") && !trimmed.contains("METHOD=NONE")) {
                 unsupportedEncryption = true
@@ -864,7 +987,7 @@ class LocalVideoProxyServer(
                 "Selected HLS variant ${selectedVariant.width ?: "?"}x" +
                     "${selectedVariant.height ?: "?"} @ ${selectedVariant.bandwidth}bps"
             )
-            return fetchHlsSnapshot(
+            val videoSnapshot = fetchHlsSnapshot(
                 selectedVariant.url,
                 referer,
                 origin,
@@ -872,6 +995,22 @@ class LocalVideoProxyServer(
                 depth + 1,
                 maxHeight,
                 selectedVariant
+            )
+            val audioPlaylistUrl = selectedVariant.audioGroupId
+                ?.let(audioGroups::get)
+                ?.first
+                ?: return videoSnapshot
+            val audioSnapshot = fetchHlsSnapshot(
+                audioPlaylistUrl,
+                referer,
+                origin,
+                userAgent,
+                depth + 1,
+                maxHeight
+            )
+            return videoSnapshot.copy(
+                externalAudioSegments = audioSnapshot.segments,
+                externalAudioHasEndList = audioSnapshot.hasEndList
             )
         }
 
@@ -909,6 +1048,8 @@ class LocalVideoProxyServer(
 
         if (session.uri == "/cache") {
             return serveCachedMedia(session)
+        } else if (session.uri == "/offline") {
+            return serveOfflineMedia(session)
         } else if (session.uri == "/hls") {
             if (targetUrlStr == null) {
                 return newFixedLengthResponse(
@@ -1102,6 +1243,7 @@ class LocalVideoProxyModule : Module() {
     @Volatile private var cronetEngine: CronetEngine? = null
     private var multicastLock: android.net.wifi.WifiManager.MulticastLock? = null
     private val cacheCancelled = AtomicBoolean(false)
+    private val serverOperationGeneration = AtomicLong(0L)
     @Volatile private var cacheThread: Thread? = null
     @Volatile private var activeCacheResource: Closeable? = null
     @Volatile private var activeCacheConnection: HttpURLConnection? = null
@@ -1164,6 +1306,151 @@ class LocalVideoProxyModule : Module() {
         } finally {
             extractor.release()
         }
+    }
+
+    private fun remuxSeparateHlsTracksToMp4(
+        context: android.content.Context,
+        videoFile: File,
+        audioFile: File,
+        outputFile: File,
+        downloadedBytes: Long
+    ): Mp4RemuxResult {
+        if (
+            cacheDirectoryUsableSpace(videoFile.parentFile) <
+            videoFile.length() + audioFile.length() + 64L * 1024L * 1024L
+        ) {
+            return Mp4RemuxResult(
+                false,
+                fallbackReason = "Espace de stockage insuffisant pour réunir l’audio et la vidéo."
+            )
+        }
+
+        outputFile.delete()
+        val mainHandler = Handler(Looper.getMainLooper())
+        val completion = CountDownLatch(1)
+        var succeeded = false
+        var exportError: Throwable? = null
+        mainHandler.post {
+            if (cacheCancelled.get()) {
+                completion.countDown()
+                return@post
+            }
+            try {
+                val transformer = Transformer.Builder(context)
+                    .addListener(object : Transformer.Listener {
+                        override fun onCompleted(
+                            composition: Composition,
+                            exportResult: ExportResult
+                        ) {
+                            succeeded = true
+                            activeTransformer = null
+                            completion.countDown()
+                        }
+
+                        override fun onError(
+                            composition: Composition,
+                            exportResult: ExportResult,
+                            exportException: ExportException
+                        ) {
+                            exportError = exportException
+                            activeTransformer = null
+                            completion.countDown()
+                        }
+                    })
+                    .build()
+                activeTransformer = transformer
+                val videoItem = EditedMediaItem.Builder(
+                    MediaItem.Builder()
+                        .setUri(Uri.fromFile(videoFile))
+                        .setMimeType(MimeTypes.VIDEO_MP2T)
+                        .build()
+                ).setRemoveAudio(true).build()
+                val audioItem = EditedMediaItem.Builder(
+                    MediaItem.Builder()
+                        .setUri(Uri.fromFile(audioFile))
+                        .setMimeType(MimeTypes.VIDEO_MP2T)
+                        .build()
+                ).setRemoveVideo(true).build()
+                val composition = Composition.Builder(
+                    EditedMediaItemSequence.Builder(videoItem).build(),
+                    EditedMediaItemSequence.Builder(audioItem).build()
+                )
+                    .setTransmuxVideo(true)
+                    .setTransmuxAudio(true)
+                    .build()
+                transformer.start(composition, outputFile.absolutePath)
+            } catch (error: Throwable) {
+                exportError = error
+                activeTransformer = null
+                completion.countDown()
+            }
+        }
+
+        while (!completion.await(250L, TimeUnit.MILLISECONDS)) {
+            if (cacheCancelled.get()) {
+                mainHandler.post {
+                    activeTransformer?.cancel()
+                    activeTransformer = null
+                    completion.countDown()
+                }
+                completion.await(5L, TimeUnit.SECONDS)
+                throw IOException("Media download cancelled")
+            }
+            mainHandler.post {
+                val transformer = activeTransformer ?: return@post
+                val holder = ProgressHolder()
+                val state = transformer.getProgress(holder)
+                val progress = if (state == Transformer.PROGRESS_STATE_AVAILABLE) {
+                    holder.progress.coerceIn(0, 100) / 100.0
+                } else {
+                    0.0
+                }
+                sendEvent(
+                    "onCacheProgress",
+                    mapOf(
+                        "bytesDownloaded" to downloadedBytes.toDouble(),
+                        "totalBytes" to downloadedBytes.toDouble(),
+                        "phase" to "optimizing",
+                        "phaseProgress" to progress
+                    )
+                )
+            }
+        }
+
+        if (!succeeded) {
+            outputFile.delete()
+            exportError?.let {
+                Log.w("LocalVideoProxy", "Unable to merge separate HLS audio/video tracks", it)
+            }
+            return Mp4RemuxResult(
+                false,
+                fallbackReason = exportError?.message
+                    ?.takeIf { it.isNotBlank() }
+                    ?.let { "Assemblage audio/vidéo impossible : ${it.take(240)}" }
+                    ?: "Assemblage audio/vidéo impossible."
+            )
+        }
+        val inspection = inspectMediaFile(outputFile)
+        if (
+            !outputFile.isFile || outputFile.length() <= 0L ||
+            !inspection.hasVideo || !inspection.hasAudio || inspection.durationUs <= 0L
+        ) {
+            outputFile.delete()
+            return Mp4RemuxResult(
+                false,
+                fallbackReason = "Le MP4 audio/vidéo produit est incomplet."
+            )
+        }
+        sendEvent(
+            "onCacheProgress",
+            mapOf(
+                "bytesDownloaded" to downloadedBytes.toDouble(),
+                "totalBytes" to downloadedBytes.toDouble(),
+                "phase" to "optimizing",
+                "phaseProgress" to 1.0
+            )
+        )
+        return Mp4RemuxResult(true, durationUs = inspection.durationUs)
     }
 
     @androidx.annotation.OptIn(UnstableApi::class)
@@ -1519,6 +1806,17 @@ class LocalVideoProxyModule : Module() {
         return File(context.cacheDir, "horus_media_cache").apply { mkdirs() }
     }
 
+    private fun getOfflineDirectory(): File {
+        val context = appContext.reactContext
+            ?: throw IllegalStateException("ReactContext unavailable")
+        return File(context.filesDir, "horus_offline_media").apply {
+            mkdirs()
+            File(this, ".nomedia").let { marker ->
+                if (!marker.exists()) marker.createNewFile()
+            }
+        }
+    }
+
     private fun clearCacheDirectory() {
         val directory = getCacheDirectory()
         directory.listFiles()?.forEach { file ->
@@ -1660,17 +1958,81 @@ class LocalVideoProxyModule : Module() {
         throw IOException("Unable to start cached media on DLNA", lastError)
     }
 
+    private fun cancelCacheResources() {
+        cacheCancelled.set(true)
+        try {
+            activeCacheResource?.close()
+        } catch (_: Exception) {
+        }
+        activeCacheConnection?.disconnect()
+        activeCacheExecutor?.shutdownNow()
+        synchronized(activeCacheConnections) {
+            activeCacheConnections.toList().forEach { it.disconnect() }
+            activeCacheConnections.clear()
+        }
+        Handler(Looper.getMainLooper()).post {
+            activeTransformer?.cancel()
+            activeTransformer = null
+        }
+        cacheThread?.interrupt()
+    }
+
+    private fun stopServerResources() {
+        serverOperationGeneration.incrementAndGet()
+        server?.stop()
+        server = null
+        accessToken = null
+        localServerIp = null
+        appContext.reactContext?.applicationContext?.let {
+            StreamingForegroundService.stop(it)
+        }
+    }
+
+    private fun releaseMulticastLockResources() {
+        if (multicastLock?.isHeld == true) {
+            multicastLock?.release()
+            Log.d("LocalVideoProxy", "MulticastLock released")
+        }
+        multicastLock = null
+    }
+
     private fun getLocalIpAddress(): String? {
+        val context = appContext.reactContext?.applicationContext
+        val connectivityManager = context?.getSystemService(Context.CONNECTIVITY_SERVICE)
+            as? ConnectivityManager
+        try {
+            val network = connectivityManager?.activeNetwork
+            val capabilities = network?.let { connectivityManager.getNetworkCapabilities(it) }
+            val isLanTransport = capabilities?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == true ||
+                capabilities?.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) == true
+            if (network != null && isLanTransport) {
+                connectivityManager.getLinkProperties(network)?.linkAddresses
+                    ?.map { it.address }
+                    ?.firstOrNull { address ->
+                        address is Inet4Address && !address.isLoopbackAddress &&
+                            !address.isLinkLocalAddress
+                    }
+                    ?.hostAddress
+                    ?.let { return it }
+            }
+        } catch (error: Exception) {
+            Log.w("LocalVideoProxy", "Unable to read the active LAN address", error)
+        }
+
         try {
             val interfaces = NetworkInterface.getNetworkInterfaces()
             while (interfaces.hasMoreElements()) {
                 val networkInterface = interfaces.nextElement()
                 if (networkInterface.isLoopback || !networkInterface.isUp) continue
+                val name = networkInterface.name.lowercase()
+                if (name.startsWith("tun") || name.startsWith("rmnet") ||
+                    name.startsWith("pdp") || name.startsWith("ccmni")) continue
                 val addresses = networkInterface.inetAddresses
                 while (addresses.hasMoreElements()) {
                     val addr = addresses.nextElement()
                     val hostAddress = addr.hostAddress ?: continue
-                    if (!addr.isLoopbackAddress && hostAddress.indexOf(':') < 0) {
+                    if (addr is Inet4Address && !addr.isLoopbackAddress &&
+                        !addr.isLinkLocalAddress && addr.isSiteLocalAddress) {
                         return hostAddress
                     }
                 }
@@ -1698,6 +2060,17 @@ class LocalVideoProxyModule : Module() {
 
         OnDestroy {
             StreamingForegroundService.setMediaControlHandler(null)
+            cancelCacheResources()
+            synchronized(this@LocalVideoProxyModule) {
+                stopServerResources()
+            }
+            releaseMulticastLockResources()
+            try {
+                cronetEngine?.shutdown()
+            } catch (error: Exception) {
+                Log.w("LocalVideoProxy", "Unable to shut down Cronet", error)
+            }
+            cronetEngine = null
         }
 
         AsyncFunction("setTvNotificationMode") {
@@ -1778,11 +2151,15 @@ class LocalVideoProxyModule : Module() {
         }
 
         AsyncFunction("startServer") { port: Int, promise: Promise ->
+            val operationGeneration = serverOperationGeneration.incrementAndGet()
             Thread {
                 try {
                     val context = appContext.reactContext?.applicationContext
                         ?: throw IllegalStateException("ReactContext unavailable")
                     synchronized(this@LocalVideoProxyModule) {
+                        if (serverOperationGeneration.get() != operationGeneration) {
+                            throw IOException("Local video server start was cancelled")
+                        }
                         if (server == null) {
                             val transport = try {
                                 getOrCreateCronetEngine()
@@ -1795,32 +2172,55 @@ class LocalVideoProxyModule : Module() {
                                 null
                             }
                             accessToken = UUID.randomUUID().toString().replace("-", "")
-                            server = LocalVideoProxyServer(
-                                port,
-                                accessToken!!,
-                                getCacheDirectory(),
-                                transport
+                            val ip = getLocalIpAddress() ?: "127.0.0.1"
+                            var startedServer: LocalVideoProxyServer? = null
+                            var startedPort = port
+                            var lastStartError: Exception? = null
+                            for (candidatePort in port..(port + 10)) {
+                                val candidate = LocalVideoProxyServer(
+                                    ip,
+                                    candidatePort,
+                                    accessToken!!,
+                                    getCacheDirectory(),
+                                    getOfflineDirectory(),
+                                    transport
+                                )
+                                try {
+                                    candidate.start(NanoHTTPD.SOCKET_READ_TIMEOUT, false)
+                                    startedServer = candidate
+                                    startedPort = candidatePort
+                                    break
+                                } catch (error: Exception) {
+                                    candidate.stop()
+                                    lastStartError = error
+                                }
+                            }
+                            if (serverOperationGeneration.get() != operationGeneration) {
+                                startedServer?.stop()
+                                throw IOException("Local video server start was cancelled")
+                            }
+                            server = startedServer ?: throw IOException(
+                                "No local video server port is available",
+                                lastStartError
                             )
-                            server?.start(NanoHTTPD.SOCKET_READ_TIMEOUT, false)
+                            localServerIp = ip
+                            localServerPort = startedPort
                         }
                     }
                     // Republie la notification si l'autorisation vient d'être accordée
                     // alors que le serveur local fonctionnait déjà.
                     StreamingForegroundService.start(context)
-                    val ip = getLocalIpAddress() ?: "127.0.0.1"
-                    localServerIp = ip
-                    localServerPort = port
+                    val ip = localServerIp ?: "127.0.0.1"
                     promise.resolve(mapOf(
                         "ip" to ip,
+                        "port" to localServerPort,
                         "token" to accessToken
                     ))
                 } catch (e: Exception) {
-                    server?.stop()
-                    server = null
-                    accessToken = null
-                    localServerIp = null
-                    appContext.reactContext?.applicationContext?.let {
-                        StreamingForegroundService.stop(it)
+                    synchronized(this@LocalVideoProxyModule) {
+                        if (serverOperationGeneration.get() == operationGeneration) {
+                            stopServerResources()
+                        }
                     }
                     promise.reject("ERR_SERVER_START", "Failed to start server", e)
                 }
@@ -1829,12 +2229,8 @@ class LocalVideoProxyModule : Module() {
 
         AsyncFunction("stopServer") { promise: Promise ->
             try {
-                server?.stop()
-                server = null
-                accessToken = null
-                localServerIp = null
-                appContext.reactContext?.applicationContext?.let {
-                    StreamingForegroundService.stop(it)
+                synchronized(this@LocalVideoProxyModule) {
+                    stopServerResources()
                 }
                 promise.resolve(null)
             } catch (e: Exception) {
@@ -1884,6 +2280,7 @@ class LocalVideoProxyModule : Module() {
                 cacheThread = Thread {
                     val cacheDirectory = getCacheDirectory()
                     val partialFile = File(cacheDirectory, "$cacheId.part")
+                    var audioPartialFile: File? = null
                     var finalFile: File? = null
                     var remuxFile: File? = null
                     var connection: HttpURLConnection? = null
@@ -1895,6 +2292,7 @@ class LocalVideoProxyModule : Module() {
                         var downloadedBytes = 0L
                         var durationUs = 0L
                         var fallbackReason: String? = null
+                        var hasExternalAudio = false
 
                         if (isHls) {
                             val snapshot = activeServer.fetchHlsSnapshot(
@@ -1923,6 +2321,31 @@ class LocalVideoProxyModule : Module() {
                                 partialFile,
                                 cacheDirectory
                             )
+                            if (snapshot.externalAudioSegments.isNotEmpty()) {
+                                hasExternalAudio = true
+                                val audioFile = File(cacheDirectory, "$cacheId.audio.part")
+                                audioPartialFile = audioFile
+                                val audioSnapshot = snapshot.copy(
+                                    segments = snapshot.externalAudioSegments,
+                                    hasEndList = snapshot.externalAudioHasEndList,
+                                    selectedBandwidth = null,
+                                    externalAudioSegments = emptyList(),
+                                    externalAudioHasEndList = false
+                                )
+                                downloadedBytes += cacheHlsInParallel(
+                                    activeServer,
+                                    audioSnapshot,
+                                    referer,
+                                    origin,
+                                    userAgent,
+                                    audioFile,
+                                    cacheDirectory
+                                )
+                                durationUs = maxOf(
+                                    durationUs,
+                                    snapshot.externalAudioSegments.sumOf { it.durationUs }
+                                )
+                            }
                         } else {
                             connection = activeServer.openHttpConnection(
                                 url,
@@ -1941,6 +2364,13 @@ class LocalVideoProxyModule : Module() {
                                 ?.trim()
                                 ?.takeIf { it.isNotBlank() }
                                 ?: "video/mp4"
+                            if (
+                                contentType.startsWith("text/", ignoreCase = true) ||
+                                contentType.contains("json", ignoreCase = true) ||
+                                contentType.contains("html", ignoreCase = true)
+                            ) {
+                                throw IOException("Upstream returned $contentType instead of video")
+                            }
                             totalBytes = connection.contentLengthLong
                             if (
                                 totalBytes > 0 &&
@@ -2005,18 +2435,37 @@ class LocalVideoProxyModule : Module() {
                                     "phaseProgress" to 0.0
                                 )
                             )
-                            val context = appContext.reactContext?.applicationContext
-                                ?: throw IllegalStateException("ReactContext unavailable")
-                            val remuxResult = remuxTsToMp4(
-                                context,
-                                partialFile,
-                                remuxFile,
-                                downloadedBytes
-                            )
+                            val remuxResult = if (hasExternalAudio) {
+                                val audioFile = audioPartialFile
+                                    ?: throw IOException("Separate HLS audio file is missing")
+                                val context = appContext.reactContext?.applicationContext
+                                    ?: throw IllegalStateException("ReactContext unavailable")
+                                remuxSeparateHlsTracksToMp4(
+                                    context,
+                                    partialFile,
+                                    audioFile,
+                                    remuxFile,
+                                    downloadedBytes
+                                )
+                            } else {
+                                val context = appContext.reactContext?.applicationContext
+                                    ?: throw IllegalStateException("ReactContext unavailable")
+                                remuxTsToMp4(
+                                    context,
+                                    partialFile,
+                                    remuxFile,
+                                    downloadedBytes
+                                )
+                            }
                             if (remuxResult.succeeded) {
                                 sourceFile = remuxFile
                                 contentType = "video/mp4"
                                 durationUs = remuxResult.durationUs
+                            } else if (hasExternalAudio) {
+                                throw IOException(
+                                    remuxResult.fallbackReason
+                                        ?: "Unable to merge separate HLS audio/video tracks"
+                                )
                             } else {
                                 fallbackReason = remuxResult.fallbackReason
                             }
@@ -2030,12 +2479,14 @@ class LocalVideoProxyModule : Module() {
                         if (sourceFile !== partialFile) {
                             partialFile.delete()
                         }
+                        audioPartialFile?.delete()
                         val finalSizeBytes = finalFile.length()
                         val isSeekableMp4 = contentType.equals("video/mp4", ignoreCase = true)
-                        if (isSeekableMp4) {
-                            val inspection = inspectMediaFile(finalFile)
-                            if (inspection.durationUs > 0L) durationUs = inspection.durationUs
+                        val inspection = inspectMediaFile(finalFile)
+                        if (!inspection.hasVideo || !inspection.hasAudio) {
+                            throw IOException("Downloaded file does not contain complete video and audio tracks")
                         }
+                        if (inspection.durationUs > 0L) durationUs = inspection.durationUs
                         val seekable = isSeekableMp4 && durationUs > 0L
                         val durationSeconds = durationUs.toDouble() / 1_000_000.0
                         sendEvent(
@@ -2108,6 +2559,7 @@ class LocalVideoProxyModule : Module() {
                         )
                     } catch (error: Exception) {
                         partialFile.delete()
+                        audioPartialFile?.delete()
                         remuxFile?.delete()
                         finalFile?.delete()
                         val code = if (cacheCancelled.get()) {
@@ -2141,22 +2593,8 @@ class LocalVideoProxyModule : Module() {
         }
 
         AsyncFunction("cancelCache") { promise: Promise ->
-            cacheCancelled.set(true)
-            try {
-                activeCacheResource?.close()
-            } catch (_: Exception) {
-            }
-            activeCacheConnection?.disconnect()
-            activeCacheExecutor?.shutdownNow()
-            synchronized(activeCacheConnections) {
-                activeCacheConnections.toList().forEach { it.disconnect() }
-                activeCacheConnections.clear()
-            }
-            Handler(Looper.getMainLooper()).post {
-                activeTransformer?.cancel()
-                activeTransformer = null
-            }
-            cacheThread?.interrupt()
+            cancelCacheResources()
+            cacheThread?.join(5_000L)
             promise.resolve(null)
         }
 
@@ -2170,6 +2608,93 @@ class LocalVideoProxyModule : Module() {
                     }
                 }
             promise.resolve(null)
+        }
+
+        AsyncFunction("persistCachedMedia") { id: String, promise: Promise ->
+            val activeServer = server
+            if (activeServer == null) {
+                promise.reject(
+                    "ERR_SERVER_NOT_STARTED",
+                    "Local video server must be started before persisting media",
+                    null
+                )
+                return@AsyncFunction
+            }
+            if (activeServer.persistCachedMedia(id)) {
+                promise.resolve(null)
+            } else {
+                promise.reject(
+                    "ERR_OFFLINE_PERSIST",
+                    "Unable to move cached media to offline storage",
+                    null
+                )
+            }
+        }
+
+        AsyncFunction("getOfflineMediaUri") { id: String, promise: Promise ->
+            if (!Regex("^[a-f0-9]{32}$").matches(id)) {
+                promise.reject("ERR_OFFLINE_ID", "Invalid offline media identifier", null)
+                return@AsyncFunction
+            }
+            val file = File(getOfflineDirectory(), "$id.horus-media")
+            if (!file.isFile || file.length() <= 0L) {
+                promise.reject("ERR_OFFLINE_MISSING", "Offline media file is missing", null)
+                return@AsyncFunction
+            }
+            val inspection = inspectMediaFile(file)
+            if (!inspection.hasVideo || !inspection.hasAudio || inspection.durationUs <= 0L) {
+                promise.reject("ERR_OFFLINE_INVALID", "Offline media file is incomplete", null)
+                return@AsyncFunction
+            }
+            promise.resolve(Uri.fromFile(file).toString())
+        }
+
+        AsyncFunction("removeOfflineMedia") { id: String, promise: Promise ->
+            val activeServer = server
+            if (activeServer != null) {
+                activeServer.removeOfflineMedia(id)
+            } else if (Regex("^[a-f0-9]{32}$").matches(id)) {
+                File(getOfflineDirectory(), "$id.horus-media").delete()
+            }
+            promise.resolve(null)
+        }
+
+        AsyncFunction("listOfflineMediaIds") { promise: Promise ->
+            val ids = getOfflineDirectory().listFiles()
+                ?.mapNotNull { file ->
+                    Regex("^([a-f0-9]{32})\\.horus-media$")
+                        .matchEntire(file.name)
+                        ?.groupValues
+                        ?.get(1)
+                }
+                ?: emptyList()
+            promise.resolve(ids)
+        }
+
+        AsyncFunction("exitApp") { promise: Promise ->
+            Thread {
+                try {
+                    cancelCacheResources()
+                    cacheThread?.join(5_000L)
+                    synchronized(this@LocalVideoProxyModule) {
+                        stopServerResources()
+                    }
+                    releaseMulticastLockResources()
+                    clearCacheDirectory()
+                    try {
+                        cronetEngine?.shutdown()
+                    } catch (error: Exception) {
+                        Log.w("LocalVideoProxy", "Unable to shut down Cronet", error)
+                    }
+                    cronetEngine = null
+                    promise.resolve(null)
+                    Handler(Looper.getMainLooper()).post {
+                        appContext.currentActivity?.finishAndRemoveTask()
+                    }
+                } catch (error: Exception) {
+                    promise.reject("ERR_APP_EXIT", "Unable to close Horus cleanly", error)
+                }
+            }.start()
         }
 
         AsyncFunction("clearCache") { promise: Promise ->
@@ -2221,10 +2746,7 @@ class LocalVideoProxyModule : Module() {
 
         AsyncFunction("releaseMulticastLock") { promise: Promise ->
             try {
-                if (multicastLock != null && multicastLock?.isHeld == true) {
-                    multicastLock?.release()
-                    Log.d("LocalVideoProxy", "MulticastLock released")
-                }
+                releaseMulticastLockResources()
                 promise.resolve(null)
             } catch (e: Exception) {
                 Log.e("LocalVideoProxy", "Error releasing MulticastLock", e)

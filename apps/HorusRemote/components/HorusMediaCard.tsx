@@ -9,6 +9,7 @@ export interface HorusMediaCardProps {
   imageUrl?: string;
   index: number;
   onPress: () => void;
+  onLongPress?: () => void;
 }
 
 const CARD_IMAGE_HEIGHT = 220; // Utilisé pour définir l'amplitude du balayage
@@ -19,7 +20,8 @@ export const HorusMediaCard: React.FC<HorusMediaCardProps> = ({
   highlightText,
   imageUrl, 
   index, 
-  onPress 
+  onPress,
+  onLongPress,
 }) => {
   return (
     <MotiView
@@ -36,6 +38,7 @@ export const HorusMediaCard: React.FC<HorusMediaCardProps> = ({
     >
       <Pressable 
         onPress={onPress} 
+        onLongPress={onLongPress}
         style={({ pressed }) => [
           styles.pressableBlock, 
           pressed && styles.pressedStyle
