@@ -7,7 +7,7 @@ import {
 } from './LocalVideoProxy.types';
 
 declare class LocalVideoProxyModule extends NativeModule<LocalVideoProxyEvents> {
-  startServer(port: number): Promise<LocalVideoProxyServerInfo>;
+  startServer(port: number, keepAlive: boolean): Promise<LocalVideoProxyServerInfo>;
   stopServer(): Promise<void>;
   getLastError(): Promise<string | null>;
   setTvNotificationMode(

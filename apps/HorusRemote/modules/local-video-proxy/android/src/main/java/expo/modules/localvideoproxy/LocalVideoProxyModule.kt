@@ -445,6 +445,23 @@ class LocalVideoProxyServer(
     private val cronetEngine: CronetEngine?
 ) : NanoHTTPD(host, port) {
 
+    private fun isVidzyUrl(url: URL): Boolean {
+        val hostname = url.host.lowercase()
+        return hostname == "vidzy.cc" || hostname.endsWith(".vidzy.cc")
+    }
+
+    private fun browserPlatformHint(userAgent: String): String {
+        return when {
+            userAgent.contains("Android", ignoreCase = true) -> "\"Android\""
+            userAgent.contains("iPhone", ignoreCase = true) ||
+                userAgent.contains("iPad", ignoreCase = true) -> "\"iOS\""
+            userAgent.contains("Macintosh", ignoreCase = true) -> "\"macOS\""
+            userAgent.contains("CrOS", ignoreCase = true) -> "\"Chrome OS\""
+            userAgent.contains("Linux", ignoreCase = true) -> "\"Linux\""
+            else -> "\"Windows\""
+        }
+    }
+
     @Volatile
     var lastProxyError: String? = null
         private set
@@ -490,6 +507,12 @@ class LocalVideoProxyServer(
             connection.setRequestProperty("User-Agent", userAgent)
             connection.setRequestProperty("Accept", "*/*")
             connection.setRequestProperty("Accept-Language", "fr-FR,fr;q=0.9,en;q=0.8")
+            if (isVidzyUrl(currentUrl)) {
+                connection.setRequestProperty(
+                    "Sec-CH-UA-Platform",
+                    browserPlatformHint(userAgent)
+                )
+            }
             referer
                 ?.takeIf { it.startsWith("http://") || it.startsWith("https://") }
                 ?.let { connection.setRequestProperty("Referer", it) }
@@ -2150,7 +2173,7 @@ class LocalVideoProxyModule : Module() {
             }
         }
 
-        AsyncFunction("startServer") { port: Int, promise: Promise ->
+        AsyncFunction("startServer") { port: Int, keepAlive: Boolean, promise: Promise ->
             val operationGeneration = serverOperationGeneration.incrementAndGet()
             Thread {
                 try {
@@ -2207,9 +2230,12 @@ class LocalVideoProxyModule : Module() {
                             localServerPort = startedPort
                         }
                     }
-                    // Republie la notification si l'autorisation vient d'être accordée
-                    // alors que le serveur local fonctionnait déjà.
-                    StreamingForegroundService.start(context)
+                    // Seules la diffusion TV et les préparations en arrière-plan
+                    // nécessitent un service persistant. Le lecteur local utilise le
+                    // même proxy sans afficher une notification de diffusion TV.
+                    if (keepAlive) {
+                        StreamingForegroundService.start(context)
+                    }
                     val ip = localServerIp ?: "127.0.0.1"
                     promise.resolve(mapOf(
                         "ip" to ip,

@@ -6,7 +6,7 @@ import {
 } from './LocalVideoProxy.types';
 
 class LocalVideoProxyModule extends NativeModule<LocalVideoProxyEvents> {
-  async startServer(_port: number): Promise<LocalVideoProxyServerInfo> {
+  async startServer(_port: number, _keepAlive: boolean): Promise<LocalVideoProxyServerInfo> {
     return { ip: '127.0.0.1', port: _port, token: '' };
   }
 

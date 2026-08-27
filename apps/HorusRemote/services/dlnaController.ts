@@ -138,7 +138,7 @@ const getContentType = (url: string, explicitContentType?: string) => {
 
 const prepareRemoteStream = async (
   stream: Pick<Stream, 'url' | 'format' | 'contentType' | 'headers'>,
-  options: { bridgeHls?: boolean; preserveHls?: boolean } = {}
+  options: { bridgeHls?: boolean; preserveHls?: boolean; keepAlive?: boolean } = {}
 ) => {
   const videoUrl = stream.url;
   const headers = stream.headers;
@@ -158,7 +158,10 @@ const prepareRemoteStream = async (
     };
   }
 
-  const { ip, port, token } = await LocalVideoProxy.startServer(8080);
+  const { ip, port, token } = await LocalVideoProxy.startServer(
+    8080,
+    options.keepAlive ?? true
+  );
   // Pour le lecteur local Android, le manifeste reste HLS mais toutes ses URI
   // sont réécrites vers le proxy. Pour DLNA, il reste assemblé en MPEG-TS.
   const proxyPath = format === 'hls'
@@ -195,7 +198,7 @@ export const dlnaController = {
     const origin = headers?.Origin || headers?.origin;
     const userAgent = headers?.['User-Agent'] || headers?.['user-agent'];
     const format = inferStreamFormat(stream);
-    const { ip, port, token } = await LocalVideoProxy.startServer(8080);
+    const { ip, port, token } = await LocalVideoProxy.startServer(8080, true);
     await LocalVideoProxy.setTvNotificationMode(
       'preparing',
       notification?.title,

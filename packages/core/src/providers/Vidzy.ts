@@ -204,6 +204,9 @@ export class VidzyProvider implements HorusProvider {
         Origin: VIDZY_EMBED_ORIGIN,
         Accept: '*/*',
         'User-Agent': BROWSER_USER_AGENT,
+        // Vidzy rejects hotlinked HLS requests that omit Chromium's platform
+        // client hint, even when the URL signature and Referer are valid.
+        'Sec-CH-UA-Platform': '"Windows"',
       },
     };
   }
