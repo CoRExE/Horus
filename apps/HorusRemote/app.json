@@ -3,7 +3,7 @@
     "name": "HorusRemote",
     "slug": "HorusRemote",
     "scheme": "horusremote",
-    "version": "1.4.0",
+    "version": "1.4.1",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
@@ -25,7 +25,7 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.horus.remote",
-      "buildNumber": "14",
+      "buildNumber": "15",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
         "NSLocalNetworkUsageDescription": "Nécessaire pour détecter les TV et box compatibles DLNA sur votre réseau local."
@@ -39,7 +39,7 @@
       },
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false,
-      "versionCode": 13,
+      "versionCode": 14,
       "usesCleartextTraffic": true,
       "permissions": [
         "android.permission.INTERNET",
