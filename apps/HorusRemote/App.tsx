@@ -262,6 +262,7 @@ export default function App() {
 
         const prepared = await dlnaController.prepareRemoteStream(stream, {
           preserveHls: Platform.OS === 'android',
+          keepAlive: false,
         });
         usesProxy = true;
         preparedStreams.push({
@@ -782,7 +783,7 @@ export default function App() {
       let streamUrl: string;
 
       if (shouldPlayOnTv) {
-        const { ip, port, token } = await LocalVideoProxy.startServer(8080);
+        const { ip, port, token } = await LocalVideoProxy.startServer(8080, true);
         startedOfflineServer = true;
         const query = new URLSearchParams({
           token,

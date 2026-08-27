@@ -2,6 +2,34 @@ import ExpoModulesCore
 import GCDWebServer
 import Foundation
 
+private func isVidzyUrl(_ url: URL?) -> Bool {
+    guard let hostname = url?.host?.lowercased() else { return false }
+    return hostname == "vidzy.cc" || hostname.hasSuffix(".vidzy.cc")
+}
+
+private func browserPlatformHint(for userAgent: String) -> String {
+    let normalized = userAgent.lowercased()
+    if normalized.contains("android") { return "\"Android\"" }
+    if normalized.contains("iphone") || normalized.contains("ipad") { return "\"iOS\"" }
+    if normalized.contains("macintosh") { return "\"macOS\"" }
+    if normalized.contains("cros") { return "\"Chrome OS\"" }
+    if normalized.contains("linux") { return "\"Linux\"" }
+    return "\"Windows\""
+}
+
+private func applyBrowserIdentityHeaders(
+    to request: inout URLRequest,
+    userAgent: String
+) {
+    request.setValue(userAgent, forHTTPHeaderField: "User-Agent")
+    if isVidzyUrl(request.url) {
+        request.setValue(
+            browserPlatformHint(for: userAgent),
+            forHTTPHeaderField: "Sec-CH-UA-Platform"
+        )
+    }
+}
+
 class ProxyStreamer: NSObject, URLSessionDataDelegate {
     var responseBlock: GCDWebServerCompletionBlock?
     var task: URLSessionDataTask?
@@ -292,7 +320,7 @@ class HlsStitcher: NSObject, URLSessionDataDelegate {
         guard depth < 6 else { completion(nil); return }
         var request = URLRequest(url: url)
         request.timeoutInterval = 30
-        request.setValue(userAgent, forHTTPHeaderField: "User-Agent")
+        applyBrowserIdentityHeaders(to: &request, userAgent: userAgent)
         if let referer = referer { request.setValue(referer, forHTTPHeaderField: "Referer") }
         if let origin = origin { request.setValue(origin, forHTTPHeaderField: "Origin") }
 
@@ -623,7 +651,7 @@ class HlsStitcher: NSObject, URLSessionDataDelegate {
             "(attempt \(currentSegmentRetries + 1))"
         )
         var request = URLRequest(url: segment.url)
-        request.setValue(userAgent, forHTTPHeaderField: "User-Agent")
+        applyBrowserIdentityHeaders(to: &request, userAgent: userAgent)
         if let referer = referer { request.setValue(referer, forHTTPHeaderField: "Referer") }
         if let origin = origin { request.setValue(origin, forHTTPHeaderField: "Origin") }
         session.dataTask(with: request).resume()
@@ -860,7 +888,7 @@ public class LocalVideoProxyModule: Module {
       promise.resolve(nil)
     }
 
-    AsyncFunction("startServer") { (port: Int, promise: Promise) in
+    AsyncFunction("startServer") { (port: Int, _: Bool, promise: Promise) in
       if self.webServer == nil {
         self.accessToken = UUID().uuidString.replacingOccurrences(of: "-", with: "")
         self.webServer = GCDWebServer()
@@ -1013,7 +1041,7 @@ public class LocalVideoProxyModule: Module {
           var urlRequest = URLRequest(url: targetUrl)
           urlRequest.httpMethod = "GET"
           urlRequest.timeoutInterval = 20
-          urlRequest.setValue(userAgent, forHTTPHeaderField: "User-Agent")
+          applyBrowserIdentityHeaders(to: &urlRequest, userAgent: userAgent)
           if let ref = referer, !ref.isEmpty {
               urlRequest.setValue(ref, forHTTPHeaderField: "Referer")
           }
@@ -1208,7 +1236,7 @@ public class LocalVideoProxyModule: Module {
             return
           }
           var request = URLRequest(url: targetUrl)
-          request.setValue(userAgent, forHTTPHeaderField: "User-Agent")
+          applyBrowserIdentityHeaders(to: &request, userAgent: userAgent)
           if let referer = referer {
             request.setValue(referer, forHTTPHeaderField: "Referer")
           }
