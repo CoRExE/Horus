@@ -121,12 +121,15 @@ dans les quatre packages, les tests existants et huit tests de parcours Desktop,
 puis compile l'interface et le code Rust sur macOS et exécute les tests Rust et
 média FFmpeg. Aucun secret ni service externe n'est nécessaire aux tests.
 
-La CI fixe **Node 26.8.1** (depuis `.nvmrc`), **pnpm 10.24.0** (depuis `package.json`) et **Rust
+La CI fixe **Node 26.8.1** (depuis `.nvmrc`), **pnpm 12.3.4** (depuis `package.json`) et **Rust
 1.88.0**. Utiliser également Node 26.8.1 pour reproduire ces vérifications :
 Node 20.19.4 échoue sur le chargement CommonJS/ESM des tests Desktop existants
 avec la version verrouillée de `tsx`.
 L'installation utilise `pnpm install --frozen-lockfile` et les commandes Cargo
 utilisent `--locked`. Les caches pnpm/Cargo dépendent des fichiers de verrouillage.
+pnpm 12 verrouille également sa propre version dans `pnpm-lock.yaml`.
+Les scripts d'installation d'`esbuild` et de `workerd` sont explicitement autorisés
+dans `pnpm-workspace.yaml` pour préparer leurs binaires.
 L'image macOS et FFmpeg Homebrew peuvent évoluer ; cela ne garantit pas des
 binaires identiques octet par octet. La version FFmpeg est consignée dans les logs.
 

@@ -20,7 +20,7 @@ dans une variable `VITE_*` : ces variables sont publiques dans le bundle.
 
 Prérequis :
 
-- Node **26.8.1** (`.nvmrc`, version validée pour les tests) et pnpm **10.24.0**.
+- Node **26.8.1** (`.nvmrc`, version validée pour les tests) et pnpm **12.3.4**.
 - Rust/Cargo (la version 1.88 installée lors de l’implémentation compile le projet).
 - macOS : Xcode Command Line Tools.
 - Windows : outils C++ de Visual Studio et WebView2.
@@ -35,8 +35,8 @@ Si le lanceur pnpm global échoue avec `installed pnpm wrapper is missing`, util
 la version du projet sans modifier l’installation globale :
 
 ```sh
-npx --yes pnpm@10.24.0 install
-npx --yes pnpm@10.24.0 desktop
+npx --yes pnpm@12.3.4 install
+npx --yes pnpm@12.3.4 desktop
 ```
 
 ## Parcours disponibles

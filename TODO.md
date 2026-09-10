@@ -46,18 +46,28 @@ concerne aussi Mobile. La TODO graphique existante de
 Travail terminé le 10 septembre 2026 :
 
 - Ajout de [`.github/workflows/checks.yml`](.github/workflows/checks.yml) : pull requests, pushes sur `main`/`master`, lancement manuel et appel depuis un autre workflow. Deux jobs vérifient le monorepo sur Ubuntu et Desktop/Rust/FFmpeg sur macOS, sans secret de publication.
-- Node 26.8.1 fixé dans `.nvmrc`, pnpm 10.24.0 lu dans `package.json`, Rust 1.88.0 fixé dans le workflow ; installations `--frozen-lockfile` et commandes Cargo `--locked`. Les dépendances précédemment verrouillées sont conservées, avec ajout des dépendances de test uniquement. Les caches pnpm/Cargo utilisent les fichiers de verrouillage ; les journaux d'échec sont conservés sept jours.
+- Node 26.8.1 fixé dans `.nvmrc`, pnpm 12.3.4 lu dans `package.json`, Rust 1.88.0 fixé dans le workflow ; installations `--frozen-lockfile` et commandes Cargo `--locked`. Les dépendances précédemment verrouillées sont conservées, avec ajout des dépendances de test uniquement. Les caches pnpm/Cargo utilisent les fichiers de verrouillage ; les journaux d'échec sont conservés sept jours.
 - Huit tests Vitest/jsdom ajoutés et intégrés à `pnpm check` : reprise du bon épisode, absence de reprise sur un autre épisode ou fournisseur, restauration de la bibliothèque et compatibilité du stockage version 1, repli sur un serveur de même langue jusqu'à épuisement, sauvegarde immédiate et libération à la fermeture, destruction de la session HLS au démontage. Les composants et le store réels sont utilisés avec les entrées réseau/natives et médias du navigateur simulés.
 - Aucun changement du code applicatif, du format des données, de l'API, du mobile ou des fonctionnalités Rust ; les chantiers suivants ne sont pas commencés.
 
 Validations locales effectuées sur macOS :
 
-- Installation `pnpm install --frozen-lockfile --offline` réussie avec pnpm 10.24.0 et le cache existant.
+- Validation initiale : installation `pnpm install --frozen-lockfile --offline` réussie avec pnpm 10.24.0 et le cache existant (avant alignement sur pnpm 12.3.4).
 - `pnpm check` réussi sous Node 26.8.1 : TypeScript des quatre packages, suite core, 3 tests API, 4 tests Desktop existants et 8 nouveaux tests de parcours.
 - `pnpm --filter horus-desktop build` réussi ; l'avertissement Vite sur les chunks de plus de 500 ko reste présent.
 - `cargo check`, `cargo build` et `cargo test --locked` réussis avec Rust 1.88.0 : 4 tests Rust ordinaires réussis. Le test média, ignoré dans cette commande, a ensuite été exécuté explicitement avec `media_integration -- --ignored` après génération des fixtures : 1 test réussi avec FFmpeg 9.0.1, couvrant MP4/HLS, relais, annulation et nettoyage.
 - Cinq régressions injectées uniquement dans une copie temporaire ont été détectées par des assertions : reprise d'un autre épisode, repli dans une autre langue, perte de progression à la fermeture, changement de clé de stockage et oubli de destruction HLS.
 - Workflow validé par actionlint 1.7.7 ; `git diff --check` réussi.
+
+Alignement ultérieur sur pnpm 12.3.4, installé sur la machine : `packageManager`,
+documentation, profil EAS preview et action CI (`pnpm/action-setup@v6`) mis à jour.
+Le lockfile inclut désormais le verrou du gestionnaire ; les dépendances
+applicatives sont inchangées (comparaison des données du lockfile avec le commit
+précédent). Les scripts d'installation d'`esbuild` et de `workerd` sont autorisés
+explicitement dans `pnpm-workspace.yaml`, comme l'exige pnpm 12.
+`pnpm install --frozen-lockfile`, `pnpm check` et la compilation de l'interface
+Desktop ont été relancés avec succès sous pnpm 12.3.4. Le YAML du workflow a été
+relu et parsé ; son exécution sur GitHub et les builds EAS restent non vérifiés.
 
 Limites constatées : Node 20.19.4 échoue dans le chargement CommonJS/ESM des tests
 Desktop existants avec le `tsx` verrouillé, d'où l'alignement sur Node 26.8.1.

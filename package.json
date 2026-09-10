@@ -2,7 +2,7 @@
   "name": "horus-monorepo",
   "version": "1.0.0",
   "private": true,
-  "packageManager": "pnpm@10.24.0",
+  "packageManager": "pnpm@12.3.4",
   "scripts": {
     "desktop": "pnpm --filter horus-desktop tauri:d",
     "desktop:build": "pnpm --filter horus-desktop tauri:b",
