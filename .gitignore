@@ -24,6 +24,11 @@ coverage/
 dist/
 build/
 
+# Tauri / Rust generated output (keep Cargo.lock)
+apps/HorusDesktop/src-tauri/target/
+apps/HorusDesktop/src-tauri/gen/
+apps/HorusDesktop/tests/.media-fixtures/
+
 # Expo / React Native generated state
 **/.expo/
 web-build/

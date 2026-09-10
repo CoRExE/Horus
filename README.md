@@ -1,5 +1,7 @@
 # 🎬 Horus Ecosystem
 
+Prochaines évolutions et périmètre des modifications : [TODO du projet](TODO.md).
+
 > Un prototype React Native de recherche et de lecture locale, avec contrôle Chromecast/DLNA depuis un smartphone.
 
 ---
@@ -23,11 +25,20 @@ Ce dépôt est un monorepo **React Native** en cours de développement. L'applic
 * **Catalogue :** expose une recherche films/séries normalisée et mise en cache.
 * **Hébergement :** Cloudflare Workers ; aucun média ni lien de lecture ne transite par ce service.
 
+### Desktop (`/apps/HorusDesktop`)
+* **Tauri 2 / React / TypeScript :** client de bureau reprenant les parcours de recherche et de lecture du mobile.
+* **Sources partagées :** AnimeSama et Vidzy via `@horus/core`, avec requêtes HTTP natives.
+* **Bibliothèque :** favoris, historique, reprise de lecture et téléchargements hors ligne.
+* **Diffusion :** découverte et télécommande Chromecast/DLNA, relais vidéo local et préparation des fichiers avec FFmpeg.
+* **Développement :** `pnpm desktop` ; prérequis, commandes et limites dans [`apps/HorusDesktop/README.md`](apps/HorusDesktop/README.md).
+
 ## 🛠 Stack Technique
 
 | Technologie | Utilisation |
 | :--- | :--- |
 | **Expo / React Native** | Application mobile Android, iOS et Web |
+| **Tauri 2 / React / Vite / Rust** | Application de bureau et services réseau natifs |
+| **FFmpeg / HLS.js** | Remuxage desktop, téléchargements et lecture HLS |
 | **Axios + Cheerio** | Moteur de scraping |
 | **SSDP / UPnP / Google Cast** | Découverte et contrôle des appareils |
 | **Expo Video** | Lecteur vidéo mobile |
