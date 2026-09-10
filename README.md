@@ -1,5 +1,7 @@
 # 🎬 Horus Ecosystem
 
+Prochaines évolutions et périmètre des modifications : [TODO du projet](TODO.md).
+
 > Un prototype React Native de recherche et de lecture locale, avec contrôle Chromecast/DLNA depuis un smartphone.
 
 ---
@@ -23,11 +25,20 @@ Ce dépôt est un monorepo **React Native** en cours de développement. L'applic
 * **Catalogue :** expose une recherche films/séries normalisée et mise en cache.
 * **Hébergement :** Cloudflare Workers ; aucun média ni lien de lecture ne transite par ce service.
 
+### Desktop (`/apps/HorusDesktop`)
+* **Tauri 2 / React / TypeScript :** client de bureau reprenant les parcours de recherche et de lecture du mobile.
+* **Sources partagées :** AnimeSama et Vidzy via `@horus/core`, avec requêtes HTTP natives.
+* **Bibliothèque :** favoris, historique, reprise de lecture et téléchargements hors ligne.
+* **Diffusion :** découverte et télécommande Chromecast/DLNA, relais vidéo local et préparation des fichiers avec FFmpeg.
+* **Développement :** `pnpm desktop` ; prérequis, commandes et limites dans [`apps/HorusDesktop/README.md`](apps/HorusDesktop/README.md).
+
 ## 🛠 Stack Technique
 
 | Technologie | Utilisation |
 | :--- | :--- |
 | **Expo / React Native** | Application mobile Android, iOS et Web |
+| **Tauri 2 / React / Vite / Rust** | Application de bureau et services réseau natifs |
+| **FFmpeg / HLS.js** | Remuxage desktop, téléchargements et lecture HLS |
 | **Axios + Cheerio** | Moteur de scraping |
 | **SSDP / UPnP / Google Cast** | Découverte et contrôle des appareils |
 | **Expo Video** | Lecteur vidéo mobile |
@@ -78,7 +89,7 @@ la diffusion.
 ## 🚀 Installation (Dev Mode)
 
 ### Pré-requis
-* Node.js (v18+)
+* Node.js 26.8.1 (`.nvmrc`)
 * Android Studio & SDK Android
 * Un appareil Chromecast ou DLNA pour tester la diffusion distante
 
@@ -101,6 +112,49 @@ la diffusion.
    ```bash
    pnpm check
    ```
+
+## Vérifications automatiques
+
+Le workflow [Vérifications](.github/workflows/checks.yml) s'exécute sur les pull
+requests, les pushes sur `main`/`master` et à la demande. Il vérifie TypeScript
+dans les quatre packages, les tests existants et huit tests de parcours Desktop,
+puis compile l'interface et le code Rust sur macOS et exécute les tests Rust et
+média FFmpeg. Aucun secret ni service externe n'est nécessaire aux tests.
+
+La CI fixe **Node 26.8.1** (depuis `.nvmrc`), **pnpm 12.3.4** (depuis `package.json`) et **Rust
+1.88.0**. Utiliser également Node 26.8.1 pour reproduire ces vérifications :
+Node 20.19.4 échoue sur le chargement CommonJS/ESM des tests Desktop existants
+avec la version verrouillée de `tsx`.
+L'installation utilise `pnpm install --frozen-lockfile` et les commandes Cargo
+utilisent `--locked`. Les caches pnpm/Cargo dépendent des fichiers de verrouillage.
+pnpm 12 verrouille également sa propre version dans `pnpm-lock.yaml`.
+Les scripts d'installation d'`esbuild` et de `workerd` sont explicitement autorisés
+dans `pnpm-workspace.yaml` pour préparer leurs binaires.
+L'image macOS et FFmpeg Homebrew peuvent évoluer ; cela ne garantit pas des
+binaires identiques octet par octet. La version FFmpeg est consignée dans les logs.
+
+Les commandes locales supplémentaires sont :
+
+```sh
+pnpm --filter horus-desktop test:ui
+pnpm --filter horus-desktop build
+pnpm --filter horus-desktop build:rust
+pnpm --filter horus-desktop test:rust
+pnpm --filter horus-desktop test:media
+```
+
+Les échecs remontent malgré la copie des sorties par `tee` grâce au mode Bash
+`pipefail` de GitHub Actions. Les journaux des commandes sont conservés en
+artefacts pendant sept jours en cas d'échec. Les tests UI utilisent jsdom avec
+des fournisseurs et appels IPC simulés ; les tests Rust/FFmpeg utilisent de vrais
+serveurs HTTP locaux. Ces vérifications ne remplacent pas les essais de la
+WebView Tauri et des téléviseurs physiques.
+
+Le workflow accepte déjà `workflow_call`. Au chantier 3, les workflows de release
+devront l'appeler dans un job de vérification et déclarer ce job dans `needs`
+avant toute publication. Aucun workflow de release ni build Gradle n'existe
+encore ; leur branchement et le cache Gradle restent à réaliser à cette étape.
+
 ## ⚖️ Disclaimer
 
 Ce projet est une preuve de concept à but éducatif. Il ne contient aucun média et n'héberge aucun contenu. L'utilisateur est responsable de l'usage qu'il fait des moteurs de scraping intégrés et doit respecter les droits d'auteur en vigueur dans sa juridiction.

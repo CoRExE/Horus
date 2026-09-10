@@ -1,0 +1,12 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "main",
+  "description": "Local Horus window: events, app version and player fullscreen. No remote web content receives native permissions.",
+  "windows": ["main"],
+  "permissions": [
+    "core:event:default",
+    "core:app:allow-version",
+    "core:window:allow-is-fullscreen",
+    "core:window:allow-set-fullscreen"
+  ]
+}

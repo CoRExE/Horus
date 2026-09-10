@@ -1,0 +1,329 @@
+import { useEffect, useRef, useState } from "react";
+import type Hls from "hls.js";
+import { PlaybackRange } from "./PlaybackRange";
+import { usePlayerFullscreen } from "./usePlayerFullscreen";
+import { resumePosition } from "../services/playback";
+import {
+  Cast,
+  Maximize,
+  Minimize,
+  Pause,
+  Play,
+  Square,
+  SkipForward,
+  X,
+} from "lucide-react";
+import { formatPlaybackTime } from "@horus/core";
+import { controlDevice, deviceStatus } from "../services/devices";
+import {
+  errorMessage,
+  isTauri,
+  type Device,
+  type PlaybackStatus,
+  type PreparedStream,
+} from "../services/native";
+
+export interface Playback {
+  prepared: PreparedStream;
+  title: string;
+  language: string;
+  format: "hls" | "file";
+  device?: Device;
+  resumeAt: number;
+}
+
+export function Player({
+  playback,
+  onStop,
+  onProgress,
+  onNext,
+  onRetry,
+}: {
+  playback: Playback;
+  onStop: () => void;
+  onProgress: (position: number, duration: number, flush?: boolean) => void;
+  onNext?: () => void;
+  onRetry?: () => void;
+}) {
+  const video = useRef<HTMLVideoElement>(null);
+  const [error, setError] = useState("");
+  const { container, fullscreen, toggle, exit } = usePlayerFullscreen((error) =>
+    setError(`Impossible de changer le plein écran : ${errorMessage(error)}`),
+  );
+  const [status, setStatus] = useState<PlaybackStatus>();
+  const [busy, setBusy] = useState(false);
+  const progressRef = useRef(onProgress);
+  progressRef.current = onProgress;
+
+  useEffect(() => {
+    if (playback.device) void exit();
+  }, [playback.device]);
+
+  useEffect(() => {
+    const saveProgress = progressRef.current;
+    setError("");
+    setStatus(undefined);
+    if (playback.device) {
+      let cancelled = false;
+      let timer: ReturnType<typeof setTimeout>;
+      const poll = async () => {
+        try {
+          const status = await deviceStatus(playback.device!);
+          if (!cancelled) {
+            setStatus(status);
+            setError("");
+            progressRef.current(status.positionSeconds, status.durationSeconds);
+          }
+        } catch (error) {
+          if (!cancelled) setError(errorMessage(error));
+        }
+        if (!cancelled) timer = setTimeout(poll, 2000);
+      };
+      void poll();
+      return () => {
+        cancelled = true;
+        clearTimeout(timer);
+      };
+    }
+    const element = video.current!;
+    let hls: Hls | undefined;
+    let cancelled = false;
+    const ready = () => {
+      const position = resumePosition(playback.resumeAt, element.duration);
+      if (position > 0) element.currentTime = position;
+      void element
+        .play()
+        .catch(() => setError("Appuyez sur Lecture pour démarrer la vidéo."));
+    };
+    const failed = () =>
+      setError("Ce flux ne peut pas être lu. Essayez un autre serveur.");
+    element.addEventListener("loadedmetadata", ready, { once: true });
+    element.addEventListener("error", failed);
+    if (playback.format === "hls") {
+      void import("hls.js")
+        .then(({ default: Hls }) => {
+          if (cancelled) return;
+          if (!Hls.isSupported()) {
+            element.src = playback.prepared.url;
+            return;
+          }
+          hls = new Hls();
+          hls.loadSource(playback.prepared.url);
+          hls.attachMedia(element);
+          hls.on(Hls.Events.ERROR, (_event, data) => {
+            if (data.fatal) {
+              setError(
+                "Le flux HLS est indisponible ou incompatible. Essayez un autre serveur.",
+              );
+              hls?.destroy();
+            }
+          });
+        })
+        .catch(() => {
+          if (!cancelled) setError("Le lecteur HLS n’a pas pu être chargé.");
+        });
+    } else {
+      element.src = playback.prepared.url;
+    }
+    return () => {
+      cancelled = true;
+      if (element.currentTime > 0)
+        saveProgress(
+          element.currentTime,
+          Number.isFinite(element.duration) ? element.duration : 0,
+          true,
+        );
+      element.removeEventListener("loadedmetadata", ready);
+      element.removeEventListener("error", failed);
+      hls?.destroy();
+      element.pause();
+      element.removeAttribute("src");
+      element.load();
+    };
+  }, [playback]);
+
+  const flushProgress = () => {
+    const element = video.current;
+    if (element && element.currentTime > 0)
+      onProgress(
+        element.currentTime,
+        Number.isFinite(element.duration) ? element.duration : 0,
+        true,
+      );
+    else if (playback.device && status && status.positionSeconds > 0)
+      onProgress(status.positionSeconds, status.durationSeconds, true);
+  };
+  const stop = () => {
+    flushProgress();
+    onStop();
+  };
+  const next = () => {
+    flushProgress();
+    onNext?.();
+  };
+
+  const command = async (
+    action: "play" | "pause" | "seek" | "volume",
+    value?: number,
+  ) => {
+    if (!playback.device) return;
+    setBusy(true);
+    try {
+      await controlDevice(playback.device, action, value);
+      setStatus(await deviceStatus(playback.device));
+      setError("");
+    } catch (error) {
+      setError(errorMessage(error));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <section className="player-panel" aria-label="Lecteur">
+      <header>
+        <div>
+          <span className="eyebrow">
+            {playback.device
+              ? `DIFFUSION · ${playback.device.name}`
+              : "LECTURE SUR CET ORDINATEUR"}
+          </span>
+          <h2>{playback.title}</h2>
+          <span className="muted">{playback.language}</span>
+        </div>
+        <div className="player-actions">
+          {!playback.device && (
+            <button
+              className="icon-button"
+              aria-label="Passer en plein écran"
+              title="Plein écran (double-clic sur la vidéo)"
+              onClick={() => void toggle()}
+            >
+              <Maximize />
+            </button>
+          )}
+          <button
+            className="icon-button"
+            aria-label="Arrêter et fermer le lecteur"
+            onClick={stop}
+          >
+            <X />
+          </button>
+        </div>
+      </header>
+      {playback.device ? (
+        <div className="remote-player">
+          <Cast size={48} />
+          <p>
+            {status?.transportState === "PLAYING"
+              ? "Lecture en cours sur votre téléviseur"
+              : status?.transportState === "PAUSED_PLAYBACK"
+                ? "Lecture en pause"
+                : status?.transportState === "STOPPED"
+                  ? "Lecture arrêtée"
+                  : "Connexion au téléviseur…"}
+          </p>
+          <div className="transport">
+            <button
+              disabled={busy}
+              onClick={() =>
+                void command(
+                  status?.transportState === "PLAYING" ? "pause" : "play",
+                )
+              }
+              aria-label={
+                status?.transportState === "PLAYING" ? "Pause" : "Lecture"
+              }
+            >
+              {status?.transportState === "PLAYING" ? <Pause /> : <Play />}
+            </button>
+            <button onClick={stop} aria-label="Arrêter">
+              <Square />
+            </button>
+          </div>
+          <label className="range-label">
+            {formatPlaybackTime(status?.positionSeconds ?? 0)} /{" "}
+            {formatPlaybackTime(status?.durationSeconds ?? 0)}
+            <PlaybackRange
+              label="Position de lecture"
+              max={status?.durationSeconds || 1}
+              value={status?.positionSeconds ?? 0}
+              disabled={
+                busy ||
+                !status?.durationSeconds ||
+                playback.prepared.contentType === "video/mp2t"
+              }
+              onCommit={(value) => void command("seek", value)}
+            />
+          </label>
+          {status?.volume !== undefined && (
+            <label className="range-label">
+              Volume
+              <PlaybackRange
+                label="Volume"
+                max={100}
+                value={status.volume}
+                disabled={busy}
+                onCommit={(value) => void command("volume", value)}
+              />
+            </label>
+          )}
+        </div>
+      ) : (
+        <div
+          ref={container}
+          className={`local-player${fullscreen ? " is-fullscreen" : ""}`}
+        >
+          <video
+            ref={video}
+            controls
+            controlsList={isTauri() ? "nofullscreen" : undefined}
+            playsInline
+            onDoubleClick={() => void toggle()}
+            onTimeUpdate={(event) => {
+              const element = event.currentTarget;
+              if (element.currentTime > 0)
+                onProgress(
+                  element.currentTime,
+                  Number.isFinite(element.duration) ? element.duration : 0,
+                );
+            }}
+            onPause={flushProgress}
+            onSeeked={flushProgress}
+            onEnded={next}
+          />
+          {fullscreen && (
+            <button
+              className="fullscreen-exit icon-button"
+              aria-label="Quitter le plein écran"
+              title="Quitter le plein écran (Échap)"
+              onClick={() => void exit()}
+            >
+              <Minimize />
+            </button>
+          )}
+        </div>
+      )}
+      {error && (
+        <p className="notice error" role="alert">
+          {error}{" "}
+          {onRetry && (
+            <button
+              onClick={() => {
+                flushProgress();
+                onRetry();
+              }}
+            >
+              Serveur suivant
+            </button>
+          )}
+        </p>
+      )}
+      {onNext && (
+        <button className="secondary next-button" onClick={next}>
+          <SkipForward size={17} /> Épisode suivant
+        </button>
+      )}
+    </section>
+  );
+}
