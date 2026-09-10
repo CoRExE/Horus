@@ -20,7 +20,7 @@ dans une variable `VITE_*` : ces variables sont publiques dans le bundle.
 
 Prérequis :
 
-- Node **20.19+ dans la branche 20**, ou **22.12+**, et pnpm **10.24.0**.
+- Node **26.8.1** (`.nvmrc`, version validée pour les tests) et pnpm **10.24.0**.
 - Rust/Cargo (la version 1.88 installée lors de l’implémentation compile le projet).
 - macOS : Xcode Command Line Tools.
 - Windows : outils C++ de Visual Studio et WebView2.
@@ -113,6 +113,7 @@ pnpm check
 pnpm --filter horus-desktop build
 pnpm --filter horus-desktop test:rust
 pnpm --filter horus-desktop check:rust
+pnpm --filter horus-desktop build:rust
 pnpm desktop:build
 ```
 
@@ -121,6 +122,15 @@ restent une commande distincte pour que le développement mobile/API n’exige p
 la chaîne de compilation native. Ils couvrent notamment les manifestes HLS signés,
 les clés relatives, les requêtes Range et la révocation des URL du relais. Les
 tests JavaScript utilisent `.cts` pour le package partagé CommonJS `@horus/core`.
+
+`pnpm check` exécute aussi les tests de parcours Vitest/jsdom dans `tests/*.test.tsx`.
+Ils couvrent la reprise par épisode et fournisseur, la persistance du format de
+bibliothèque existant, le changement de serveur dans la même langue, la sauvegarde
+à la fermeture et la destruction d'une session HLS. `pnpm --filter horus-desktop
+test:ui` permet de les lancer seuls. Le DOM, les fournisseurs réseau et les appels
+natifs sont simulés ; `App`, `Player` et le store Zustand sont les composants réels.
+Voir les [versions et commandes de la CI](../../README.md#vérifications-automatiques)
+pour reproduire les vérifications avec Node 26.8.1.
 
 `pnpm --filter horus-desktop dev` ne lance que l’aperçu navigateur ; les opérations
 natives nécessitent `pnpm desktop`.

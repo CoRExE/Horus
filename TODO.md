@@ -34,12 +34,38 @@ concerne aussi Mobile. La TODO graphique existante de
 
 ## 1. Automatiser les vérifications — dépôt
 
-- [ ] Ajouter un workflow de vérification des propositions de modification : TypeScript et tests existants du monorepo.
-- [ ] Vérifier la compilation de l'interface Desktop et du code Rust sur macOS.
-- [ ] Exécuter les tests média avec FFmpeg : MP4/HLS, relais, annulation et nettoyage après échec.
-- [ ] Ajouter des tests ciblés des parcours sensibles : reprise du bon épisode, persistance de la bibliothèque, changement de serveur dans la même langue et fermeture propre du lecteur.
-- [ ] Configurer les dépendances et caches pnpm/Cargo/Gradle pour des builds reproductibles ; conserver les journaux utiles en cas d'échec.
-- [ ] Faire dépendre les jobs de release de la réussite des vérifications.
+- [x] Ajouter un workflow de vérification des propositions de modification : TypeScript et tests existants du monorepo.
+- [x] Vérifier la compilation de l'interface Desktop et du code Rust sur macOS.
+- [x] Exécuter les tests média avec FFmpeg : MP4/HLS, relais, annulation et nettoyage après échec.
+- [x] Ajouter des tests ciblés des parcours sensibles : reprise du bon épisode, persistance de la bibliothèque, changement de serveur dans la même langue et fermeture propre du lecteur.
+- [x] Configurer les versions des outils, l'installation verrouillée et les caches pnpm/Cargo ; conserver les journaux utiles en cas d'échec.
+- [ ] Configurer les dépendances et le cache Gradle lors de l'ajout du build Android au chantier 3 : aucun job Gradle n'existe encore.
+- [ ] Faire dépendre les jobs de release de la réussite des vérifications. Le workflow est réutilisable via `workflow_call`, mais son appel et la dépendance `needs` seront à ajouter aux workflows de release du chantier 3.
+- [ ] Valider un premier lancement du workflow sur GitHub, y compris la restauration des caches et la récupération des journaux d'un échec provoqué.
+
+Travail terminé le 10 septembre 2026 :
+
+- Ajout de [`.github/workflows/checks.yml`](.github/workflows/checks.yml) : pull requests, pushes sur `main`/`master`, lancement manuel et appel depuis un autre workflow. Deux jobs vérifient le monorepo sur Ubuntu et Desktop/Rust/FFmpeg sur macOS, sans secret de publication.
+- Node 26.8.1 fixé dans `.nvmrc`, pnpm 10.24.0 lu dans `package.json`, Rust 1.88.0 fixé dans le workflow ; installations `--frozen-lockfile` et commandes Cargo `--locked`. Les dépendances précédemment verrouillées sont conservées, avec ajout des dépendances de test uniquement. Les caches pnpm/Cargo utilisent les fichiers de verrouillage ; les journaux d'échec sont conservés sept jours.
+- Huit tests Vitest/jsdom ajoutés et intégrés à `pnpm check` : reprise du bon épisode, absence de reprise sur un autre épisode ou fournisseur, restauration de la bibliothèque et compatibilité du stockage version 1, repli sur un serveur de même langue jusqu'à épuisement, sauvegarde immédiate et libération à la fermeture, destruction de la session HLS au démontage. Les composants et le store réels sont utilisés avec les entrées réseau/natives et médias du navigateur simulés.
+- Aucun changement du code applicatif, du format des données, de l'API, du mobile ou des fonctionnalités Rust ; les chantiers suivants ne sont pas commencés.
+
+Validations locales effectuées sur macOS :
+
+- Installation `pnpm install --frozen-lockfile --offline` réussie avec pnpm 10.24.0 et le cache existant.
+- `pnpm check` réussi sous Node 26.8.1 : TypeScript des quatre packages, suite core, 3 tests API, 4 tests Desktop existants et 8 nouveaux tests de parcours.
+- `pnpm --filter horus-desktop build` réussi ; l'avertissement Vite sur les chunks de plus de 500 ko reste présent.
+- `cargo check`, `cargo build` et `cargo test --locked` réussis avec Rust 1.88.0 : 4 tests Rust ordinaires réussis. Le test média, ignoré dans cette commande, a ensuite été exécuté explicitement avec `media_integration -- --ignored` après génération des fixtures : 1 test réussi avec FFmpeg 9.0.1, couvrant MP4/HLS, relais, annulation et nettoyage.
+- Cinq régressions injectées uniquement dans une copie temporaire ont été détectées par des assertions : reprise d'un autre épisode, repli dans une autre langue, perte de progression à la fermeture, changement de clé de stockage et oubli de destruction HLS.
+- Workflow validé par actionlint 1.7.7 ; `git diff --check` réussi.
+
+Limites constatées : Node 20.19.4 échoue dans le chargement CommonJS/ESM des tests
+Desktop existants avec le `tsx` verrouillé, d'où l'alignement sur Node 26.8.1.
+Les tests Rust réseau et le lanceur `tsx` nécessitent l'autorisation d'ouvrir des
+sockets locales hors du bac à sable de l'agent. Aucun lancement GitHub Actions,
+build Android, publication, essai WebView Tauri ou test sur TV physique n'a été
+effectué. L'image macOS et FFmpeg Homebrew peuvent évoluer : les dépendances
+verrouillées ne garantissent pas des binaires identiques octet par octet.
 
 Validation : une modification cassant un parcours couvert ou la compilation
 doit être détectée avant publication. Les tests réseau locaux ne remplacent pas

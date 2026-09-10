@@ -21,6 +21,7 @@ pnpm-debug.log*
 # TypeScript and test/build output
 *.tsbuildinfo
 coverage/
+.ci-logs/
 dist/
 build/
 

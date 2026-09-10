@@ -1,0 +1,102 @@
+name: Vérifications
+
+on:
+  pull_request:
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+  # Réutilisable par les futurs workflows de release (chantier 3).
+  workflow_call:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: checks-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  monorepo:
+    name: TypeScript et tests du monorepo
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        # Version lue dans package.json ; pas d'installation implicite.
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+      - run: mkdir -p .ci-logs
+      - name: Installer les dépendances verrouillées
+        run: pnpm install --frozen-lockfile 2>&1 | tee .ci-logs/install.log
+      - name: Vérifier TypeScript
+        run: pnpm typecheck 2>&1 | tee .ci-logs/typecheck.log
+      - name: Exécuter les tests
+        run: pnpm test 2>&1 | tee .ci-logs/tests.log
+      - name: Conserver les journaux en cas d'échec
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: logs-monorepo
+          path: .ci-logs/
+          include-hidden-files: true
+          retention-days: 7
+
+  desktop:
+    name: Desktop macOS et média FFmpeg
+    runs-on: macos-15
+    timeout-minutes: 40
+    env:
+      RUSTUP_TOOLCHAIN: 1.88.0
+      CARGO_TERM_COLOR: never
+      RUST_BACKTRACE: 1
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+      - run: mkdir -p .ci-logs
+      - name: Installer les dépendances verrouillées
+        run: pnpm install --frozen-lockfile 2>&1 | tee .ci-logs/install.log
+      - name: Installer Rust
+        run: rustup toolchain install 1.88.0 --profile minimal 2>&1 | tee .ci-logs/rust-setup.log
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            apps/HorusDesktop/src-tauri/target
+          key: cargo-${{ runner.os }}-${{ runner.arch }}-1.88.0-${{ hashFiles('apps/HorusDesktop/src-tauri/Cargo.lock') }}-${{ hashFiles('apps/HorusDesktop/src-tauri/src/**', 'apps/HorusDesktop/src-tauri/build.rs', 'apps/HorusDesktop/src-tauri/tauri.conf.json', 'apps/HorusDesktop/src-tauri/capabilities/**') }}
+          restore-keys: |
+            cargo-${{ runner.os }}-${{ runner.arch }}-1.88.0-${{ hashFiles('apps/HorusDesktop/src-tauri/Cargo.lock') }}-
+      - name: Installer FFmpeg
+        run: |
+          (brew list ffmpeg || brew install ffmpeg) 2>&1 | tee .ci-logs/ffmpeg-setup.log
+          ffmpeg -version 2>&1 | tee .ci-logs/ffmpeg-version.log
+      - name: Compiler l'interface Desktop
+        run: pnpm --filter horus-desktop build 2>&1 | tee .ci-logs/frontend.log
+      - name: Compiler le code Rust
+        run: pnpm --filter horus-desktop build:rust 2>&1 | tee .ci-logs/rust-build.log
+      - name: Exécuter les tests Rust
+        run: pnpm --filter horus-desktop test:rust 2>&1 | tee .ci-logs/rust-tests.log
+      - name: Tester MP4, HLS, relais, annulation et nettoyage
+        run: pnpm --filter horus-desktop test:media 2>&1 | tee .ci-logs/media.log
+      - name: Conserver les journaux en cas d'échec
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: logs-desktop-macos
+          path: .ci-logs/
+          include-hidden-files: true
+          retention-days: 7
