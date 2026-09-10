@@ -1,5 +1,12 @@
 import { beforeEach, expect, test, vi } from "vitest";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import type { Episode, SearchResult, Stream } from "@horus/core";
 import App from "../src/App";
 import { useLibrary } from "../src/store/library";
@@ -40,6 +47,7 @@ const streams: Stream[] = [
 const getStreams = vi.fn(async (_id: string) => streams);
 
 beforeEach(() => {
+  getStreams.mockReset().mockResolvedValue(streams);
   localStorage.clear();
   useLibrary.setState({ apiUrl: "", wishlist: [], history: [] });
   vi.mocked(providerFor).mockReturnValue({
@@ -57,6 +65,127 @@ beforeEach(() => {
     } as never;
   });
   vi.mocked(releaseStream).mockResolvedValue(undefined);
+});
+
+test("l'épisode suivant conserve la langue et commence sans la position du précédent", async () => {
+  remember(episodes[0]);
+  await openHistory();
+  const video = await play();
+  video.currentTime = 150;
+  fireEvent.click(screen.getByRole("button", { name: "Épisode suivant" }));
+  await waitFor(() => expect(invoke).toHaveBeenCalledTimes(2));
+  expect(getStreams).toHaveBeenLastCalledWith("episode-2");
+  expect(releaseStream).toHaveBeenCalledWith("stream-1");
+  await waitFor(() =>
+    expect(useLibrary.getState().history[0].episode.id).toBe("episode-2"),
+  );
+  expect(metadata().currentTime).toBe(0);
+  expect(invoke).toHaveBeenLastCalledWith(
+    "prepare_stream",
+    expect.objectContaining({
+      source: { url: streams[0].url, headers: {} },
+    }),
+  );
+});
+
+test("l'absence de la langue choisie à l'épisode suivant exige un choix explicite", async () => {
+  remember(episodes[0]);
+  await openHistory();
+  await play();
+  getStreams.mockResolvedValueOnce([streams[1]]);
+  fireEvent.click(screen.getByRole("button", { name: "Épisode suivant" }));
+  await screen.findByText(
+    "La piste VF est indisponible. Choisissez une autre langue pour continuer.",
+  );
+  expect(screen.queryByRole("region", { name: "Lecteur" })).toBeNull();
+  expect(invoke).toHaveBeenCalledTimes(1);
+  expect(
+    screen.getByRole("button", { name: "Lire ici" }).hasAttribute("disabled"),
+  ).toBe(true);
+  fireEvent.click(screen.getByRole("button", { name: "VOSTFR" }));
+  await play();
+  expect(invoke).toHaveBeenLastCalledWith(
+    "prepare_stream",
+    expect.objectContaining({
+      source: { url: streams[1].url, headers: {} },
+    }),
+  );
+});
+
+test("fermer pendant la résolution de l'épisode suivant ignore la réponse tardive", async () => {
+  remember(episodes[0]);
+  await openHistory();
+  await play();
+  let resolve!: (streams: Stream[]) => void;
+  getStreams.mockReturnValueOnce(
+    new Promise<Stream[]>((done) => {
+      resolve = done;
+    }),
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Épisode suivant" }));
+  fireEvent.click(
+    screen.getByRole("button", { name: "Arrêter et fermer le lecteur" }),
+  );
+  await act(async () => resolve(streams));
+  expect(screen.queryByRole("region", { name: "Lecteur" })).toBeNull();
+  expect(screen.queryByRole("dialog")).toBeNull();
+  expect(invoke).toHaveBeenCalledTimes(1);
+});
+
+test("les paramètres conservent le brouillon en naviguant puis enregistrent l'URL", async () => {
+  render(<App />);
+  fireEvent.click(screen.getByRole("button", { name: "Paramètres" }));
+  fireEvent.change(screen.getByLabelText("Adresse du catalogue"), {
+    target: { value: "https://catalogue.invalid/" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Historique" }));
+  fireEvent.click(screen.getByRole("button", { name: "Paramètres" }));
+  expect(
+    (screen.getByLabelText("Adresse du catalogue") as HTMLInputElement).value,
+  ).toBe("https://catalogue.invalid/");
+  expect(useLibrary.getState().apiUrl).toBe("");
+  fireEvent.submit(
+    screen.getByRole("button", { name: "Enregistrer" }).closest("form")!,
+  );
+  expect(useLibrary.getState().apiUrl).toBe("https://catalogue.invalid");
+  expect(
+    JSON.parse(localStorage.getItem("horus-desktop-library")!).state.apiUrl,
+  ).toBe("https://catalogue.invalid");
+});
+
+test("la bibliothèque permet encore de retirer un favori et de vider l'historique", () => {
+  remember();
+  useLibrary.getState().toggleWishlist(media);
+  render(<App />);
+  fireEvent.click(screen.getByRole("button", { name: /^Ma liste/ }));
+  fireEvent.click(
+    screen.getByRole("button", { name: "Retirer Série de test de ma liste" }),
+  );
+  expect(screen.getByText("Votre bibliothèque commence ici")).toBeTruthy();
+  expect(useLibrary.getState().wishlist).toEqual([]);
+  fireEvent.click(screen.getByRole("button", { name: "Historique" }));
+  fireEvent.click(screen.getByRole("button", { name: "Vider l’historique" }));
+  expect(useLibrary.getState().history).toEqual([]);
+});
+
+test("ouvrir une autre lecture sauvegarde la position avant de libérer la précédente", async () => {
+  remember();
+  await openHistory();
+  const video = await play();
+  video.currentTime = 172;
+  let positionAtRelease: number | undefined;
+  vi.mocked(releaseStream).mockImplementation(async () => {
+    positionAtRelease = useLibrary.getState().history[0].position;
+  });
+  fireEvent.click(screen.getByRole("button", { name: /^SÉRIE Série de test/ }));
+  const dialog = await screen.findByRole("dialog");
+  fireEvent.click(
+    await within(dialog).findByRole("button", { name: "Lire ici" }),
+  );
+  await waitFor(() => expect(invoke).toHaveBeenCalledTimes(2));
+  expect(positionAtRelease).toBe(172);
+  await screen.findByRole("region", { name: "Lecteur" });
+  expect(metadata().currentTime).toBe(172);
 });
 
 function remember(episode = episodes[1], savedMedia = media) {

@@ -83,12 +83,39 @@ les essais sur une TV physique.
 
 ## 2. Réorganiser le code — HorusDesktop
 
-- [ ] Alléger `src/App.tsx` en séparant les écrans catalogue, bibliothèque, téléchargements et paramètres.
-- [ ] Extraire la fiche média : saisons/épisodes, langues et serveurs.
-- [ ] Centraliser le cycle de lecture dans un hook ou service dédié : démarrage, reprise, arrêt, changement de serveur et épisode suivant.
-- [ ] Isoler la coordination des téléchargements et celle de la diffusion TV de leur affichage.
-- [ ] Garantir une séquence de fermeture cohérente : sauvegarde de progression, arrêt et libération des ressources.
-- [ ] Procéder par extractions successives, à comportement identique, avec vérification des parcours après chaque étape.
+- [x] Alléger `src/App.tsx` en séparant les écrans catalogue, bibliothèque, téléchargements et paramètres.
+- [x] Extraire la fiche média : saisons/épisodes, langues et serveurs.
+- [x] Centraliser le cycle de lecture dans un hook ou service dédié : démarrage, reprise, arrêt, changement de serveur et épisode suivant.
+- [x] Isoler la coordination des téléchargements et celle de la diffusion TV de leur affichage.
+- [x] Garantir une séquence de fermeture cohérente : sauvegarde de progression, arrêt et libération des ressources.
+- [x] Procéder par extractions successives, à comportement identique, avec vérification des parcours après chaque étape.
+
+Travail terminé le 10 septembre 2026 :
+
+- `App.tsx` passe de 1 223 à 311 lignes et conserve la navigation, les messages et l'assemblage des écrans/hooks.
+- Les quatre écrans sont isolés dans `src/screens/`. `MediaCollection` partage l'affichage des résultats, favoris et historiques ; `MediaDetailsDialog` conserve les choix d'épisode, de langue et de serveur existants, sans ajouter de nouvelle navigation par saison.
+- `usePlayback` regroupe préparation, reprise par épisode/fournisseur, arrêt, serveur suivant, épisode suivant et sauvegarde de progression. Les contrôles média, HLS et plein écran restent dans `Player` et son hook existant.
+- `useDownloads` regroupe chargement des fichiers locaux, téléchargement, événements de progression, annulation et suppression. `useCasting` regroupe découverte, choix du récepteur et coordination du téléchargement avant diffusion ; leurs affichages sont dans `DownloadActivity`, `DownloadsScreen` et `CastDialog`.
+- `useCatalogue`, `useMediaDetails`, `useSettings` et `useRuntimeInfo` isolent les autres états et requêtes. Les garde-fous sur les réponses tardives, le brouillon des paramètres, les libellés, les classes CSS et les règles de disponibilité des commandes sont conservés.
+- L'arrêt commun demande la position courante à `Player` avant d'invalider la session, puis arrête le récepteur et libère le relais même si la TV refuse l'arrêt. Cette sauvegarde protège aussi le remplacement d'une lecture depuis la bibliothèque, qui ne passe pas par le bouton de fermeture. Le démontage conserve le nettoyage vidéo/HLS existant.
+- Le store et son format de persistance version 1, les services natifs, le code Rust, Mobile, HorusApi, `packages/core`, les dépendances et les workflows sont inchangés. L'ajout préexistant `desktop:clean` dans `package.json` est préservé à l'identique. Aucun chantier de release ou de mise à jour n'a été commencé.
+
+Validations effectuées :
+
+- TypeScript Desktop et les 8 tests de parcours du chantier 1 passent avant modification, après extraction des écrans/dialogues, puis après extraction des hooks.
+- Ajout de 11 tests de parcours, soit 19 tests Vitest/jsdom : épisode suivant et choix explicite de langue, fermeture pendant une résolution, brouillon des paramètres, actions de bibliothèque, remplacement d'une lecture, téléchargement/lecture hors ligne/suppression, progression filtrée et annulation, téléchargement avant diffusion, arrêt TV en erreur et recherche devenue obsolète.
+- Comparaison ponctuelle avec une copie de l'ancien `App.tsx` : DOM strictement identique sur 9 états (catalogue, animés, favoris, historique, téléchargements, paramètres, fiche média, changement de langue et choix de TV). Le composant de référence et le test de comparaison temporaires ont été retirés du dépôt après validation.
+- `pnpm check` réussi : TypeScript des quatre packages, suite core, 3 tests API, 4 tests Desktop existants et 19 tests de parcours. `pnpm --filter horus-desktop build` réussi ; l'avertissement Vite sur les chunks de plus de 500 ko reste présent.
+- `git diff --check` réussi et comparaison octet par octet du `package.json` avec son état au début du chantier.
+- Essai manuel sur une box Orange concluant, confirmé par l'utilisateur après les validations automatisées.
+
+Limites : les interactions média du navigateur, fournisseurs et appels natifs
+sont simulés dans les tests UI. L'essai sur box Orange est confirmé par
+l'utilisateur ; aucun essai manuel dans la WebView Tauri ou sur mobile réel
+n'a été effectué par l'agent pendant ce chantier. Les tests Rust/FFmpeg
+n'ont pas été relancés puisque leur code et leurs contrats n'ont pas changé.
+La fermeture de la fenêtre native reste gérée par le code Rust existant ; la
+séquence vérifiée ici concerne l'arrêt et le remplacement du lecteur.
 
 Validation : les parcours actuels restent disponibles sans modification des
 préférences, favoris ou historiques existants. Éviter une réécriture globale.

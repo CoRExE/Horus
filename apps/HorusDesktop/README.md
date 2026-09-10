@@ -70,8 +70,16 @@ mise à jour Tauri ni certificat de signature n’est configuré.
 
 ```text
 src/
-  App.tsx                 Navigation et parcours de lecture/téléchargement
-  components/             Dialogues accessibles et lecteurs local/distant
+  App.tsx                 Navigation et assemblage des écrans/hooks
+  screens/                Catalogue, bibliothèque, téléchargements, paramètres
+  components/             Fiche média, choix TV, collection et lecteurs
+  hooks/usePlayback.ts    Démarrage, reprise, arrêt, serveur/épisode suivant
+  hooks/useDownloads.ts   Téléchargements, progression, annulation, fichiers locaux
+  hooks/useCasting.ts     Découverte et téléchargement avant diffusion
+  hooks/                  Recherche, fiche média, paramètres et informations locales
+  types/media.ts          Types des parcours Desktop
+  utils/format.ts         Affichage des tailles de fichiers
+  services/offline.ts     Conversion des fichiers locaux en sources de lecture
   services/native.ts      Transport Axios via IPC et contrats avec Rust
   services/providers.ts   Réutilisation d’AnimeSamaProvider et VidzyProvider
   services/devices.ts     Descriptions DLNA, commandes SOAP et télécommande
@@ -126,7 +134,9 @@ tests JavaScript utilisent `.cts` pour le package partagé CommonJS `@horus/core
 `pnpm check` exécute aussi les tests de parcours Vitest/jsdom dans `tests/*.test.tsx`.
 Ils couvrent la reprise par épisode et fournisseur, la persistance du format de
 bibliothèque existant, le changement de serveur dans la même langue, la sauvegarde
-à la fermeture et la destruction d'une session HLS. `pnpm --filter horus-desktop
+à la fermeture et la destruction d'une session HLS. Les 19 tests couvrent aussi
+l'épisode suivant, les réponses tardives, les paramètres, les téléchargements,
+la lecture hors ligne et la coordination TV. `pnpm --filter horus-desktop
 test:ui` permet de les lancer seuls. Le DOM, les fournisseurs réseau et les appels
 natifs sont simulés ; `App`, `Player` et le store Zustand sont les composants réels.
 Voir les [versions et commandes de la CI](../../README.md#vérifications-automatiques)

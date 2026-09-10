@@ -117,7 +117,7 @@ la diffusion.
 
 Le workflow [Vérifications](.github/workflows/checks.yml) s'exécute sur les pull
 requests, les pushes sur `main`/`master` et à la demande. Il vérifie TypeScript
-dans les quatre packages, les tests existants et huit tests de parcours Desktop,
+dans les quatre packages, les tests existants et dix-neuf tests de parcours Desktop,
 puis compile l'interface et le code Rust sur macOS et exécute les tests Rust et
 média FFmpeg. Aucun secret ni service externe n'est nécessaire aux tests.
 
