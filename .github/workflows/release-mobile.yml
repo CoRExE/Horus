@@ -1,4 +1,5 @@
 name: Release Android
+run-name: Release Android · ${{ inputs.tag || github.ref_name }}
 
 on:
   push:

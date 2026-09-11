@@ -1,4 +1,5 @@
 name: Publier une release vérifiée
+run-name: Publication · ${{ inputs.tag }}
 
 on:
   workflow_dispatch:

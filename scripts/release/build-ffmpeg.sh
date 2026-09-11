@@ -29,7 +29,7 @@ cd "$work/ffmpeg-$version"
   --disable-ffplay --disable-ffprobe --disable-x86asm \
   --extra-cflags=-mmacosx-version-min=11.0 --extra-ldflags=-mmacosx-version-min=11.0
 make -j "$(sysctl -n hw.ncpu)" ffmpeg
-lipo -verify_arch "$arch" ffmpeg
+lipo ffmpeg -verify_arch "$arch"
 otool -L ffmpeg | tail -n +2 | awk '{print $1}' | while read -r dependency; do
   case "$dependency" in /usr/lib/*|/System/Library/*) ;; *) echo "Dépendance externe : $dependency" >&2; exit 1 ;; esac
 done

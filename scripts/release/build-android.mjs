@@ -12,7 +12,13 @@ const env = {
 };
 for (const [command, args, cwd] of [
   [process.execPath, ['scripts/release/prebuild-android.mjs'], root],
-  ['./gradlew', [':app:assembleRelease', '--no-daemon'], `${root}/apps/HorusRemote/android`],
+  ['./gradlew', [
+    ':app:assembleRelease', '--no-daemon', '--max-workers=2',
+    // Override Expo's generated 512 MiB Metaspace limit on every release build.
+    // Keep these options here so prebuild cannot erase them or affect development builds.
+    '-Dorg.gradle.jvmargs=-Xmx2048m -XX:MaxMetaspaceSize=2048m -Dfile.encoding=UTF-8',
+    '-Pkotlin.daemon.jvmargs=-Xmx2048m -XX:MaxMetaspaceSize=1024m',
+  ], `${root}/apps/HorusRemote/android`],
 ]) {
   const result = spawnSync(command, args, { cwd, env, stdio: 'inherit' });
   if (result.error) throw result.error;
