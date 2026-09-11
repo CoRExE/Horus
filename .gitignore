@@ -28,6 +28,8 @@ build/
 # Tauri / Rust generated output (keep Cargo.lock)
 apps/HorusDesktop/src-tauri/target/
 apps/HorusDesktop/src-tauri/gen/
+apps/HorusDesktop/src-tauri/binaries/
+apps/HorusDesktop/src-tauri/resources/ffmpeg/
 apps/HorusDesktop/tests/.media-fixtures/
 
 # Expo / React Native generated state
@@ -50,3 +52,4 @@ web-build/
 *.pem
 *.key
 *.mobileprovision
+credentials.json

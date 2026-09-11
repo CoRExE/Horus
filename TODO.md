@@ -1,6 +1,6 @@
 # TODO — Prochaines évolutions de Horus
 
-Dernière mise à jour : 10 septembre 2026.
+Dernière mise à jour : 11 septembre 2026.
 
 Cette feuille de route reprend les prochaines évolutions discutées. Les cases
 non cochées correspondent à du travail à réaliser, pas à des fonctionnalités
@@ -39,8 +39,8 @@ concerne aussi Mobile. La TODO graphique existante de
 - [x] Exécuter les tests média avec FFmpeg : MP4/HLS, relais, annulation et nettoyage après échec.
 - [x] Ajouter des tests ciblés des parcours sensibles : reprise du bon épisode, persistance de la bibliothèque, changement de serveur dans la même langue et fermeture propre du lecteur.
 - [x] Configurer les versions des outils, l'installation verrouillée et les caches pnpm/Cargo ; conserver les journaux utiles en cas d'échec.
-- [ ] Configurer les dépendances et le cache Gradle lors de l'ajout du build Android au chantier 3 : aucun job Gradle n'existe encore.
-- [ ] Faire dépendre les jobs de release de la réussite des vérifications. Le workflow est réutilisable via `workflow_call`, mais son appel et la dépendance `needs` seront à ajouter aux workflows de release du chantier 3.
+- [x] Configurer les dépendances et le cache Gradle lors de l'ajout du build Android au chantier 3 : Java 17, SDK/build-tools 36, NDK/CMake et `setup-gradle` sont configurés dans le workflow Android.
+- [x] Faire dépendre les jobs de release de la réussite des vérifications : les workflows Desktop et Android appellent `checks.yml` via `workflow_call` et attendent son succès avec `needs`, sur le même commit du tag.
 - [ ] Valider un premier lancement du workflow sur GitHub, y compris la restauration des caches et la récupération des journaux d'un échec provoqué.
 
 Travail terminé le 10 septembre 2026 :
@@ -124,34 +124,65 @@ préférences, favoris ou historiques existants. Éviter une réécriture global
 
 ### Socle commun
 
-- [ ] Ajouter des workflows déclenchés par les tags propres à chaque application, avec possibilité de lancement manuel.
-- [ ] Définir la source de vérité des versions et vérifier la cohérence des fichiers de configuration avec le tag.
-- [ ] Prévoir les secrets de signature dans GitHub, sans les ajouter au dépôt ni aux journaux.
+- [x] Ajouter des workflows déclenchés par les tags propres à chaque application, avec possibilité de lancement manuel.
+- [x] Définir la source de vérité des versions et vérifier la cohérence des fichiers de configuration avec le tag.
+- [x] Prévoir les secrets de signature dans GitHub, sans les ajouter au dépôt ni aux journaux.
 - [ ] Construire les installateurs et préparer les notes de version.
-- [ ] Définir le passage brouillon → publication, puis publier les informations de mise à jour seulement lorsque les fichiers sont disponibles.
+- [x] Définir le passage brouillon → publication : workflow manuel vérifiant les installateurs et leurs sommes avant publication. Le branchement des manifestes publics reste au chantier 4, après cette étape.
 
 ### macOS — HorusDesktop
 
-- [ ] Construire et vérifier les binaires Apple Silicon et Intel.
-- [ ] Intégrer FFmpeg pour rendre les téléchargements autonomes ; vérifier les binaires par architecture et les obligations de redistribution.
+- [x] Construire et vérifier le binaire Apple Silicon.
+- [ ] Construire et vérifier le binaire Intel via le workflow prévu.
+- [x] Intégrer FFmpeg pour rendre les téléchargements autonomes, avec ses sources et licences ; le binaire arm64 est vérifié, la validation Intel reste liée au build ci-dessus.
 - [ ] Vérifier la signature et l'installation des builds macOS pour l'usage personnel prévu.
 - [ ] Publier des fichiers identifiables par version et architecture dans GitHub Releases.
 - [ ] Tester l'installation depuis Finder sur un environnement sans les outils de développement du projet.
 
 ### Android — HorusRemote
 
-- [ ] Récupérer et sauvegarder la clé de signature des APK existants si elle est gérée par EAS ; conserver la continuité des mises à jour.
-- [ ] Générer le projet Android via `expo prebuild` et compiler un APK release signé avec Gradle.
-- [ ] Vérifier l'intégration des modules natifs du projet, notamment le proxy vidéo et Google Cast.
-- [ ] Remplacer les scripts de build EAS et reporter les variables de build nécessaires dans le nouveau workflow.
-- [ ] Reprendre la gestion du `versionCode` depuis la dernière valeur réellement distribuée, y compris les incréments gérés à distance par EAS.
+- [x] Récupérer et sauvegarder la clé de signature des APK existants si elle est gérée par EAS ; conserver la continuité des mises à jour.
+- [x] Générer le projet Android via `expo prebuild` et compiler un APK release signé avec Gradle.
+- [x] Vérifier l'intégration des modules natifs à la compilation et dans l'APK, notamment le proxy vidéo et Google Cast ; les essais sur appareil restent à effectuer.
+- [x] Remplacer les scripts de build EAS de production/preview Android et reporter les variables nécessaires dans le nouveau workflow ; les scripts EAS de développement/iOS sont conservés jusqu'à validation de la migration.
+- [x] Reprendre la gestion du `versionCode` depuis la dernière valeur réellement distribuée, y compris les incréments gérés à distance par EAS.
 - [ ] Publier l'APK dans GitHub Releases et tester son installation par-dessus la version existante sans perte de données.
-- [ ] Désactiver EAS Update dans le nouveau binaire et adapter les éventuels appels associés ; la migration exige l'installation de ce binaire.
+- [x] Désactiver EAS Update dans le nouveau binaire et adapter les éventuels appels associés ; la migration exige l'installation de ce binaire.
 - [ ] Retirer la configuration EAS devenue inutile une fois la migration validée.
 
 Validation : les releases suivantes doivent pouvoir être produites sans EAS.
 La récupération initiale des clés ou numéros de build peut nécessiter un accès
 au projet EAS existant.
+
+Travail réalisé les 10 et 11 septembre 2026 (première publication encore à valider) :
+
+- Ajout de `release-desktop.yml`, `release-mobile.yml` et `publish-release.yml`. Les tags stables `desktop-vX.Y.Z` / `mobile-vX.Y.Z` sont contrôlés avant les checks et les builds ; les jobs utilisent le commit exact du tag. Les builds produisent un brouillon, avec noms de fichiers distincts par version/architecture, notes de version, `SHA256SUMS` et métadonnées de provenance `release-info.json`.
+- La publication manuelle refuse un brouillon incomplet, des fichiers altérés, des métadonnées différentes du tag ou un numéro Android déjà publié. Aucun écrasement d'une release existante et aucun recours au `latest` global. Les manifestes publics et les vérifications de mises à jour dans les applications n'ont pas été commencés.
+- FFmpeg 8.0.1 est compilé depuis ses sources officielles avec SHA-256 fixé, sans bibliothèques Homebrew, options GPL ou nonfree. Le sidecar, ses sources exactes, licences et recette sont inclus par `tauri.release.conf.json`. Le runtime préfère ce binaire voisin de l'application, puis conserve les recherches système existantes. Les DMG utilisent une signature ad hoc pour l'usage personnel ; aucune signature Developer ID ou notarisation n'est configurée.
+- L'APK public attaché à `v1.4.1` a été inspecté : il contient en réalité la version `1.4.0`, code 24, identifiant `com.horus.remote`. EAS production utilise aussi le code 24. La prochaine version Android est préparée en `1.4.1` / code 25 ; le certificat public et les références sont enregistrés dans `scripts/release/android-baseline.json`.
+- La clé de production EAS a été exportée et sauvegardée localement dans `apps/HorusRemote/credentials.json` et `credentials/android/keystore.jks`, ignorés par Git et avec accès local restreint. Son certificat correspond à l'APK historique. Les quatre secrets `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS` et `ANDROID_KEY_PASSWORD` ont été configurés dans GitHub via le script dédié, sans affichage de leurs valeurs.
+- Le prebuild Android conserve les scripts de démarrage existants. Un plugin configure la signature de release et refuse des identifiants absents au lieu d'utiliser la clé de debug. Les nouveaux builds Android de release désactivent EAS Update via leur configuration native ; les parcours de développement/iOS gardent leur configuration. Metro parcourt directement les fichiers pour ces builds, sans dépendre du daemon Watchman local.
+- Guide d'exploitation ajouté dans `docs/RELEASES.md` : versions, clés, builds locaux, installation et publication. La modification préexistante de `package.json` à la racine est conservée à l'identique. Aucun changement des données persistées, des parcours de lecture, de HorusApi ou de `packages/core`.
+
+Validations effectuées :
+
+- `pnpm install --frozen-lockfile` réussi ; lockfile inchangé. Le cache hors ligne incomplet a nécessité l'installation depuis le registre. La machine utilise désormais Node 22 par défaut ; Node 26.8.1, fixé par le projet, a été téléchargé dans un répertoire temporaire et son SHA-256 officiel vérifié pour reproduire la CI sans changer l'installation de l'utilisateur.
+- `pnpm check` réussi avec Node 26.8.1 : TypeScript des quatre packages, suite core, 3 tests API, 4 tests Desktop existants et 19 tests UI. Les 10 tests Node des garde-fous de release passent, avec les échanges GitHub simulés ; ils sont intégrés au workflow de vérifications.
+- Compilation locale du FFmpeg arm64, des sources Rust de release et du DMG Apple Silicon réussie. L'image a été montée en lecture seule : signature du bundle et du sidecar vérifiée, architectures arm64 vérifiées, dépendances dynamiques limitées aux bibliothèques système, sources/licence présentes et FFmpeg exécutable avec `PATH=/usr/bin:/bin`. L'image a été démontée après contrôle.
+- Les 4 tests Rust ordinaires et le test média intégré passent avec le FFmpeg compilé pour la release : MP4/HLS, relais, téléchargement, annulation et nettoyage. Les fixtures H.264 sont générées avec le FFmpeg système ; le moteur testé utilise le nouveau binaire.
+- Génération Android et export Metro/Hermes réussis (3 237 modules). Le premier essai avait échoué avec l'index Metro/Watchman local ; réinstallation verrouillée et lecture directe des fichiers en mode release ont permis l'export.
+- Build Gradle `:app:assembleRelease` réussi sous Node 26.8.1 et Java 17. L'APK contient `com.horus.remote`, version `1.4.1`, code 25, signé avec le certificat historique vérifié par `apksigner`. Son manifeste désactive EAS Update et conserve la configuration Google Cast ; le bundle JavaScript et les bibliothèques Hermes/React Native sont présents pour les quatre ABI. `apkanalyzer` confirme les classes du proxy vidéo local, Google Cast, Expo Video et UDP.
+- Le DMG arm64 et l'APK signé sont regroupés dans `build/installers/`, avec `SHA256SUMS`, pour les essais manuels. `git diff --check` et la comparaison octet par octet du `package.json` préexistant réussissent ; aucun secret, installateur ou projet Android généré n'est ajouté aux fichiers suivis.
+- Les workflows passent actionlint 1.7.12 ; les scripts shell passent `bash -n`. Les checks GitHub précédents du chantier 1 ont été observés réussis sur une pull request de `dev` et un push de `main` ; la restauration des caches et les journaux d'un échec provoqué restent non vérifiés.
+
+À terminer avant de clôturer ce chantier : premier build Intel et premiers
+lancements des workflows de release sur GitHub, essais Finder/Gatekeeper sur un
+Mac sans outils de développement, mise à jour Android sur l'application installée
+avec conservation des données et essai des modules natifs sur appareil. Aucun
+appareil Android n'était connecté lors de la détection ADB. La configuration EAS
+restante ne sera retirée qu'après ces validations, en conservant ce qui sert à iOS.
+Aucun tag ou push de ce chantier, ni brouillon/release distant, n'a été créé
+pendant ces validations locales.
 
 ## 4. Détecter les mises à jour — HorusDesktop et HorusRemote
 

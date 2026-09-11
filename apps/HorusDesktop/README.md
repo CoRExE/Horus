@@ -28,7 +28,9 @@ Prérequis :
   [prérequis officiels Tauri](https://v2.tauri.app/start/prerequisites/).
 - **FFmpeg** dans le `PATH` pour télécharger ou convertir le HLS en transport
   MPEG-TS vers DLNA. Les installations Homebrew dans `/opt/homebrew/bin` et
-  `/usr/local/bin` sont aussi détectées depuis Finder. FFmpeg n’est pas embarqué.
+  `/usr/local/bin` sont aussi détectées depuis Finder. Les DMG du workflow de
+  release embarquent leur propre FFmpeg, utilisé en priorité ; les builds de
+  développement conservent la recherche dans le système.
   La lecture locale et Chromecast des flux compatibles restent disponibles sans lui.
 
 Si le lanceur pnpm global échoue avec `installed pnpm wrapper is missing`, utiliser

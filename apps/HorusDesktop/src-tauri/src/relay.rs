@@ -319,10 +319,18 @@ pub fn ffmpeg_path() -> Result<PathBuf, String> {
     } else {
         "ffmpeg"
     };
-    let mut candidates: Vec<PathBuf> =
+    let mut candidates = Vec::new();
+    // Tauri places the bundled executable next to Horus in Contents/MacOS.
+    // Prefer it to shell tools so Finder launches need no Homebrew installation.
+    if let Ok(executable) = std::env::current_exe() {
+        if let Some(directory) = executable.parent() {
+            candidates.push(directory.join(binary));
+        }
+    }
+    candidates.extend(
         std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default())
-            .map(|p| p.join(binary))
-            .collect();
+            .map(|p| p.join(binary)),
+    );
     // Finder does not inherit the shell PATH on macOS.
     if cfg!(target_os = "macos") {
         candidates.extend(["/opt/homebrew/bin/ffmpeg", "/usr/local/bin/ffmpeg"].map(PathBuf::from));

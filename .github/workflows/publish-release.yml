@@ -1,0 +1,38 @@
+name: Publier une release vérifiée
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Tag du brouillon desktop-vX.Y.Z ou mobile-vX.Y.Z testé
+        required: true
+        type: string
+
+permissions:
+  contents: write
+concurrency:
+  group: release-${{ inputs.tag }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+      - name: Vérifier les fichiers du brouillon puis publier
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag }}
+        run: |
+          mkdir -p build/publication
+          node scripts/release/github-release.mjs publish "$TAG" build/publication
+      # Le manifeste public et sa publication seront ajoutés au chantier 4,
+      # uniquement après réussite de l'étape ci-dessus.

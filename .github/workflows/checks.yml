@@ -5,14 +5,18 @@ on:
   push:
     branches: [main, master]
   workflow_dispatch:
-  # Réutilisable par les futurs workflows de release (chantier 3).
   workflow_call:
+    inputs:
+      ref:
+        description: Commit ou tag exact à vérifier pour une release
+        required: false
+        type: string
 
 permissions:
   contents: read
 
 concurrency:
-  group: checks-${{ github.workflow }}-${{ github.ref }}
+  group: checks-${{ github.workflow }}-${{ inputs.ref || github.ref }}
   cancel-in-progress: true
 
 defaults:
@@ -26,6 +30,8 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.sha }}
       - uses: pnpm/action-setup@v6
         # Version lue dans package.json ; pas d'installation implicite.
       - uses: actions/setup-node@v4
@@ -40,6 +46,8 @@ jobs:
         run: pnpm typecheck 2>&1 | tee .ci-logs/typecheck.log
       - name: Exécuter les tests
         run: pnpm test 2>&1 | tee .ci-logs/tests.log
+      - name: Tester les garde-fous de release
+        run: node --test scripts/release/tests/*.test.mjs 2>&1 | tee .ci-logs/release-tests.log
       - name: Conserver les journaux en cas d'échec
         if: failure()
         uses: actions/upload-artifact@v4
@@ -59,6 +67,8 @@ jobs:
       RUST_BACKTRACE: 1
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.sha }}
       - uses: pnpm/action-setup@v6
       - uses: actions/setup-node@v4
         with:
