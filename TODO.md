@@ -10,7 +10,7 @@ déjà livrées. L'ordre ci-dessous est un ordre de réalisation proposé.
 
 | Zone | Modifications prévues |
 | --- | --- |
-| `apps/HorusDesktop` | Réorganisation du code, lecteur, téléchargements, diffusion TV, builds macOS pour usage personnel et vérification des versions. |
+| `apps/HorusDesktop` | Réorganisation du code, lecteur, téléchargements, diffusion TV, builds macOS, Windows et Linux pour usage personnel et vérification des versions. |
 | `apps/HorusRemote` | Builds Android sans EAS, gestion des versions et vérification des versions publiées. |
 | `.github/workflows` et configuration du dépôt | Tests, compilation, releases et publication des informations de mise à jour. |
 | `packages/core` | Uniquement les fonctions réellement communes aux deux clients, si leur extraction est utile ; vérifier les deux applications après modification. |
@@ -25,7 +25,7 @@ concerne aussi Mobile. La TODO graphique existante de
 
 - Conserver Expo et React Native pour Mobile ; remplacer EAS Build par des builds natifs dans GitHub Actions.
 - L'application est destinée à un usage personnel, sans objectif de distribution au public ni de publication sur les stores officiels.
-- Commencer la génération automatisée des installateurs par macOS et Android.
+- Commencer la génération automatisée des installateurs par macOS et Android, puis l'étendre à Windows et Linux dans le chantier 3 après validation de cette première étape.
 - Séparer les versions avec des tags `desktop-vX.Y.Z` et `mobile-vX.Y.Z`.
 - Automatiser la détection d'une nouvelle version ; proposer son téléchargement et laisser l'utilisateur réaliser l'installation.
 - Publier un manifeste JSON public par plateforme, mis à jour après la publication réussie de la release et de ses fichiers.
@@ -129,6 +129,7 @@ préférences, favoris ou historiques existants. Éviter une réécriture global
 - [x] Prévoir les secrets de signature dans GitHub, sans les ajouter au dépôt ni aux journaux.
 - [ ] Construire les installateurs et préparer les notes de version.
 - [x] Définir le passage brouillon → publication : workflow manuel vérifiant les installateurs et leurs sommes avant publication. Le branchement des manifestes publics reste au chantier 4, après cette étape.
+- [ ] Étendre le workflow Desktop et les contrôles de publication aux fichiers Windows et Linux, réunis avec macOS sous le même tag `desktop-vX.Y.Z` ; refuser la publication si un fichier attendu pour les plateformes retenues manque.
 
 ### macOS — HorusDesktop
 
@@ -149,6 +150,29 @@ préférences, favoris ou historiques existants. Éviter une réécriture global
 - [ ] Publier l'APK dans GitHub Releases et tester son installation par-dessus la version existante sans perte de données.
 - [x] Désactiver EAS Update dans le nouveau binaire et adapter les éventuels appels associés ; la migration exige l'installation de ce binaire.
 - [ ] Retirer la configuration EAS devenue inutile une fois la migration validée.
+
+### Windows — HorusDesktop
+
+- [ ] Définir les versions de Windows, architectures et formats d'installation nécessaires aux machines personnelles utilisées.
+- [ ] Ajouter un build Windows dans GitHub Actions avec les outils, dépendances et caches nécessaires ; exécuter les vérifications Desktop et les tests média sur cette plateforme.
+- [ ] Embarquer FFmpeg pour Windows avec ses sources et licences, et vérifier son exécution sans installation système de FFmpeg.
+- [ ] Produire l'installateur et documenter les dépendances d'exécution ainsi que les éventuelles étapes de confiance nécessaires à l'installation pour un usage personnel.
+- [ ] Tester sur une machine Windows sans outils de développement l'installation, le lancement, la lecture, les téléchargements et l'accès au réseau local ; vérifier qu'une mise à jour conserve les préférences, favoris et historiques.
+- [ ] Publier l'installateur dans la release Desktop avec un nom indiquant version, plateforme et architecture, et vérifier sa somme de contrôle après téléchargement.
+
+### Linux — HorusDesktop
+
+- [ ] Définir les distributions, architectures et formats de paquet nécessaires aux machines personnelles utilisées.
+- [ ] Ajouter un build Linux dans GitHub Actions avec les outils, dépendances système et caches nécessaires ; exécuter les vérifications Desktop et les tests média sur cette plateforme.
+- [ ] Embarquer FFmpeg pour Linux avec ses sources et licences, et vérifier son exécution sans installation système de FFmpeg.
+- [ ] Produire les paquets retenus et documenter leurs dépendances d'exécution ; vérifier leur compatibilité sur les distributions ciblées.
+- [ ] Tester sur une machine Linux sans outils de développement l'installation, le lancement, la lecture, les téléchargements et l'accès au réseau local ; vérifier qu'une mise à jour conserve les préférences, favoris et historiques.
+- [ ] Publier les paquets dans la release Desktop avec des noms indiquant version, plateforme et architecture, et vérifier leurs sommes de contrôle après téléchargement.
+
+Windows et Linux ont été intégrés au périmètre le 11 septembre 2026 ; leur
+implémentation et leurs validations restent à réaliser. La détection des mises
+à jour pour ces plateformes sera traitée au chantier 4, à partir des fichiers
+publiés ici. Les essais approfondis de diffusion TV restent au chantier 7.
 
 Validation : les releases suivantes doivent pouvoir être produites sans EAS.
 La récupération initiale des clés ou numéros de build peut nécessiter un accès
@@ -175,14 +199,31 @@ Validations effectuées :
 - Le DMG arm64 et l'APK signé sont regroupés dans `build/installers/`, avec `SHA256SUMS`, pour les essais manuels. `git diff --check` et la comparaison octet par octet du `package.json` préexistant réussissent ; aucun secret, installateur ou projet Android généré n'est ajouté aux fichiers suivis.
 - Les workflows passent actionlint 1.7.12 ; les scripts shell passent `bash -n`. Les checks GitHub précédents du chantier 1 ont été observés réussis sur une pull request de `dev` et un push de `main` ; la restauration des caches et les journaux d'un échec provoqué restent non vérifiés.
 
-À terminer avant de clôturer ce chantier : premier build Intel et premiers
-lancements des workflows de release sur GitHub, essais Finder/Gatekeeper sur un
+Corrections après les premiers lancements GitHub, le 11 septembre 2026 :
+
+- Logs Desktop consultés : les deux architectures échouaient au contrôle FFmpeg, car `lipo -verify_arch` interprétait le nom du fichier comme une architecture. Le fichier passe désormais avant `-verify_arch` dans `build-ffmpeg.sh` et `verify-macos.sh`.
+- Logs Android consultés : le run est marqué annulé, avec saturation du Metaspace Gradle (512 Mio) et erreurs KSP/D8 avant l'arrêt. Le script de release fixe désormais le Metaspace Gradle à 2 Gio et celui de Kotlin à 1 Gio, conserve un heap de 2 Gio par daemon et limite Gradle à deux workers. Ces arguments sont appliqués après chaque prebuild sans modifier les commandes de développement.
+- Les quatre workflows définissent un `run-name` : application et tag pour les releases, tag pour la publication, branche ou numéro de PR et branches pour les vérifications. Ces titres s'appliqueront aux nouvelles exécutions utilisant les workflows corrigés.
+- Le guide de release explique les réglages mémoire et la relance depuis un nouveau tag incluant les correctifs ; les anciens tags pointent toujours sur l'ancien code. L'ajout Windows/Linux dans cette TODO et la modification préexistante de `package.json` sont conservés.
+
+Validations de ces corrections :
+
+- Les quatre workflows passent actionlint 1.7.12 ; les trois scripts shell de build/vérification macOS passent `bash -n` ; les 10 tests Node de release passent sous Node 26.8.1.
+- La commande `lipo` corrigée accepte des objets Mach-O arm64 et x86_64 compilés localement, y compris avec des espaces dans le chemin, et refuse une architecture absente. Cela ne remplace pas le build complet Intel sur GitHub/Xcode 16.4.
+- Le DMG Apple Silicon existant passe `verify-dmg.sh` : intégrité, signature, architectures, dépendances système, FFmpeg exécutable et sources/licences présents. Montage en lecture seule puis démontage réussis ; aucun nouveau DMG n'a été construit pour ce correctif.
+- Le build Android signé via le script corrigé réussit avec Java 17 et Node 26.8.1 : 918 tâches, dont 39 exécutées et 879 à jour. L'APK passe `verify-apk.mjs` (identifiant, version 1.4.1/code 25, certificat historique, contenu natif et EAS Update désactivé). Le cache local a été réutilisé : l'absence de saturation mémoire sur un runner GitHub reste à confirmer.
+- `git diff --check` réussi ; les `package.json` racine et Mobile sont identiques octet par octet à leur état avant ces corrections. Aucun commit, push, déplacement/création de tag ou lancement distant n'a été effectué pour ces corrections.
+
+À terminer avant de clôturer ce chantier : premier DMG Intel vérifié et premiers
+lancements réussis des workflows de release corrigés sur GitHub, essais Finder/Gatekeeper sur un
 Mac sans outils de développement, mise à jour Android sur l'application installée
 avec conservation des données et essai des modules natifs sur appareil. Aucun
 appareil Android n'était connecté lors de la détection ADB. La configuration EAS
 restante ne sera retirée qu'après ces validations, en conservant ce qui sert à iOS.
-Aucun tag ou push de ce chantier, ni brouillon/release distant, n'a été créé
-pendant ces validations locales.
+L'extension Windows et Linux décrite ci-dessus, jusqu'à la publication et aux
+essais sur les machines ciblées, est également nécessaire pour clôturer le chantier.
+Les premiers tags ont été lancés par l'utilisateur ; les validations locales
+n'ont créé aucun tag, push, brouillon ou release distant.
 
 ## 4. Détecter les mises à jour — HorusDesktop et HorusRemote
 
@@ -225,7 +266,6 @@ sans embarquer de jeton GitHub privé dans les applications.
 
 ## Évolutions ultérieures — à décider
 
-- [ ] Versions Desktop Windows/Linux : compilation, dépendances, installation et essais réels.
 - [ ] Usage personnel sur iOS sans EAS : audit des modules natifs, build Xcode et installation sur les appareils de développement.
 - [ ] Synchronisation des favoris et de l'historique entre Mobile et Desktop : définir le stockage et les règles de conflit avant implémentation.
 - [ ] Mises à jour JavaScript à distance auto-hébergées, uniquement si le besoin justifie un service compatible avec le protocole Expo Updates.

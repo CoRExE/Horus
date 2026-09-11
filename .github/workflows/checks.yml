@@ -1,4 +1,6 @@
 name: Vérifications
+run-name: >-
+  Vérifications · ${{ github.event_name == 'pull_request' && format('PR #{0} · {1} → {2}', github.event.number, github.head_ref, github.base_ref) || inputs.ref || github.ref_name }}
 
 on:
   pull_request:

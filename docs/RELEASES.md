@@ -36,6 +36,16 @@ lancement manuel du workflow prend aussi un **tag existant**. Pour que les
 workflows manuels apparaissent dans GitHub Actions, leurs fichiers doivent être
 présents sur la branche par défaut (`main`). Un merge seul ne crée pas de release.
 
+Les exécutions affichent explicitement leur application et leur tag (par exemple
+`Release Desktop · desktop-v0.1.0`). Les vérifications affichent la branche ou le
+numéro de PR et ses branches, plutôt que le message du commit de merge.
+Ce titre est défini par [`run-name`](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax#run-name).
+
+Après une correction du pipeline, relancer une ancienne exécution ne suffit pas :
+elle réutilise son ancien commit. Un lancement manuel avec un ancien tag utilise
+aussi le code pointé par ce tag. Fusionner les correctifs puis préparer une nouvelle
+version et un nouveau tag pour les inclure ; ne pas déplacer un tag déjà publié.
+
 Le pipeline refuse les versions divergentes, les APK qui ne dépassent pas le
 compteur historique ou celui d'une release Android publiée, et l'écrasement d'une
 release existante. Après un échec de transfert laissant un brouillon incomplet,
@@ -95,6 +105,13 @@ node scripts/release/verify-apk.mjs mobile-v1.4.1 apps/HorusRemote/android/app/b
 
 Le script de build appelle Expo prebuild puis `:app:assembleRelease`. Il conserve
 les scripts de démarrage du projet malgré leur réécriture habituelle par Expo.
+Il passe directement à Gradle une limite de heap de 2 Gio et de Metaspace de
+2 Gio, ainsi que des limites explicites pour le daemon Kotlin (heap 2 Gio,
+Metaspace 1 Gio), avec deux workers au maximum. Ces options remplacent le plafond
+Metaspace de 512 Mio du template Expo pour les builds de release et survivent au
+prebuild ; elles ne modifient pas les commandes de développement. Voir les
+[options mémoire Gradle](https://docs.gradle.org/current/userguide/build_environment.html)
+et les [options du daemon Kotlin](https://kotlinlang.org/docs/gradle-compilation-and-caches.html).
 Les builds Android de release utilisent la lecture directe du système de fichiers
 par Metro, sans dépendre de l'état d'un daemon Watchman local. Le mode de
 développement conserve sa configuration actuelle.

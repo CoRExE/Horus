@@ -6,7 +6,7 @@ binary="$app/Contents/MacOS/horus-desktop"
 ffmpeg="$app/Contents/MacOS/ffmpeg"
 codesign --verify --deep --strict --verbose=2 "$app"
 for executable in "$binary" "$ffmpeg"; do
-  lipo -verify_arch "$arch" "$executable"
+  lipo "$executable" -verify_arch "$arch"
   otool -L "$executable" | tail -n +2 | awk '{print $1}' | while read -r dependency; do
     case "$dependency" in /usr/lib/*|/System/Library/*) ;; *) echo "Dépendance externe : $dependency" >&2; exit 1 ;; esac
   done
