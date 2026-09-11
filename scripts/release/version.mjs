@@ -37,7 +37,11 @@ export function validateVersion(tag, root = process.cwd()) {
 
 export function expectedAssets(release) {
   return release.platform === 'desktop'
-    ? ['arm64', 'x64'].map((arch) => `HorusDesktop-${release.version}-macos-${arch}.dmg`)
+    ? [
+      ...['arm64', 'x64'].map((arch) => `HorusDesktop-${release.version}-macos-${arch}.dmg`),
+      `HorusDesktop-${release.version}-windows-x64.exe`,
+      `HorusDesktop-${release.version}-linux-x64.deb`,
+    ]
     : [`HorusRemote-${release.version}-${release.versionCode}-android.apk`];
 }
 

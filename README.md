@@ -152,8 +152,9 @@ serveurs HTTP locaux. Ces vérifications ne remplacent pas les essais de la
 WebView Tauri et des téléviseurs physiques.
 
 Les workflows de release appellent ces vérifications sur le commit exact du tag,
-avant leurs builds. Les tags `desktop-vX.Y.Z` produisent deux DMG macOS avec
-FFmpeg embarqué ; les tags `mobile-vX.Y.Z` produisent un APK signé avec Gradle,
+avant leurs builds. Le pipeline Desktop 0.1.1 prévoit deux DMG macOS, un installateur
+Windows x64 et un paquet Ubuntu 24.04 x64 avec FFmpeg embarqué ; les premiers
+builds Windows/Linux restent à valider. Les tags `mobile-vX.Y.Z` produisent un APK signé avec Gradle,
 sans EAS Build. Les fichiers sont déposés dans un brouillon GitHub Release.
 Un workflow manuel vérifie le brouillon avant de le publier, sans modifier le
 `latest` global. Voir [le guide des releases](docs/RELEASES.md) pour les versions,

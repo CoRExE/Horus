@@ -41,7 +41,7 @@ if (mode === 'draft') {
   if (previous) args.push('-f', `previous_tag_name=${previous.tag_name}`);
   const generated = JSON.parse(gh(...args));
   const install = release.platform === 'desktop'
-    ? 'Installateurs macOS arm64 et x64, signature ad hoc pour usage personnel (non notariée). FFmpeg et ses sources/licences sont inclus dans l’application, sans dépendance à Homebrew.'
+    ? 'Installateurs macOS arm64 et x64 (signature ad hoc, non notariée), Windows 11 x64 (NSIS non signé, WebView2 requis) et Ubuntu 24.04 x64 (.deb). FFmpeg et ses sources/licences sont inclus. Les essais sur les machines personnelles restent requis avant publication.'
     : `APK Android signé avec le certificat historique, versionCode ${release.versionCode}. Installer par-dessus l’application existante. Ce nouveau binaire désactive EAS Update.`;
   const notes = resolve(folder, '..', 'release-notes.md');
   writeFileSync(notes, `${install}\n\nContrôler les installateurs et leurs sommes SHA-256 avant publication.\n\n${generated.body}\n`);

@@ -313,6 +313,19 @@ async fn media(
         .unwrap()
 }
 
+fn bundled_ffmpeg(directory: &std::path::Path) -> Option<PathBuf> {
+    #[cfg(windows)]
+    let names = ["horus-ffmpeg.exe", "ffmpeg.exe"];
+    #[cfg(target_os = "linux")]
+    let names = ["horus-ffmpeg", "ffmpeg"];
+    #[cfg(not(any(target_os = "linux", windows)))]
+    let names = ["ffmpeg"];
+    names
+        .iter()
+        .map(|name| directory.join(name))
+        .find(|path| path.is_file())
+}
+
 pub fn ffmpeg_path() -> Result<PathBuf, String> {
     let binary = if cfg!(windows) {
         "ffmpeg.exe"
@@ -320,11 +333,13 @@ pub fn ffmpeg_path() -> Result<PathBuf, String> {
         "ffmpeg"
     };
     let mut candidates = Vec::new();
-    // Tauri places the bundled executable next to Horus in Contents/MacOS.
-    // Prefer it to shell tools so Finder launches need no Homebrew installation.
+    // Tauri places sidecars next to Horus. A dedicated name on Windows/Linux
+    // avoids replacing /usr/bin/ffmpeg when installing the Debian package.
     if let Ok(executable) = std::env::current_exe() {
         if let Some(directory) = executable.parent() {
-            candidates.push(directory.join(binary));
+            if let Some(bundled) = bundled_ffmpeg(directory) {
+                return Ok(bundled);
+            }
         }
     }
     candidates.extend(
@@ -601,5 +616,32 @@ mod tests {
     fn rejects_non_http_sources() {
         assert!(http_url("file:///etc/passwd").is_err());
         assert!(http_url("https://source.test/media").is_ok());
+    }
+
+    #[test]
+    fn bundled_ffmpeg_keeps_legacy_lookup() {
+        let directory = std::env::temp_dir().join(format!("horus-sidecar-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir(&directory).unwrap();
+        assert!(bundled_ffmpeg(&directory).is_none());
+        let binary = directory.join(if cfg!(windows) { "ffmpeg.exe" } else { "ffmpeg" });
+        std::fs::write(&binary, b"fixture").unwrap();
+        assert_eq!(bundled_ffmpeg(&directory), Some(binary));
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[cfg(any(target_os = "linux", windows))]
+    #[test]
+    fn bundled_ffmpeg_prefers_horus_over_system_name() {
+        let directory = std::env::temp_dir().join(format!("horus-sidecar-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir(&directory).unwrap();
+        let (dedicated, legacy) = if cfg!(windows) {
+            ("horus-ffmpeg.exe", "ffmpeg.exe")
+        } else {
+            ("horus-ffmpeg", "ffmpeg")
+        };
+        std::fs::write(directory.join(legacy), b"system").unwrap();
+        std::fs::write(directory.join(dedicated), b"bundled").unwrap();
+        assert_eq!(bundled_ffmpeg(&directory), Some(directory.join(dedicated)));
+        std::fs::remove_dir_all(directory).unwrap();
     }
 }

@@ -1,0 +1,2 @@
+# Git Bash/MSYS2 must receive LF shell scripts on Windows runners.
+scripts/release/*.sh text eol=lf
