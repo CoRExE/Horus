@@ -1,4 +1,10 @@
-import { useEffect, useRef, useState } from "react";
+import {
+  useEffect,
+  useImperativeHandle,
+  useRef,
+  useState,
+  type Ref,
+} from "react";
 import type Hls from "hls.js";
 import { PlaybackRange } from "./PlaybackRange";
 import { usePlayerFullscreen } from "./usePlayerFullscreen";
@@ -32,13 +38,19 @@ export interface Playback {
   resumeAt: number;
 }
 
+export interface PlayerHandle {
+  flushProgress: () => void;
+}
+
 export function Player({
+  ref,
   playback,
   onStop,
   onProgress,
   onNext,
   onRetry,
 }: {
+  ref?: Ref<PlayerHandle>;
   playback: Playback;
   onStop: () => void;
   onProgress: (position: number, duration: number, flush?: boolean) => void;
@@ -153,6 +165,7 @@ export function Player({
     else if (playback.device && status && status.positionSeconds > 0)
       onProgress(status.positionSeconds, status.durationSeconds, true);
   };
+  useImperativeHandle(ref, () => ({ flushProgress }));
   const stop = () => {
     flushProgress();
     onStop();

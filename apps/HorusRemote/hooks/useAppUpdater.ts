@@ -6,7 +6,7 @@ export const useAppUpdater = () => {
   useEffect(() => {
     const checkUpdates = async () => {
       // Sécurité : ignorer la vérification en développement
-      if (__DEV__) {
+      if (__DEV__ || !Updates.isEnabled) {
         console.log('[Updater] Environment __DEV__ détecté, mise à jour OTA ignorée.');
         return;
       }

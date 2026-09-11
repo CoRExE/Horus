@@ -1,7 +1,7 @@
 {
   "git": {
-    "commitMessage": "chore(release): v${version}",
-    "tagName": "v${version}",
+    "commitMessage": "chore(release): mobile-v${version}",
+    "tagName": "mobile-v${version}",
     "push": false,
     "requireBranch": [
       "main",

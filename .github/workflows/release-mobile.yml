@@ -1,0 +1,159 @@
+name: Release Android
+
+on:
+  push:
+    tags: ['mobile-v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Tag mobile-vX.Y.Z existant
+        required: true
+        type: string
+
+permissions:
+  contents: read
+concurrency:
+  group: release-${{ inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  version:
+    runs-on: ubuntu-24.04
+    outputs:
+      tag: ${{ steps.version.outputs.tag }}
+      version: ${{ steps.version.outputs.version }}
+      commit: ${{ steps.version.outputs.commit }}
+      versionCode: ${{ steps.version.outputs.versionCode }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref_name }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+      - id: version
+        env:
+          TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          [[ "$TAG" == mobile-v* ]]
+          node scripts/release/version.mjs "$TAG"
+          commit="$(git rev-parse --verify "refs/tags/$TAG^{commit}")"
+          [[ "$(git rev-parse HEAD)" == "$commit" ]]
+          printf 'commit=%s\n' "$commit" >> "$GITHUB_OUTPUT"
+
+  checks:
+    needs: version
+    uses: ./.github/workflows/checks.yml
+    with:
+      ref: ${{ needs.version.outputs.commit }}
+
+  build:
+    needs: [version, checks]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    env:
+      CI: '1'
+      EXPO_NO_DOTENV: '1'
+      HORUS_ANDROID_RELEASE: '1'
+      EXPO_PUBLIC_HORUS_API_URL: ${{ vars.HORUS_API_URL || 'https://horus-api.horus-remote.workers.dev' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.version.outputs.commit }}
+          persist-credentials: false
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - run: sdkmanager 'platforms;android-36' 'build-tools;36.0.0' 'ndk;27.1.12297006' 'cmake;3.22.1'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-read-only: false
+      - run: pnpm install --frozen-lockfile
+      - name: Préparer la clé de signature historique
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          python3 - <<'PY'
+          import base64, os, pathlib
+          data = os.environ.get('KEYSTORE_BASE64')
+          if not data:
+              raise SystemExit('Configurer le secret ANDROID_KEYSTORE_BASE64 avec la clé historique EAS.')
+          path = pathlib.Path(os.environ['RUNNER_TEMP']) / 'horus-release.jks'
+          path.write_bytes(base64.b64decode(data, validate=True))
+          path.chmod(0o600)
+          PY
+      - name: Générer Android et compiler l'APK signé
+        env:
+          HORUS_ANDROID_KEYSTORE: ${{ runner.temp }}/horus-release.jks
+          HORUS_ANDROID_STORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          HORUS_ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          HORUS_ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          mkdir -p .ci-logs
+          pnpm --filter horusremote build:prod:android 2>&1 | tee .ci-logs/android.log
+          git diff --exit-code -- apps/HorusRemote/package.json pnpm-lock.yaml
+      - name: Vérifier certificat, versions et configuration native
+        env:
+          TAG: ${{ needs.version.outputs.tag }}
+          VERSION: ${{ needs.version.outputs.version }}
+          VERSION_CODE: ${{ needs.version.outputs.versionCode }}
+        run: |
+          apk=apps/HorusRemote/android/app/build/outputs/apk/release/app-release.apk
+          node scripts/release/verify-apk.mjs "$TAG" "$apk"
+          "$ANDROID_HOME/cmdline-tools/latest/bin/apkanalyzer" dex packages --defined-only "$apk" > .ci-logs/apk-packages.txt
+          for package in expo.modules.localvideoproxy com.reactnative.googlecast expo.modules.video com.tradle.react; do
+            grep -F -m 1 "$package" .ci-logs/apk-packages.txt
+          done
+          mkdir -p build/installers
+          cp "$apk" "build/installers/HorusRemote-$VERSION-$VERSION_CODE-android.apk"
+      - name: Effacer la copie temporaire de la clé
+        if: always()
+        run: rm -f "$RUNNER_TEMP/horus-release.jks"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mobile-apk
+          path: build/installers/*.apk
+          if-no-files-found: error
+          retention-days: 14
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: logs-release-mobile
+          path: .ci-logs/
+          include-hidden-files: true
+          retention-days: 7
+
+  draft:
+    needs: [version, build]
+    permissions:
+      contents: write
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.version.outputs.commit }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+      - uses: actions/download-artifact@v4
+        with:
+          name: mobile-apk
+          path: build/installers
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.version.outputs.tag }}
+        run: node scripts/release/github-release.mjs draft "$TAG" build/installers

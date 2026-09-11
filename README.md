@@ -117,7 +117,7 @@ la diffusion.
 
 Le workflow [Vérifications](.github/workflows/checks.yml) s'exécute sur les pull
 requests, les pushes sur `main`/`master` et à la demande. Il vérifie TypeScript
-dans les quatre packages, les tests existants et huit tests de parcours Desktop,
+dans les quatre packages, les tests existants et dix-neuf tests de parcours Desktop,
 puis compile l'interface et le code Rust sur macOS et exécute les tests Rust et
 média FFmpeg. Aucun secret ni service externe n'est nécessaire aux tests.
 
@@ -141,6 +141,7 @@ pnpm --filter horus-desktop build
 pnpm --filter horus-desktop build:rust
 pnpm --filter horus-desktop test:rust
 pnpm --filter horus-desktop test:media
+node --test scripts/release/tests/*.test.mjs
 ```
 
 Les échecs remontent malgré la copie des sorties par `tee` grâce au mode Bash
@@ -150,10 +151,13 @@ des fournisseurs et appels IPC simulés ; les tests Rust/FFmpeg utilisent de vra
 serveurs HTTP locaux. Ces vérifications ne remplacent pas les essais de la
 WebView Tauri et des téléviseurs physiques.
 
-Le workflow accepte déjà `workflow_call`. Au chantier 3, les workflows de release
-devront l'appeler dans un job de vérification et déclarer ce job dans `needs`
-avant toute publication. Aucun workflow de release ni build Gradle n'existe
-encore ; leur branchement et le cache Gradle restent à réaliser à cette étape.
+Les workflows de release appellent ces vérifications sur le commit exact du tag,
+avant leurs builds. Les tags `desktop-vX.Y.Z` produisent deux DMG macOS avec
+FFmpeg embarqué ; les tags `mobile-vX.Y.Z` produisent un APK signé avec Gradle,
+sans EAS Build. Les fichiers sont déposés dans un brouillon GitHub Release.
+Un workflow manuel vérifie le brouillon avant de le publier, sans modifier le
+`latest` global. Voir [le guide des releases](docs/RELEASES.md) pour les versions,
+la signature, les builds locaux et la première validation des installateurs.
 
 ## ⚖️ Disclaimer
 
