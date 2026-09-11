@@ -33,8 +33,9 @@ Prérequis :
   développement conservent la recherche dans le système.
   L'extension de release 0.1.1 prépare aussi Windows 11 x64 (NSIS) et Ubuntu
   24.04 x64 (.deb), avec un sidecar `horus-ffmpeg` pour éviter les conflits avec
-  FFmpeg système. Les premiers builds et essais sur ces plateformes restent
-  à valider ; voir le [guide des releases](../../docs/RELEASES.md).
+  FFmpeg système. Les builds et tests automatisés ont réussi ; les contrôles
+  complets des installateurs et les essais sur appareil restent à valider.
+  Voir le [guide des releases](../../docs/RELEASES.md).
   La lecture locale et Chromecast des flux compatibles restent disponibles sans lui.
 
 Si le lanceur pnpm global échoue avec `installed pnpm wrapper is missing`, utiliser
