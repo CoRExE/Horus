@@ -98,7 +98,7 @@ jobs:
       - uses: actions/cache@v4
         with:
           path: build/ffmpeg
-          key: ffmpeg-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/release/build-ffmpeg.sh', 'scripts/release/ffmpeg.json') }}
+          key: ffmpeg-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/release/*ffmpeg*') }}
       - name: Compiler FFmpeg et préparer sources et licences
         run: |
           mkdir -p .ci-logs
@@ -134,8 +134,113 @@ jobs:
           include-hidden-files: true
           retention-days: 7
 
+  build-windows-linux:
+    needs: [version, checks]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: windows-2022
+            platform: windows
+            target: x86_64-pc-windows-msvc
+            bundle: nsis
+          - runner: ubuntu-24.04
+            platform: linux
+            target: x86_64-unknown-linux-gnu
+            bundle: deb
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
+    env:
+      RUSTUP_TOOLCHAIN: 1.88.0
+      CARGO_TERM_COLOR: never
+      VERSION: ${{ needs.version.outputs.version }}
+      TARGET: ${{ matrix.target }}
+      PLATFORM: ${{ matrix.platform }}
+      BUNDLE: ${{ matrix.bundle }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.version.outputs.commit }}
+          persist-credentials: false
+      - run: mkdir -p .ci-logs
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+      - name: Installer les dépendances Linux et FFmpeg pour les fixtures
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential pkg-config libwebkit2gtk-4.1-dev libssl-dev librsvg2-dev patchelf ffmpeg
+      - name: Installer les outils FFmpeg Windows
+        if: runner.os == 'Windows'
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: true
+          path-type: inherit
+          install: >-
+            make diffutils perl
+            mingw-w64-ucrt-x86_64-gcc
+            mingw-w64-ucrt-x86_64-pkgconf
+            mingw-w64-ucrt-x86_64-ffmpeg
+      - run: pnpm install --frozen-lockfile
+      - run: rustup toolchain install 1.88.0 --profile minimal --target "$TARGET"
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            apps/HorusDesktop/src-tauri/target
+          key: release-cargo-${{ runner.os }}-${{ runner.arch }}-1.88-${{ hashFiles('apps/HorusDesktop/src-tauri/Cargo.lock', 'apps/HorusDesktop/src-tauri/src/**', 'apps/HorusDesktop/src-tauri/*.json') }}
+          restore-keys: release-cargo-${{ runner.os }}-${{ runner.arch }}-1.88-
+      - uses: actions/cache@v4
+        with:
+          path: build/ffmpeg
+          key: ffmpeg-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/release/*ffmpeg*') }}
+      - name: Compiler FFmpeg Linux et générer les fixtures
+        if: runner.os == 'Linux'
+        run: |
+          bash scripts/release/build-ffmpeg.sh 2>&1 | tee .ci-logs/ffmpeg.log
+          pnpm --filter horus-desktop test:fixtures
+      - name: Compiler FFmpeg Windows et générer les fixtures
+        if: runner.os == 'Windows'
+        shell: msys2 {0}
+        run: |
+          set -euo pipefail
+          bash scripts/release/build-ffmpeg.sh 2>&1 | tee .ci-logs/ffmpeg.log
+          node apps/HorusDesktop/tests/generate-media.mjs
+      - name: Tester Desktop et le moteur média avec FFmpeg embarqué
+        run: |
+          pnpm --filter horus-desktop test 2>&1 | tee .ci-logs/desktop-tests.log
+          node scripts/release/test-desktop-media.mjs 2>&1 | tee .ci-logs/media.log
+      - name: Construire l'installateur
+        run: pnpm --filter horus-desktop exec tauri build --config "src-tauri/tauri.$PLATFORM.release.conf.json" --target "$TARGET" --bundles "$BUNDLE" -- --locked 2>&1 | tee .ci-logs/bundle.log
+      - name: Vérifier le paquet Linux
+        if: runner.os == 'Linux'
+        run: bash scripts/release/verify-deb.sh 2>&1 | tee .ci-logs/installer.log
+      - name: Installer et vérifier le paquet Windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./scripts/release/verify-windows.ps1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: desktop-${{ matrix.platform }}-x64
+          path: build/installers/*
+          if-no-files-found: error
+          retention-days: 14
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: logs-release-desktop-${{ matrix.platform }}-x64
+          path: .ci-logs/
+          include-hidden-files: true
+          retention-days: 7
+
   draft:
-    needs: [version, build]
+    needs: [version, build, build-windows-linux]
     permissions:
       contents: write
     runs-on: ubuntu-24.04

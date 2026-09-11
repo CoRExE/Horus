@@ -129,14 +129,15 @@ préférences, favoris ou historiques existants. Éviter une réécriture global
 - [x] Prévoir les secrets de signature dans GitHub, sans les ajouter au dépôt ni aux journaux.
 - [ ] Construire les installateurs et préparer les notes de version.
 - [x] Définir le passage brouillon → publication : workflow manuel vérifiant les installateurs et leurs sommes avant publication. Le branchement des manifestes publics reste au chantier 4, après cette étape.
-- [ ] Étendre le workflow Desktop et les contrôles de publication aux fichiers Windows et Linux, réunis avec macOS sous le même tag `desktop-vX.Y.Z` ; refuser la publication si un fichier attendu pour les plateformes retenues manque.
+- [x] Étendre le workflow Desktop et les contrôles de publication aux fichiers Windows et Linux, réunis avec macOS sous le même tag `desktop-vX.Y.Z` ; refuser la publication si un fichier attendu pour les plateformes retenues manque. Les premiers builds Windows/Linux restent à valider ci-dessous.
 
 ### macOS — HorusDesktop
 
 - [x] Construire et vérifier le binaire Apple Silicon.
-- [ ] Construire et vérifier le binaire Intel via le workflow prévu.
-- [x] Intégrer FFmpeg pour rendre les téléchargements autonomes, avec ses sources et licences ; le binaire arm64 est vérifié, la validation Intel reste liée au build ci-dessus.
-- [ ] Vérifier la signature et l'installation des builds macOS pour l'usage personnel prévu.
+- [x] Construire et vérifier le binaire Intel via le workflow prévu.
+- [x] Intégrer FFmpeg pour rendre les téléchargements autonomes, avec ses sources et licences ; les binaires arm64 et Intel passent les vérifications du workflow.
+- [x] Vérifier la signature ad hoc des bundles macOS dans le workflow.
+- [ ] Vérifier l'installation des builds macOS pour l'usage personnel prévu.
 - [ ] Publier des fichiers identifiables par version et architecture dans GitHub Releases.
 - [ ] Tester l'installation depuis Finder sur un environnement sans les outils de développement du projet.
 
@@ -153,8 +154,9 @@ préférences, favoris ou historiques existants. Éviter une réécriture global
 
 ### Windows — HorusDesktop
 
-- [ ] Définir les versions de Windows, architectures et formats d'installation nécessaires aux machines personnelles utilisées.
-- [ ] Ajouter un build Windows dans GitHub Actions avec les outils, dépendances et caches nécessaires ; exécuter les vérifications Desktop et les tests média sur cette plateforme.
+- [x] Retenir une cible initiale : Windows 11 x64, installateur NSIS `.exe` pour l'utilisateur courant ; adéquation aux machines personnelles à confirmer par l'utilisateur.
+- [x] Configurer le build Windows dans GitHub Actions avec MSVC, MSYS2 UCRT64, dépendances, caches et commandes de tests Desktop/média.
+- [ ] Valider le premier build Windows sur GitHub, y compris l'exécution des tests Desktop/média et l'installation automatique de contrôle.
 - [ ] Embarquer FFmpeg pour Windows avec ses sources et licences, et vérifier son exécution sans installation système de FFmpeg.
 - [ ] Produire l'installateur et documenter les dépendances d'exécution ainsi que les éventuelles étapes de confiance nécessaires à l'installation pour un usage personnel.
 - [ ] Tester sur une machine Windows sans outils de développement l'installation, le lancement, la lecture, les téléchargements et l'accès au réseau local ; vérifier qu'une mise à jour conserve les préférences, favoris et historiques.
@@ -162,16 +164,17 @@ préférences, favoris ou historiques existants. Éviter une réécriture global
 
 ### Linux — HorusDesktop
 
-- [ ] Définir les distributions, architectures et formats de paquet nécessaires aux machines personnelles utilisées.
-- [ ] Ajouter un build Linux dans GitHub Actions avec les outils, dépendances système et caches nécessaires ; exécuter les vérifications Desktop et les tests média sur cette plateforme.
+- [x] Retenir une cible initiale : Ubuntu 24.04 x64, paquet `.deb` ; adéquation aux machines personnelles à confirmer par l'utilisateur.
+- [x] Configurer le build Linux dans GitHub Actions avec les dépendances système Tauri, caches et commandes de tests Desktop/média.
+- [ ] Valider le premier build Linux sur GitHub, y compris les tests Desktop/média et les contrôles du paquet.
 - [ ] Embarquer FFmpeg pour Linux avec ses sources et licences, et vérifier son exécution sans installation système de FFmpeg.
 - [ ] Produire les paquets retenus et documenter leurs dépendances d'exécution ; vérifier leur compatibilité sur les distributions ciblées.
 - [ ] Tester sur une machine Linux sans outils de développement l'installation, le lancement, la lecture, les téléchargements et l'accès au réseau local ; vérifier qu'une mise à jour conserve les préférences, favoris et historiques.
 - [ ] Publier les paquets dans la release Desktop avec des noms indiquant version, plateforme et architecture, et vérifier leurs sommes de contrôle après téléchargement.
 
 Windows et Linux ont été intégrés au périmètre le 11 septembre 2026 ; leur
-implémentation et leurs validations restent à réaliser. La détection des mises
-à jour pour ces plateformes sera traitée au chantier 4, à partir des fichiers
+pipeline est préparé en 0.1.1, mais les builds natifs et essais restent à valider.
+La détection des mises à jour pour ces plateformes sera traitée au chantier 4, à partir des fichiers
 publiés ici. Les essais approfondis de diffusion TV restent au chantier 7.
 
 Validation : les releases suivantes doivent pouvoir être produites sans EAS.
@@ -214,9 +217,30 @@ Validations de ces corrections :
 - Le build Android signé via le script corrigé réussit avec Java 17 et Node 26.8.1 : 918 tâches, dont 39 exécutées et 879 à jour. L'APK passe `verify-apk.mjs` (identifiant, version 1.4.1/code 25, certificat historique, contenu natif et EAS Update désactivé). Le cache local a été réutilisé : l'absence de saturation mémoire sur un runner GitHub reste à confirmer.
 - `git diff --check` réussi ; les `package.json` racine et Mobile sont identiques octet par octet à leur état avant ces corrections. Aucun commit, push, déplacement/création de tag ou lancement distant n'a été effectué pour ces corrections.
 
-À terminer avant de clôturer ce chantier : premier DMG Intel vérifié et premiers
-lancements réussis des workflows de release corrigés sur GitHub, essais Finder/Gatekeeper sur un
-Mac sans outils de développement, mise à jour Android sur l'application installée
+Builds GitHub confirmés le 11 septembre 2026 :
+
+- [Release Desktop · desktop-v0.1.0](https://github.com/CoRExE/Horus/actions/runs/34562753304) et [Release Android · mobile-v1.4.1](https://github.com/CoRExE/Horus/actions/runs/34562753395) réussies sur `6067717`, avec les titres corrigés. Les vérifications, builds, contrôles des installateurs et créations de brouillons sont réussis.
+- Le brouillon Desktop contient les DMG arm64 et x64, le brouillon Android contient l'APK 1.4.1/code 25 ; chacun contient `SHA256SUMS` et `release-info.json`. Présence et état des fichiers contrôlés via GitHub. Les deux releases sont encore en brouillon ; aucun essai sur appareil ni publication n'est déduit de la réussite des builds.
+
+Extension Windows/Linux préparée le 11 septembre 2026 :
+
+- Desktop passe en 0.1.1 dans ses quatre sources de version, pour préparer une nouvelle release distincte du brouillon 0.1.0. Android reste inchangé. Aucun tag n'est créé ou déplacé.
+- Deux jobs natifs sont ajoutés au workflow Desktop (`windows-2022` / `ubuntu-24.04`). Le brouillon attend désormais les deux DMG, le NSIS Windows et le `.deb` Linux. Les contrôles de publication et notes de version couvrent ces quatre fichiers.
+- Le script FFmpeg conserve les options macOS et ajoute Linux/GCC et Windows/MSYS2 UCRT64 avec contrôle des dépendances ELF/DLL. Les configurations de packaging incluent sources/licences et un sidecar nommé `horus-ffmpeg` sur Windows/Linux, prioritaire sur le nom système. Linux ne remplace pas `/usr/bin/ffmpeg` ; les chemins et priorités macOS restent inchangés.
+- Les jobs génèrent les fixtures avec FFmpeg système, puis exécutent les tests Rust/média avec le sidecar Horus voisin du binaire de test. Les vérifications des paquets contrôlent architecture x64, égalité avec les binaires du build, archive source et notices, ainsi que le lancement FFmpeg avec un PATH limité aux dossiers système.
+- Windows prévoit installation silencieuse NSIS dans un dossier temporaire puis désinstallation ; WebView2 est téléchargé si nécessaire. Linux prévoit extraction du `.deb`, contrôle des dépendances dynamiques et simulation APT ; les dépendances GStreamer de lecture sont déclarées. Les guides décrivent les cibles, prérequis et essais manuels restants.
+
+Validations de l'extension :
+
+- 17 tests Node de release passent : les nouveaux contrôles refusent les installateurs Windows/Linux absents ou altérés ainsi que les architectures PE/ELF incorrectes. Les échanges GitHub de ces tests sont simulés.
+- Les workflows passent actionlint 1.7.12 et les scripts shell passent `bash -n`. Les deux configurations Tauri passent la validation du schéma de la CLI installée ; les scripts Node ajoutés passent leur contrôle de syntaxe.
+- Le script FFmpeg étendu réussit sur macOS arm64 avec les sources en cache : archive SHA-256, compilation, architecture, dépendances système et exécution vérifiées.
+- Les 6 tests Rust passent sur macOS, test média inclus, avec FFmpeg compilé depuis les sources. Le nouveau test de repli vers le sidecar historique passe ; le test de priorité `horus-ffmpeg` est réservé aux cibles Windows/Linux et sera exécuté sur leurs runners. Les tests HTTP ont nécessité l'autorisation d'ouvrir des sockets locales hors du bac à sable.
+- `git diff --check` passe et le `package.json` racine est identique octet par octet à son état initial. Les scripts shell sont fixés en LF pour MSYS2/Git Bash. Aucun secret ni fichier généré n'est ajouté aux fichiers suivis.
+- Les premiers builds et contrôles Windows/Linux n'ont pas été exécutés localement : hôte macOS et aucun daemon Docker disponible. Le script PowerShell reste à valider sur le runner Windows. Aucun lancement distant ni publication n'a été effectué pour cette extension.
+
+À terminer avant de clôturer ce chantier : premiers builds Windows/Linux réussis,
+essais Finder/Gatekeeper sur un Mac sans outils de développement, mise à jour Android sur l'application installée
 avec conservation des données et essai des modules natifs sur appareil. Aucun
 appareil Android n'était connecté lors de la détection ADB. La configuration EAS
 restante ne sera retirée qu'après ces validations, en conservant ce qui sert à iOS.

@@ -103,6 +103,42 @@ test('un seul installateur macOS interdit la création du brouillon', () => {
   assert.ok(!readFileSync(fixture.calls, 'utf8').includes('"create"'));
 });
 
+test('la release Desktop exige les quatre installateurs des plateformes retenues', () => {
+  assert.deepEqual(expectedAssets({ platform: 'desktop', version: '1.2.3' }), [
+    'HorusDesktop-1.2.3-macos-arm64.dmg', 'HorusDesktop-1.2.3-macos-x64.dmg',
+    'HorusDesktop-1.2.3-windows-x64.exe', 'HorusDesktop-1.2.3-linux-x64.deb',
+  ]);
+});
+
+for (const suffix of ['windows-x64.exe', 'linux-x64.deb']) {
+  test(`un installateur ${suffix} absent bloque le brouillon et la publication`, () => {
+    const fixture = githubFixture();
+    const names = fixture.names.filter((name) => !name.endsWith(suffix));
+    const folder = mkdtempSync(join(fixture.directory, 'incomplete-'));
+    for (const name of names) cpSync(join(fixture.assets, name), join(folder, name));
+    assert.notEqual(fixture.run('draft', folder).status, 0);
+    assert.ok(!readFileSync(fixture.calls, 'utf8').includes('"create"'));
+    assert.equal(fixture.run('draft').status, 0);
+    fixture.markDraft();
+    const listings = json(fixture.listings);
+    listings[0].assets = listings[0].assets.filter((asset) => !asset.name.endsWith(suffix));
+    writeFileSync(fixture.listings, JSON.stringify(listings));
+    assert.notEqual(fixture.run('publish', fixture.publishFolder()).status, 0);
+    assert.ok(!readFileSync(fixture.calls, 'utf8').includes('"edit"'));
+  });
+
+  test(`un installateur ${suffix} altéré bloque la publication`, () => {
+    const fixture = githubFixture();
+    assert.equal(fixture.run('draft').status, 0);
+    fixture.markDraft();
+    writeFileSync(join(fixture.remote, fixture.names.find((name) => name.endsWith(suffix))), 'tampered');
+    const result = fixture.run('publish', fixture.publishFolder());
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /Fichier altéré/);
+    assert.ok(!readFileSync(fixture.calls, 'utf8').includes('"edit"'));
+  });
+}
+
 test('un checkout différent du tag bloque toute opération GitHub', () => {
   const fixture = githubFixture();
   writeFileSync(join(fixture.directory, 'bin/git'), '#!/bin/sh\nif [ "$2" = HEAD ]; then echo aaaaaa; else echo bbbbbb; fi\n');

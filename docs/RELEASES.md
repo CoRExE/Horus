@@ -1,4 +1,4 @@
-# Releases personnelles macOS et Android
+# Releases personnelles Desktop et Android
 
 Les workflows `release-desktop.yml` et `release-mobile.yml` construisent des
 installateurs après réussite du workflow réutilisable `checks.yml`. Tous les
@@ -24,7 +24,7 @@ Vérifier son diff avant de committer. Un changement de version Desktop demande
 Depuis la racine, avant de créer et pousser un tag :
 
 ```sh
-node scripts/release/version.mjs desktop-v0.1.0
+node scripts/release/version.mjs desktop-v0.1.1
 node scripts/release/version.mjs mobile-v1.4.1
 pnpm check
 node --test scripts/release/tests/*.test.mjs
@@ -51,6 +51,14 @@ compteur historique ou celui d'une release Android publiée, et l'écrasement d'
 release existante. Après un échec de transfert laissant un brouillon incomplet,
 examiner ce brouillon et le supprimer explicitement avant de relancer le build.
 Ne jamais déplacer un tag déjà publié.
+
+Les builds macOS/Android sur le commit `6067717` ont réussi et créé les brouillons
+`desktop-v0.1.0` et `mobile-v1.4.1`. Ils restent disponibles pour les essais puis
+la publication manuelle. Le workflow de publication recharge le code du tag :
+il conserve donc la liste de fichiers macOS attendue par l'ancien brouillon.
+L'extension Windows/Linux prépare Desktop **0.1.1**, soit un futur tag
+`desktop-v0.1.1` après commit et merge. Ne pas réutiliser le tag du brouillon 0.1.0
+pour cette extension. Android reste en 1.4.1/code 25.
 
 ## Android : continuité de signature
 
@@ -183,12 +191,68 @@ Références : [FFmpeg et licences](https://ffmpeg.org/legal.html),
 [build Android local Expo](https://docs.expo.dev/guides/local-app-production/),
 [compteurs EAS](https://docs.expo.dev/build-reference/app-versions/).
 
+## Windows et Linux — extension Desktop 0.1.1
+
+Cibles initiales retenues pour préparer le pipeline, à confirmer selon les
+machines personnelles : Windows 11 x64 avec un installateur NSIS `.exe`, et
+Ubuntu 24.04 x64 avec un paquet `.deb`. Les premiers builds et essais natifs
+Windows/Linux restent à valider ; les autres distributions et architectures
+ne sont pas annoncées comme prises en charge.
+
+Le workflow ajoute deux jobs natifs, sous `windows-2022` et `ubuntu-24.04`.
+Ils compilent FFmpeg depuis la même archive vérifiée que macOS. Windows utilise
+MSYS2 UCRT64/MinGW pour ce sous-processus indépendant et MSVC pour Tauri ; les
+imports de FFmpeg sont limités aux DLL système. Linux vérifie les dépendances
+ELF de FFmpeg, sans bibliothèques multimédia externes. Les sources, licences et
+recettes sont incluses dans chaque paquet.
+
+Les configurations `tauri.windows.release.conf.json` et
+`tauri.linux.release.conf.json` embarquent `horus-ffmpeg.exe` ou `horus-ffmpeg`.
+Le runtime préfère ce fichier voisin sur Windows/Linux, puis conserve les
+recherches antérieures. Le paquet Linux ne remplace pas `/usr/bin/ffmpeg`.
+macOS conserve le nom et la priorité de son sidecar existant.
+
+Les fixtures H.264 sont générées avec FFmpeg système (qui dispose de libx264),
+puis les tests Rust, y compris MP4/HLS, annulation et nettoyage, utilisent le
+sidecar Horus. Les builds exécutent aussi les tests Desktop et compilent son
+interface. Aucun changement de stockage, d'identifiant ou de parcours applicatif
+n'est introduit par l'extension.
+
+Sur Windows, l'installateur s'exécute pour l'utilisateur courant. Il télécharge
+WebView2 si nécessaire : un accès réseau est alors requis. Aucune signature
+Authenticode n'est configurée pour cet usage personnel. Le runner installe le
+paquet silencieusement dans un dossier temporaire, vérifie les binaires x64
+contre ceux du build et leurs licences, exécute FFmpeg avec uniquement les
+dossiers système dans le PATH, puis désinstalle. Ce contrôle ne remplace pas
+l'essai de l'interface sur Windows 11 ou l'installation sans outils de développement.
+
+Sur Ubuntu, le `.deb` déclare WebKitGTK/GTK, glibc 2.39 et les plugins GStreamer
+nécessaires à la lecture. Le build sur Ubuntu 24.04 ne garantit pas la compatibilité
+avec une distribution plus ancienne. Le runner extrait le paquet, vérifie version,
+architecture, binaires, sources et licences, exécute FFmpeg, contrôle les liens
+dynamiques et simule la résolution des dépendances avec APT. Installation manuelle :
+
+```sh
+sudo apt install ./HorusDesktop-0.1.1-linux-x64.deb
+```
+
+Sur chaque machine cible, vérifier installation et lancement depuis le menu
+d'applications, lecture distante, téléchargement puis lecture locale, accès au
+réseau local et mise à jour en conservant favoris, historique et préférences.
+Les essais TV approfondis restent au chantier 7.
+
+Références : [NSIS et WebView2](https://v2.tauri.app/distribute/windows-installer/),
+[paquets Debian Tauri](https://v2.tauri.app/distribute/debian/),
+[compilation FFmpeg Windows](https://ffmpeg.org/platform.html#Native-Windows-compilation-using-MSYS2).
+
 ## Du brouillon à la publication
 
 Les noms d'installateurs sont distincts et contiennent leur version :
 
 - `HorusDesktop-X.Y.Z-macos-arm64.dmg` ;
 - `HorusDesktop-X.Y.Z-macos-x64.dmg` ;
+- `HorusDesktop-X.Y.Z-windows-x64.exe` ;
+- `HorusDesktop-X.Y.Z-linux-x64.deb` ;
 - `HorusRemote-X.Y.Z-N-android.apk`.
 
 Le brouillon contient aussi `SHA256SUMS`, `release-info.json` et les notes de
@@ -201,3 +265,5 @@ release vérifiée** dans Actions avec son tag. Ce workflow télécharge les fic
 vérifie la liste complète, leurs tailles, SHA-256 et correspondance avec le tag,
 puis publie. Il n'utilise et ne modifie jamais le `releases/latest` global.
 La publication des manifestes sera branchée après cette étape au chantier 4.
+Pour Desktop 0.1.1, le brouillon et sa publication exigent les quatre installateurs :
+un échec Windows ou Linux empêche de publier une release Desktop incomplète.
