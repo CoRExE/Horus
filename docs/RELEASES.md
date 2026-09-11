@@ -195,8 +195,9 @@ Références : [FFmpeg et licences](https://ffmpeg.org/legal.html),
 
 Cibles initiales retenues pour préparer le pipeline, à confirmer selon les
 machines personnelles : Windows 11 x64 avec un installateur NSIS `.exe`, et
-Ubuntu 24.04 x64 avec un paquet `.deb`. Les premiers builds et essais natifs
-Windows/Linux restent à valider ; les autres distributions et architectures
+Ubuntu 24.04 x64 avec un paquet `.deb`. Les premiers builds et tests automatisés
+Windows/Linux ont réussi ; la vérification complète des installateurs et les essais
+sur appareil restent à valider. Les autres distributions et architectures
 ne sont pas annoncées comme prises en charge.
 
 Le workflow ajoute deux jobs natifs, sous `windows-2022` et `ubuntu-24.04`.
@@ -222,7 +223,7 @@ Sur Windows, l'installateur s'exécute pour l'utilisateur courant. Il téléchar
 WebView2 si nécessaire : un accès réseau est alors requis. Aucune signature
 Authenticode n'est configurée pour cet usage personnel. Le runner installe le
 paquet silencieusement dans un dossier temporaire, vérifie les binaires x64
-contre ceux du build et leurs licences, exécute FFmpeg avec uniquement les
+contre ceux du build en tenant compte du marqueur de packaging Tauri, vérifie leurs licences, exécute FFmpeg avec uniquement les
 dossiers système dans le PATH, puis désinstalle. Ce contrôle ne remplace pas
 l'essai de l'interface sur Windows 11 ou l'installation sans outils de développement.
 
@@ -240,6 +241,14 @@ Sur chaque machine cible, vérifier installation et lancement depuis le menu
 d'applications, lecture distante, téléchargement puis lecture locale, accès au
 réseau local et mise à jour en conservant favoris, historique et préférences.
 Les essais TV approfondis restent au chantier 7.
+
+Le contrôle du binaire principal tient compte d'une transformation précise de
+[Tauri 2.11.4](https://github.com/tauri-apps/tauri/blob/tauri-cli-v2.11.4/crates/tauri-bundler/src/bundle.rs) :
+le premier marqueur `__TAURI_BUNDLE_TYPE_VAR_UNK` devient
+`__TAURI_BUNDLE_TYPE_VAR_NSS` pour NSIS ou `__TAURI_BUNDLE_TYPE_VAR_DEB` pour Debian.
+Tauri restaure ensuite le binaire non modifié dans le dossier de build.
+Le vérificateur calcule donc le contenu attendu avec ce seul remplacement ;
+tout autre écart est rejeté. FFmpeg reste comparé sans transformation.
 
 Références : [NSIS et WebView2](https://v2.tauri.app/distribute/windows-installer/),
 [paquets Debian Tauri](https://v2.tauri.app/distribute/debian/),

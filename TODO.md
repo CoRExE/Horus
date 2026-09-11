@@ -1,6 +1,6 @@
 # TODO — Prochaines évolutions de Horus
 
-Dernière mise à jour : 11 septembre 2026.
+Dernière mise à jour : 12 septembre 2026.
 
 Cette feuille de route reprend les prochaines évolutions discutées. Les cases
 non cochées correspondent à du travail à réaliser, pas à des fonctionnalités
@@ -156,7 +156,8 @@ préférences, favoris ou historiques existants. Éviter une réécriture global
 
 - [x] Retenir une cible initiale : Windows 11 x64, installateur NSIS `.exe` pour l'utilisateur courant ; adéquation aux machines personnelles à confirmer par l'utilisateur.
 - [x] Configurer le build Windows dans GitHub Actions avec MSVC, MSYS2 UCRT64, dépendances, caches et commandes de tests Desktop/média.
-- [ ] Valider le premier build Windows sur GitHub, y compris l'exécution des tests Desktop/média et l'installation automatique de contrôle.
+- [x] Compiler Windows et exécuter les tests Desktop/média sur GitHub ; installateur NSIS généré et installation silencieuse terminée sans erreur.
+- [ ] Valider jusqu'au bout les contrôles des fichiers installés Windows et le workflow complet.
 - [ ] Embarquer FFmpeg pour Windows avec ses sources et licences, et vérifier son exécution sans installation système de FFmpeg.
 - [ ] Produire l'installateur et documenter les dépendances d'exécution ainsi que les éventuelles étapes de confiance nécessaires à l'installation pour un usage personnel.
 - [ ] Tester sur une machine Windows sans outils de développement l'installation, le lancement, la lecture, les téléchargements et l'accès au réseau local ; vérifier qu'une mise à jour conserve les préférences, favoris et historiques.
@@ -166,7 +167,8 @@ préférences, favoris ou historiques existants. Éviter une réécriture global
 
 - [x] Retenir une cible initiale : Ubuntu 24.04 x64, paquet `.deb` ; adéquation aux machines personnelles à confirmer par l'utilisateur.
 - [x] Configurer le build Linux dans GitHub Actions avec les dépendances système Tauri, caches et commandes de tests Desktop/média.
-- [ ] Valider le premier build Linux sur GitHub, y compris les tests Desktop/média et les contrôles du paquet.
+- [x] Compiler Linux et exécuter les tests Desktop/média sur GitHub ; paquet `.deb` généré, version/architecture du paquet vérifiées et extraction réussie.
+- [ ] Valider jusqu'au bout les contrôles des fichiers extraits Linux et le workflow complet.
 - [ ] Embarquer FFmpeg pour Linux avec ses sources et licences, et vérifier son exécution sans installation système de FFmpeg.
 - [ ] Produire les paquets retenus et documenter leurs dépendances d'exécution ; vérifier leur compatibilité sur les distributions ciblées.
 - [ ] Tester sur une machine Linux sans outils de développement l'installation, le lancement, la lecture, les téléchargements et l'accès au réseau local ; vérifier qu'une mise à jour conserve les préférences, favoris et historiques.
@@ -239,7 +241,15 @@ Validations de l'extension :
 - `git diff --check` passe et le `package.json` racine est identique octet par octet à son état initial. Les scripts shell sont fixés en LF pour MSYS2/Git Bash. Aucun secret ni fichier généré n'est ajouté aux fichiers suivis.
 - Les premiers builds et contrôles Windows/Linux n'ont pas été exécutés localement : hôte macOS et aucun daemon Docker disponible. Le script PowerShell reste à valider sur le runner Windows. Aucun lancement distant ni publication n'a été effectué pour cette extension.
 
-À terminer avant de clôturer ce chantier : premiers builds Windows/Linux réussis,
+Diagnostic et correction des contrôles Windows/Linux le 12 septembre 2026 :
+
+- Le [run Desktop 0.1.1](https://github.com/CoRExE/Horus/actions/runs/34610698430), sur `7f2f6d0`, réussit les deux jobs macOS. Windows et Linux compilent FFmpeg, passent les tests Desktop (dont 19 tests UI) et les 7 tests Rust/média, puis produisent respectivement le NSIS et le `.deb`. Les deux jobs échouent ensuite dans `verify-desktop-files.mjs` sur la comparaison du binaire principal installé avec celui du build. Le job de brouillon est donc ignoré.
+- Les logs montrent le patch du type de bundle par Tauri. Le [code de Tauri 2.11.4](https://github.com/tauri-apps/tauri/blob/tauri-cli-v2.11.4/crates/tauri-bundler/src/bundle.rs) remplace la première occurrence du marqueur `__TAURI_BUNDLE_TYPE_VAR_UNK` par `__TAURI_BUNDLE_TYPE_VAR_NSS` ou `__TAURI_BUNDLE_TYPE_VAR_DEB`, puis restaure le binaire original dans le dossier de build. La comparaison précédente produisait donc un faux échec sur les deux plateformes.
+- Le contrôle reproduit désormais uniquement cette transformation dans une copie mémoire du binaire de référence. Toute autre différence, taille différente, marqueur absent ou mauvais type de paquet est refusé ; FFmpeg reste comparé strictement octet par octet. Aucun binaire applicatif, format de données ou réglage de packaging n'est modifié.
+- Les 21 tests Node de release passent sous Node 26.8.1, dont quatre nouveaux tests du marqueur Tauri : NSIS/DEB acceptés, marqueur absent ou incorrect, fichier tronqué/allongé, modification hors marqueur, remplacement supplémentaire et altération de FFmpeg refusés. Les workflows passent actionlint 1.7.12 ; les scripts shell passent `bash -n` et le script Node modifié passe le contrôle de syntaxe.
+- `git diff --check` et la comparaison du `package.json` racine avec son état initial passent. Aucun commit, push, déplacement de tag, lancement distant ou publication effectué. La vérification native complète après ce correctif reste à relancer sur GitHub ; les étapes situées après la comparaison du binaire ne sont pas encore validées.
+
+À terminer avant de clôturer ce chantier : workflows Windows/Linux entièrement réussis,
 essais Finder/Gatekeeper sur un Mac sans outils de développement, mise à jour Android sur l'application installée
 avec conservation des données et essai des modules natifs sur appareil. Aucun
 appareil Android n'était connecté lors de la détection ADB. La configuration EAS

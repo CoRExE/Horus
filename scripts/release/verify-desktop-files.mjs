@@ -4,6 +4,25 @@ import { execFileSync } from 'node:child_process';
 import { resolve, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
+export function expectedTauriBinary(built, platform) {
+  // Tauri 2.11.4 patches the first bundle-type marker while packaging, then
+  // restores the original build output. Reproduce only that exact change.
+  // https://github.com/tauri-apps/tauri/blob/tauri-cli-v2.11.4/crates/tauri-bundler/src/bundle.rs
+  const types = { windows: 'NSS', linux: 'DEB' };
+  if (!Object.hasOwn(types, platform)) throw new Error('Plateforme de bundle inconnue.');
+  const marker = Buffer.from('__TAURI_BUNDLE_TYPE_VAR_UNK');
+  const offset = built.indexOf(marker);
+  if (offset < 0) throw new Error('Marqueur de bundle Tauri absent du binaire compilé.');
+  const expected = Buffer.from(built);
+  Buffer.from(`__TAURI_BUNDLE_TYPE_VAR_${types[platform]}`).copy(expected, offset);
+  return expected;
+}
+
+export function verifyBinaryContents(installed, built, platform) {
+  const expected = platform ? expectedTauriBinary(built, platform) : built;
+  if (!installed.equals(expected)) throw new Error('Contenu du binaire installé différent du build attendu.');
+}
+
 export function verifyArchitecture(bytes, platform) {
   if (platform === 'windows') {
     if (bytes.length < 64 || bytes.toString('ascii', 0, 2) !== 'MZ') throw new Error('Exécutable PE attendu.');
@@ -34,11 +53,15 @@ export function verifyDesktopFiles(platform, directory) {
   const app = join(bin, `horus-desktop${extension}`);
   const ffmpeg = join(bin, `horus-ffmpeg${extension}`);
   for (const file of [app, ffmpeg]) verifyArchitecture(readFileSync(file), platform);
-  for (const [installed, built] of [
-    [app, `target/${target}/release/horus-desktop${extension}`],
-    [ffmpeg, `binaries/horus-ffmpeg-${target}${extension}`],
+  for (const [installed, built, bundlePlatform] of [
+    [app, `target/${target}/release/horus-desktop${extension}`, platform],
+    [ffmpeg, `binaries/horus-ffmpeg-${target}${extension}`, undefined],
   ]) {
-    if (digest(installed) !== digest(resolve(root, 'apps/HorusDesktop/src-tauri', built))) throw new Error(`Binaire installé différent du build : ${installed}`);
+    try {
+      verifyBinaryContents(readFileSync(installed), readFileSync(resolve(root, 'apps/HorusDesktop/src-tauri', built)), bundlePlatform);
+    } catch (cause) {
+      throw new Error(`Vérification du binaire installé en échec : ${installed}`, { cause });
+    }
   }
   const files = findFiles(directory);
   for (const name of ['COPYING.LGPLv2.1', 'LICENSE.md', 'BUILD-LICENSE.txt', 'NOTICE.txt', 'config.log', 'build-ffmpeg.sh', 'verify-ffmpeg.sh', 'ffmpeg.json', `ffmpeg-${config.version}.tar.xz`]) {
@@ -52,7 +75,7 @@ export function verifyDesktopFiles(platform, directory) {
   env.PATH = platform === 'windows' ? `${process.env.SystemRoot}\\System32;${process.env.SystemRoot}` : '/usr/bin:/bin';
   const output = execFileSync(ffmpeg, ['-version'], { env, encoding: 'utf8', timeout: 30_000 });
   if (!output.startsWith(`ffmpeg version ${config.version} `)) throw new Error('Version FFmpeg inattendue.');
-  console.log(`Installateur ${platform} : binaires x64 identiques au build, sources/licences vérifiées et FFmpeg autonome exécutable.`);
+  console.log(`Installateur ${platform} : binaires x64 conformes au build et au marqueur Tauri attendu, sources/licences vérifiées et FFmpeg autonome exécutable.`);
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
