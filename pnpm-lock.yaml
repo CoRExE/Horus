@@ -272,9 +272,6 @@ importers:
         specifier: ^5.0.12
         version: 5.0.12(@types/react@19.1.17)(react@19.1.0)
     devDependencies:
-      '@mwillbanks/release-it-expo-bumper-plugin':
-        specifier: ^1.0.0
-        version: 1.0.0(release-it@20.0.0(@types/node@25.5.2))
       '@types/react':
         specifier: ~19.1.0
         version: 19.1.17
@@ -1712,12 +1709,6 @@ packages:
 
   '@motionone/utils@10.18.0':
     resolution: {integrity: sha512-3XVF7sgyTSI2KWvTf6uLlBJ5iAgRgmvp3bpuOiQJvInd4nZ19ET8lX5unn30SlmRH7hXbBbH+Gxd0m0klJ3Xtw==}
-
-  '@mwillbanks/release-it-expo-bumper-plugin@1.0.0':
-    resolution: {integrity: sha512-USNgXiC72vFOAtud2wMhuGdIYiYV+u8+CljNwF8EeAVThziPH22GwdM+waprv+cUz922B33gKYWdGvacMEEDtA==}
-    engines: {node: '>=14'}
-    peerDependencies:
-      release-it: ^15.0.0-esm.4
 
   '@napi-rs/lzma-linux-x64-gnu@1.5.1':
     resolution: {integrity: sha512-oTXEIha4SsuXdTA4Iyskj0kpdx2yVXdhd75c2v3xGrHFfVMsbhTPZU/nMPL4sWKo4pBHm3aucLaqGlF696dTyQ==}
@@ -6938,10 +6929,6 @@ snapshots:
       '@motionone/types': 10.17.1
       hey-listen: 1.0.8
       tslib: 2.8.1
-
-  '@mwillbanks/release-it-expo-bumper-plugin@1.0.0(release-it@20.0.0(@types/node@25.5.2))':
-    dependencies:
-      release-it: 20.0.0(@types/node@25.5.2)
 
   '@napi-rs/lzma-linux-x64-gnu@1.5.1':
     optional: true

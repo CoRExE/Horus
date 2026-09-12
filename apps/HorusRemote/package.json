@@ -42,7 +42,6 @@
     "zustand": "^5.0.12"
   },
   "devDependencies": {
-    "@mwillbanks/release-it-expo-bumper-plugin": "^1.0.0",
     "@types/react": "~19.1.0",
     "release-it": "^20.0.0",
     "typescript": "~5.9.2"

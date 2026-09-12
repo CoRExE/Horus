@@ -21,9 +21,9 @@ Seules les versions stables `X.Y.Z` sont acceptées dans ce premier pipeline.
 Augmenter `versionCode` à chaque nouvel APK, même si le changement ne concerne
 que le code JavaScript. Ne plus utiliser le compteur distant EAS pour les builds
 Android Gradle. Le script mobile `release` conserve release-it, avec le préfixe
-`mobile-v` ; son plugin incrémente le numéro de build Android et, encore, le compteur
-iOS historique. Le bloc iOS d'`app.json` est conservé pour la compatibilité de ce
-plugin, qui l'exige ; il ne correspond pas à une plateforme distribuée ou validée.
+`mobile-v` ; le plugin local `scripts/release/android-version-plugin.mjs` met à
+jour `expo.version` et incrémente uniquement `android.versionCode`. Il refuse un
+compteur invalide ou épuisé et une version non stable. Aucun bloc iOS n'est requis.
 Vérifier son diff avant de committer. Un changement de version Desktop demande
 également de mettre à jour l'entrée du package dans le verrou Cargo.
 

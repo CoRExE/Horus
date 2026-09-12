@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Modal, ScrollView, ActivityIndicator, Platform } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Modal, ScrollView, ActivityIndicator } from 'react-native';
 import { useDevices, CastContext } from 'react-native-google-cast';
 import { useDlnaDiscovery, DlnaDevice } from '../hooks/useDlnaDiscovery';
 import { Download, Monitor, Radio, Tv, X, RefreshCw, Terminal } from 'lucide-react-native';
@@ -434,7 +434,7 @@ const styles = StyleSheet.create({
     color: '#94A3B8',
     fontSize: 14,
     fontWeight: 'bold',
-    fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace',
+    fontFamily: 'monospace',
   },
   debugCloseText: {
     color: '#E2E8F0',
@@ -446,7 +446,7 @@ const styles = StyleSheet.create({
   debugLogLine: {
     color: '#CBD5E1',
     fontSize: 11,
-    fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace',
+    fontFamily: 'monospace',
     marginBottom: 4,
   },
   debugLogLineError: {

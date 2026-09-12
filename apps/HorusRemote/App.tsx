@@ -1796,7 +1796,7 @@ const styles = StyleSheet.create({
     padding: 25,
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
-    paddingBottom: Platform.OS === 'ios' ? 40 : 25
+    paddingBottom: 25
   },
   langModalTitle: {
     color: '#FFF',

@@ -128,9 +128,9 @@ préférences, favoris ou historiques existants. Éviter une réécriture global
 - [x] Ajouter des workflows déclenchés par les tags propres à chaque application, avec possibilité de lancement manuel.
 - [x] Définir la source de vérité des versions et vérifier la cohérence des fichiers de configuration avec le tag.
 - [x] Prévoir les secrets de signature dans GitHub, sans les ajouter au dépôt ni aux journaux.
-- [ ] Construire les installateurs et préparer les notes de version.
+- [x] Construire les installateurs et préparer les notes de version : brouillons Android et Desktop multiplateforme créés sur GitHub.
 - [x] Définir le passage brouillon → publication : workflow manuel vérifiant les installateurs et leurs sommes avant publication. Le branchement des manifestes publics reste au chantier 4, après cette étape.
-- [x] Étendre le workflow Desktop et les contrôles de publication aux fichiers Windows et Linux, réunis avec macOS sous le même tag `desktop-vX.Y.Z` ; refuser la publication si un fichier attendu pour les plateformes retenues manque. Les premiers builds Windows/Linux restent à valider ci-dessous.
+- [x] Étendre le workflow Desktop et les contrôles de publication aux fichiers Windows et Linux, réunis avec macOS sous le même tag `desktop-vX.Y.Z` ; refuser la publication si un fichier attendu pour les plateformes retenues manque. Le workflow Desktop 0.1.1 est entièrement réussi.
 
 ### macOS — HorusDesktop
 
@@ -149,7 +149,8 @@ préférences, favoris ou historiques existants. Éviter une réécriture global
 - [x] Vérifier l'intégration des modules natifs à la compilation et dans l'APK, notamment le proxy vidéo et Google Cast ; les essais sur appareil restent à effectuer.
 - [x] Remplacer les scripts de build EAS de production/preview Android et reporter les variables nécessaires dans le nouveau workflow ; les scripts EAS de développement Android sont conservés jusqu'à validation de la migration. Les commandes iOS sont retirées à la suite de l'abandon de cette cible.
 - [x] Reprendre la gestion du `versionCode` depuis la dernière valeur réellement distribuée, y compris les incréments gérés à distance par EAS.
-- [ ] Publier l'APK dans GitHub Releases et tester son installation par-dessus la version existante sans perte de données.
+- [x] Tester l'installation de l'APK par-dessus la version existante sans désinstallation : mise à jour confirmée par l'utilisateur.
+- [ ] Publier l'APK dans GitHub Releases et confirmer explicitement la conservation des favoris, historiques et préférences.
 - [x] Désactiver EAS Update dans le nouveau binaire et adapter les éventuels appels associés ; la migration exige l'installation de ce binaire.
 - [ ] Retirer la configuration EAS devenue inutile une fois la migration validée.
 
@@ -158,9 +159,10 @@ préférences, favoris ou historiques existants. Éviter une réécriture global
 - [x] Retenir une cible initiale : Windows 11 x64, installateur NSIS `.exe` pour l'utilisateur courant ; adéquation aux machines personnelles à confirmer par l'utilisateur.
 - [x] Configurer le build Windows dans GitHub Actions avec MSVC, MSYS2 UCRT64, dépendances, caches et commandes de tests Desktop/média.
 - [x] Compiler Windows et exécuter les tests Desktop/média sur GitHub ; installateur NSIS généré et installation silencieuse terminée sans erreur.
-- [ ] Valider jusqu'au bout les contrôles des fichiers installés Windows et le workflow complet.
-- [ ] Embarquer FFmpeg pour Windows avec ses sources et licences, et vérifier son exécution sans installation système de FFmpeg.
-- [ ] Produire l'installateur et documenter les dépendances d'exécution ainsi que les éventuelles étapes de confiance nécessaires à l'installation pour un usage personnel.
+- [x] Valider jusqu'au bout les contrôles des fichiers installés Windows et le workflow complet.
+- [x] Embarquer FFmpeg pour Windows avec ses sources et licences, et vérifier son exécution sans installation système de FFmpeg.
+- [x] Produire l'installateur et documenter les dépendances d'exécution ainsi que les éventuelles étapes de confiance nécessaires à l'installation pour un usage personnel.
+- [x] Valider l'installation Windows sur la machine de l'utilisateur : installateur confirmé fonctionnel.
 - [ ] Tester sur une machine Windows sans outils de développement l'installation, le lancement, la lecture, les téléchargements et l'accès au réseau local ; vérifier qu'une mise à jour conserve les préférences, favoris et historiques.
 - [ ] Publier l'installateur dans la release Desktop avec un nom indiquant version, plateforme et architecture, et vérifier sa somme de contrôle après téléchargement.
 
@@ -169,14 +171,15 @@ préférences, favoris ou historiques existants. Éviter une réécriture global
 - [x] Retenir une cible initiale : Ubuntu 24.04 x64, paquet `.deb` ; adéquation aux machines personnelles à confirmer par l'utilisateur.
 - [x] Configurer le build Linux dans GitHub Actions avec les dépendances système Tauri, caches et commandes de tests Desktop/média.
 - [x] Compiler Linux et exécuter les tests Desktop/média sur GitHub ; paquet `.deb` généré, version/architecture du paquet vérifiées et extraction réussie.
-- [ ] Valider jusqu'au bout les contrôles des fichiers extraits Linux et le workflow complet.
-- [ ] Embarquer FFmpeg pour Linux avec ses sources et licences, et vérifier son exécution sans installation système de FFmpeg.
+- [x] Valider jusqu'au bout les contrôles des fichiers extraits Linux et le workflow complet.
+- [x] Embarquer FFmpeg pour Linux avec ses sources et licences, et vérifier son exécution sans installation système de FFmpeg.
 - [ ] Produire les paquets retenus et documenter leurs dépendances d'exécution ; vérifier leur compatibilité sur les distributions ciblées.
 - [ ] Tester sur une machine Linux sans outils de développement l'installation, le lancement, la lecture, les téléchargements et l'accès au réseau local ; vérifier qu'une mise à jour conserve les préférences, favoris et historiques.
 - [ ] Publier les paquets dans la release Desktop avec des noms indiquant version, plateforme et architecture, et vérifier leurs sommes de contrôle après téléchargement.
 
 Windows et Linux ont été intégrés au périmètre le 11 septembre 2026 ; leur
-pipeline est préparé en 0.1.1, mais les builds natifs et essais restent à valider.
+pipeline 0.1.1 est entièrement réussi. L'installation Windows est confirmée par
+l'utilisateur ; l'essai manuel Linux reste à effectuer.
 La détection des mises à jour pour ces plateformes sera traitée au chantier 4, à partir des fichiers
 publiés ici. Les essais approfondis de diffusion TV restent au chantier 7.
 
@@ -253,12 +256,26 @@ Diagnostic et correction des contrôles Windows/Linux le 12 septembre 2026 :
 Abandon de la cible iOS le 12 septembre 2026 :
 
 - Décision utilisateur : aucune version iOS ne sera distribuée. Retrait de cette évolution de la feuille de route, des commandes `ios`, `build:prod:ios` et `build:prod:all`, et mise à jour des guides. Aucune validation iOS n'est requise pour clôturer le chantier 3.
-- Les métadonnées iOS historiques d'`app.json` restent nécessaires au plugin de version release-it actuel, qui accède directement à `expo.ios.buildNumber`. Elles ne constituent pas un engagement de prise en charge iOS. Aucun changement du code applicatif, des dépendances, des réglages Android ou des workflows.
+- Premier retrait : les métadonnées iOS historiques d'`app.json` avaient été conservées pour le plugin release-it existant. Le nettoyage complémentaire décrit ci-dessous retire cette dépendance.
 - Validation : les 21 tests Node de release passent sous Node 22.23.2 disponible localement ; `git diff --check` passe. La modification préexistante du `package.json` racine est préservée. Aucun nouveau build natif ni essai sur appareil effectué pour ce retrait.
 
-À terminer avant de clôturer ce chantier : workflows Windows/Linux entièrement réussis,
-essais Finder/Gatekeeper sur un Mac sans outils de développement, mise à jour Android sur l'application installée
-avec conservation des données et essai des modules natifs sur appareil. Aucun
+Validations GitHub et retours utilisateur complémentaires :
+
+- Le [workflow Desktop 0.1.1](https://github.com/CoRExE/Horus/actions/runs/34659803136), sur `aeed428`, a réussi tous les jobs : vérifications, macOS arm64/x64, Windows, Linux et création du brouillon. Les contrôles natifs après la correction du marqueur Tauri sont donc validés.
+- L'utilisateur confirme que l'APK s'installe par-dessus la version précédente sans désinstallation et que l'installateur Windows fonctionne. L'essai Linux reste à effectuer. Ces retours ne détaillent pas encore les essais de lecture, Cast ou de conservation de chaque type de donnée.
+
+Nettoyage complémentaire du code iOS :
+
+- Suppression du module Swift du proxy vidéo, de son podspec et de son enregistrement Apple, du bloc iOS Expo, des branches de styles réservées à iOS et des icônes iOS générées par Tauri. Expo conserve les cibles Android et Web ; les valeurs de styles Android/Web restent identiques.
+- Remplacement du plugin externe de version par un plugin local Android, puis retrait de sa dépendance et de ses entrées du lockfile. Les versions applicatives et le `versionCode` distribués ne sont pas modifiés.
+- Les types MIME HLS et la reconnaissance des User-Agent iPhone/iPad dans le proxy Android sont conservés : ils décrivent les échanges avec les sources vidéo et ne sont pas une implémentation de l'application iOS. Les dépendances tierces multiplateformes restent gérées par Expo/React Native.
+- Validations : installation `pnpm install --frozen-lockfile` réussie avec pnpm 12.3.4 et Node 26.8.1 temporaires (téléchargement nécessaire, cache local incomplet). Le lockfile ne retire que le plugin externe ; aucune autre dépendance n'est changée.
+- `pnpm check` réussi : TypeScript des quatre packages, tests core/API/Desktop et 19 tests UI. Les tests ont nécessité les sockets locales hors du bac à sable. Les 24 tests de release passent, dont trois nouveaux tests exécutant réellement release-it dans des dossiers temporaires, sans Git ni publication : incrément Android seul et synchronisation des versions, compteurs invalides refusés sans écriture, préversion refusée.
+- La configuration Android et la liste des plugins résolues par `expo config --type prebuild` sont identiques avant/après. `git diff --check` et la comparaison octet par octet du `package.json` racine passent. Aucun nouvel APK ou installateur n'a été construit pour ce nettoyage ; les retours utilisateur ci-dessus concernent les builds précédents. Aucun commit ni push effectué pour ce nettoyage.
+
+À terminer avant de clôturer ce chantier : essais Finder/Gatekeeper sur un Mac sans
+outils de développement, confirmation de la conservation des données Android et
+essai des modules natifs sur appareil, puis essais Linux et publication. Aucun
 appareil Android n'était connecté lors de la détection ADB. La configuration EAS
 restante ne sera retirée qu'après ces validations Android ; iOS est désormais exclu du périmètre.
 L'extension Windows et Linux décrite ci-dessus, jusqu'à la publication et aux

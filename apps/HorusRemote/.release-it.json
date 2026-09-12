@@ -13,6 +13,6 @@
     "publish": false
   },
   "plugins": {
-    "@mwillbanks/release-it-expo-bumper-plugin": {}
+    "../../scripts/release/android-version-plugin.mjs": {}
   }
 }
