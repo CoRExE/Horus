@@ -23,6 +23,7 @@ concerne aussi Mobile. La TODO graphique existante de
 
 ## Décisions retenues
 
+- Depuis le 12 septembre 2026, Mobile cible Android uniquement : aucune version iOS n'est prévue, ni via EAS, ni via GitHub Actions, ni en build local à maintenir.
 - Conserver Expo et React Native pour Mobile ; remplacer EAS Build par des builds natifs dans GitHub Actions.
 - L'application est destinée à un usage personnel, sans objectif de distribution au public ni de publication sur les stores officiels.
 - Commencer la génération automatisée des installateurs par macOS et Android, puis l'étendre à Windows et Linux dans le chantier 3 après validation de cette première étape.
@@ -146,7 +147,7 @@ préférences, favoris ou historiques existants. Éviter une réécriture global
 - [x] Récupérer et sauvegarder la clé de signature des APK existants si elle est gérée par EAS ; conserver la continuité des mises à jour.
 - [x] Générer le projet Android via `expo prebuild` et compiler un APK release signé avec Gradle.
 - [x] Vérifier l'intégration des modules natifs à la compilation et dans l'APK, notamment le proxy vidéo et Google Cast ; les essais sur appareil restent à effectuer.
-- [x] Remplacer les scripts de build EAS de production/preview Android et reporter les variables nécessaires dans le nouveau workflow ; les scripts EAS de développement/iOS sont conservés jusqu'à validation de la migration.
+- [x] Remplacer les scripts de build EAS de production/preview Android et reporter les variables nécessaires dans le nouveau workflow ; les scripts EAS de développement Android sont conservés jusqu'à validation de la migration. Les commandes iOS sont retirées à la suite de l'abandon de cette cible.
 - [x] Reprendre la gestion du `versionCode` depuis la dernière valeur réellement distribuée, y compris les incréments gérés à distance par EAS.
 - [ ] Publier l'APK dans GitHub Releases et tester son installation par-dessus la version existante sans perte de données.
 - [x] Désactiver EAS Update dans le nouveau binaire et adapter les éventuels appels associés ; la migration exige l'installation de ce binaire.
@@ -249,11 +250,17 @@ Diagnostic et correction des contrôles Windows/Linux le 12 septembre 2026 :
 - Les 21 tests Node de release passent sous Node 26.8.1, dont quatre nouveaux tests du marqueur Tauri : NSIS/DEB acceptés, marqueur absent ou incorrect, fichier tronqué/allongé, modification hors marqueur, remplacement supplémentaire et altération de FFmpeg refusés. Les workflows passent actionlint 1.7.12 ; les scripts shell passent `bash -n` et le script Node modifié passe le contrôle de syntaxe.
 - `git diff --check` et la comparaison du `package.json` racine avec son état initial passent. Aucun commit, push, déplacement de tag, lancement distant ou publication effectué. La vérification native complète après ce correctif reste à relancer sur GitHub ; les étapes situées après la comparaison du binaire ne sont pas encore validées.
 
+Abandon de la cible iOS le 12 septembre 2026 :
+
+- Décision utilisateur : aucune version iOS ne sera distribuée. Retrait de cette évolution de la feuille de route, des commandes `ios`, `build:prod:ios` et `build:prod:all`, et mise à jour des guides. Aucune validation iOS n'est requise pour clôturer le chantier 3.
+- Les métadonnées iOS historiques d'`app.json` restent nécessaires au plugin de version release-it actuel, qui accède directement à `expo.ios.buildNumber`. Elles ne constituent pas un engagement de prise en charge iOS. Aucun changement du code applicatif, des dépendances, des réglages Android ou des workflows.
+- Validation : les 21 tests Node de release passent sous Node 22.23.2 disponible localement ; `git diff --check` passe. La modification préexistante du `package.json` racine est préservée. Aucun nouveau build natif ni essai sur appareil effectué pour ce retrait.
+
 À terminer avant de clôturer ce chantier : workflows Windows/Linux entièrement réussis,
 essais Finder/Gatekeeper sur un Mac sans outils de développement, mise à jour Android sur l'application installée
 avec conservation des données et essai des modules natifs sur appareil. Aucun
 appareil Android n'était connecté lors de la détection ADB. La configuration EAS
-restante ne sera retirée qu'après ces validations, en conservant ce qui sert à iOS.
+restante ne sera retirée qu'après ces validations Android ; iOS est désormais exclu du périmètre.
 L'extension Windows et Linux décrite ci-dessus, jusqu'à la publication et aux
 essais sur les machines ciblées, est également nécessaire pour clôturer le chantier.
 Les premiers tags ont été lancés par l'utilisateur ; les validations locales
@@ -300,6 +307,5 @@ sans embarquer de jeton GitHub privé dans les applications.
 
 ## Évolutions ultérieures — à décider
 
-- [ ] Usage personnel sur iOS sans EAS : audit des modules natifs, build Xcode et installation sur les appareils de développement.
 - [ ] Synchronisation des favoris et de l'historique entre Mobile et Desktop : définir le stockage et les règles de conflit avant implémentation.
 - [ ] Mises à jour JavaScript à distance auto-hébergées, uniquement si le besoin justifie un service compatible avec le protocole Expo Updates.

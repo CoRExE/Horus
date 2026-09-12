@@ -5,15 +5,12 @@
   "scripts": {
     "start": "expo start",
     "android": "expo start --android",
-    "ios": "expo start --ios",
     "web": "expo start --web",
     "typecheck": "tsc --noEmit",
     "build:dev": "eas build --profile development --platform android",
     "build:preview": "pnpm build:prod:android",
     "prebuild:android": "node ../../scripts/release/prebuild-android.mjs",
     "build:prod:android": "node ../../scripts/release/build-android.mjs",
-    "build:prod:ios": "eas build --profile production --platform ios",
-    "build:prod:all": "pnpm build:prod:android && pnpm build:prod:ios",
     "build:update": "eas update",
     "release": "release-it"
   },

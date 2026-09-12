@@ -6,6 +6,10 @@ jobs utilisent le même commit du tag. Chaque build crée un **brouillon** GitHu
 Release ; aucune publication ni création de tag n'est effectuée par les scripts
 de build locaux. Ne pas démarrer les deux workflows pour le même tag.
 
+iOS est exclu du périmètre depuis le 12 septembre 2026 : aucune version iPhone/iPad
+ni aucun workflow iOS n'est prévu. Les commandes `ios`, `build:prod:ios` et
+`build:prod:all` ont été retirées ; utiliser `build:prod:android` pour Mobile.
+
 ## Versions et déclenchement
 
 | Application | Source de vérité | Fichiers à maintenir cohérents | Tag |
@@ -17,7 +21,9 @@ Seules les versions stables `X.Y.Z` sont acceptées dans ce premier pipeline.
 Augmenter `versionCode` à chaque nouvel APK, même si le changement ne concerne
 que le code JavaScript. Ne plus utiliser le compteur distant EAS pour les builds
 Android Gradle. Le script mobile `release` conserve release-it, avec le préfixe
-`mobile-v` ; son plugin incrémente les numéros de build Android et iOS comme avant.
+`mobile-v` ; son plugin incrémente le numéro de build Android et, encore, le compteur
+iOS historique. Le bloc iOS d'`app.json` est conservé pour la compatibilité de ce
+plugin, qui l'exige ; il ne correspond pas à une plateforme distribuée ou validée.
 Vérifier son diff avant de committer. Un changement de version Desktop demande
 également de mettre à jour l'entrée du package dans le verrou Cargo.
 
@@ -132,7 +138,7 @@ le même défaut que l'ancien profil EAS preview. Dans GitHub, la variable facul
 `HORUS_ANDROID_RELEASE=1`, défini par ces scripts et le workflow, désactive EAS
 Update dans le nouveau binaire. Installer cet APK est nécessaire pour sortir du
 protocole OTA ; les APK déjà installés ne sont pas modifiés à distance. Les
-parcours de développement/iOS et la configuration EAS sont conservés tant que la
+parcours de développement Android et la configuration EAS sont conservés tant que la
 migration sur un appareil n'est pas validée. Le script EAS `build:update` ne met
 pas à jour les nouveaux APK Gradle. Le chantier 4 ajoutera leur détection de
 versions GitHub ; elle n'est pas implémentée ici.
