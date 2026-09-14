@@ -337,7 +337,7 @@ sans embarquer de jeton GitHub privé dans les applications.
 
 - [ ] Ajouter des raccourcis cohérents : lecture/pause, avance/recul et volume, sans intercepter la saisie dans les champs.
 - [ ] Empêcher la mise en veille pendant la lecture locale et rétablir le comportement normal à la pause, à l'arrêt et à la fermeture.
-- [ ] Améliorer la sélection des pistes audio et des sous-titres lorsque les sources et le lecteur les exposent.
+- [ ] Améliorer la sélection des pistes audio et des sous-titres lorsque les sources et le lecteur les exposent ainsi que la selection des Séries/Anime en séparant les saisons de épisodes.
 - [ ] Compléter les essais du plein écran : raccourcis, fermeture, épisode suivant et retour au mode de fenêtre précédent.
 
 ## 6. Améliorer les téléchargements — HorusDesktop
