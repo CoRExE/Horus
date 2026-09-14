@@ -4,7 +4,7 @@
     "slug": "HorusRemote",
     "platforms": ["android", "web"],
     "scheme": "horusremote",
-    "version": "1.4.1",
+    "version": "1.4.2",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
@@ -28,7 +28,7 @@
       },
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false,
-      "versionCode": 25,
+      "versionCode": 26,
       "usesCleartextTraffic": true,
       "permissions": [
         "android.permission.INTERNET",
