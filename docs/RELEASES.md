@@ -149,8 +149,9 @@ retire l'URL OTA et la ressource associée ; aucun nettoyage global du dossier n
 n'est nécessaire. `expo-dev-client` est
 conservé pour ce développement local ; il ne nécessite pas EAS Build.
 `HORUS_ANDROID_RELEASE=1` conserve uniquement les réglages Metro des builds de
-release. Le chantier 4 ajoutera la détection des versions GitHub ; elle n'est pas
-implémentée ici.
+release. La détection des versions GitHub du chantier 4 est préparée et
+décrite dans [le guide des mises à jour](UPDATES.md), avec un premier déploiement
+Pages et des essais natifs encore à effectuer.
 
 Le workflow contrôle l'identifiant, la version, le certificat, l'arrêt d'EAS
 Update, le bundle JavaScript et les bibliothèques Hermes/React Native pour les

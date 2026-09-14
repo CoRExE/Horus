@@ -22,6 +22,7 @@ export interface Playing extends Playback {
 }
 export interface RuntimeInfo {
   platform: string;
+  architecture?: string;
   ffmpeg: boolean;
 }
 export interface DownloadProgress {

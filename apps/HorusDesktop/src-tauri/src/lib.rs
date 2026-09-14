@@ -83,7 +83,42 @@ async fn http_text(
 
 #[tauri::command]
 fn runtime_info() -> serde_json::Value {
-    serde_json::json!({ "platform": std::env::consts::OS, "ffmpeg": relay::ffmpeg_path().is_ok() })
+    serde_json::json!({ "platform": std::env::consts::OS, "architecture": std::env::consts::ARCH, "ffmpeg": relay::ffmpeg_path().is_ok() })
+}
+
+#[tauri::command]
+async fn open_release_url(url: String) -> Result<(), String> {
+    let parsed = url::Url::parse(&url).map_err(|_| "URL invalide")?;
+    if parsed.scheme() != "https"
+        || parsed.host_str() != Some("github.com")
+        || !parsed.username().is_empty()
+        || parsed.password().is_some()
+        || parsed.port().is_some()
+        || parsed.query().is_some()
+        || parsed.fragment().is_some()
+        || !regex::Regex::new(r"^/CoRExE/Horus/releases/download/desktop-v\d+\.\d+\.\d+/HorusDesktop-[A-Za-z0-9.\-]+$").unwrap().is_match(parsed.path())
+    {
+        return Err("Seuls les installateurs Horus sur GitHub sont autorisés".into());
+    }
+    #[cfg(target_os = "macos")]
+    let mut command = tokio::process::Command::new("/usr/bin/open");
+    #[cfg(target_os = "linux")]
+    let mut command = tokio::process::Command::new("xdg-open");
+    #[cfg(target_os = "windows")]
+    let mut command = {
+        let mut command = tokio::process::Command::new("rundll32.exe");
+        command.arg("url.dll,FileProtocolHandler");
+        command
+    };
+    let status = command
+        .arg(url)
+        .status()
+        .await
+        .map_err(|error| format!("Impossible d’ouvrir le navigateur : {error}"))?;
+    if !status.success() {
+        return Err("Le navigateur n’a pas pu être ouvert".into());
+    }
+    Ok(())
 }
 
 pub fn run() {
@@ -102,6 +137,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             http_text,
             runtime_info,
+            open_release_url,
             relay::prepare_stream,
             relay::release_stream,
             discovery::discover_dlna,

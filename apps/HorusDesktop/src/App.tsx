@@ -27,6 +27,8 @@ import { useCasting } from "./hooks/useCasting";
 import { useDownloads } from "./hooks/useDownloads";
 import { usePlayback } from "./hooks/usePlayback";
 import { useRuntimeInfo } from "./hooks/useRuntimeInfo";
+import { useUpdates } from "./hooks/useUpdates";
+import { UpdateNotice } from "./components/UpdateNotice";
 import { useSettings } from "./hooks/useSettings";
 import type { Section } from "./types/media";
 const sections = [
@@ -42,7 +44,8 @@ export default function App() {
   const [section, setSection] = useState<Section>("catalogue");
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
-  const { runtime, version } = useRuntimeInfo(setError);
+  const { runtime, version, versionReady } = useRuntimeInfo(setError);
+  const updates = useUpdates(runtime, version, versionReady);
   const {
     details,
     detailsBusy,
@@ -191,6 +194,7 @@ export default function App() {
             </button>
           </div>
         )}
+        <UpdateNotice updates={updates} />
         {download && (
           <DownloadActivity
             download={download}
@@ -260,6 +264,7 @@ export default function App() {
           <SettingsScreen
             {...{ apiInput, setApiInput, version, runtime }}
             saveApiUrl={saveApiUrl}
+            updates={updates}
           />
         )}
       </main>

@@ -289,7 +289,7 @@ Nettoyage EAS le 14 septembre 2026 :
 - Les sauvegardes de la clé de signature, les secrets GitHub, les compteurs historiques de signature/version, les préférences et données applicatives sont conservés. `HORUS_ANDROID_RELEASE` reste utile au réglage Metro sans Watchman du build de release.
 - Le premier prebuild local a détecté l'ancien runtime OTA dans le manifeste Android déjà généré. Le wrapper retire uniquement cette métadonnée avant Expo, sans supprimer le dossier natif ni les autres réglages. Le build de développement passe également par ce wrapper. Un test couvre une installation neuve, la conservation des autres entrées et l'idempotence de la migration.
 - Validations : installation verrouillée réussie sous Node 26.8.1 et pnpm 12.3.4 ; seuls `expo-updates` et ses dépendances exclusives sont retirés du lockfile. `pnpm check` passe (TypeScript, tests core/API/Desktop, 19 tests UI), ainsi que les 25 tests de release. Le prebuild réussit sur le dossier Android existant ; l'URL et la métadonnée de runtime OTA sont absentes du manifeste généré, avec `updates.ENABLED=false`. Identifiant, version, `versionCode`, plugins et configuration Android applicative sont préservés.
-- Une compilation Gradle locale a été lancée après ce nettoyage, mais son résultat final et le contrôle du nouvel APK ne sont pas confirmés. Aucun nouveau build signé n'est donc compté comme validé ; aucun APK n'est ajouté au commit.
+- Après ce nettoyage, l'utilisateur a relancé la compilation locale (`BUILD SUCCESSFUL in 30s`), puis confirmé le contrôle de l'APK avec `verify-apk.mjs`. Le build signé et le contrôle du nouvel APK sont donc validés ; aucun APK n'est ajouté au dépôt. Les prochains builds complets sont lancés par l'utilisateur, sans surveillance répétée par l'agent.
 
 Les cases manuelles encore ouvertes décrivent les contrôles détaillés non documentés
 par les retours reçus : Finder/Gatekeeper sur Mac sans outils de développement,
@@ -301,16 +301,33 @@ n'ont créé aucun tag, push, brouillon ou release distant.
 
 ## 4. Détecter les mises à jour — HorusDesktop et HorusRemote
 
-- [ ] Définir le schéma du manifeste : application, plateforme, version, numéro de build si nécessaire, notes et URL des fichiers par architecture.
-- [ ] Configurer un hébergement public statique, par exemple GitHub Pages : `updates/android.json` et `updates/macos.json`.
-- [ ] Générer et publier chaque manifeste depuis le workflow de release, sans écraser celui de l'autre plateforme ni annoncer une préversion comme stable.
-- [ ] Comparer correctement les versions ; utiliser le numéro de build Android lorsque nécessaire et éviter les comparaisons textuelles naïves.
-- [ ] Ajouter une vérification discrète au démarrage, limitée à une fois par jour.
-- [ ] Ajouter « Vérifier les mises à jour » dans les paramètres des deux applications.
-- [ ] Afficher la version disponible, ses nouveautés et les actions « Télécharger » / « Plus tard ».
-- [ ] Ouvrir le téléchargement adapté dans le navigateur ; aucune installation silencieuse prévue.
-- [ ] Gérer sans bloquer l'application les absences de réseau, réponses invalides et téléchargements indisponibles.
-- [ ] Tester les versions identiques, plus anciennes et plus récentes, ainsi que les plateformes et architectures différentes.
+- [x] Définir le schéma du manifeste : application, plateforme, version, numéro de build si nécessaire, notes et URL des fichiers par architecture.
+- [x] Configurer GitHub Pages en mode GitHub Actions, à l'adresse `https://corexe.github.io/Horus/` ; premier déploiement encore à effectuer.
+- [x] Préparer la génération et la publication des manifestes Android/macOS/Windows/Linux après publication des releases, sans mélanger les applications ni annoncer les préversions.
+- [ ] Valider le premier déploiement Pages après merge, puis l'accès public aux manifestes des plateformes ayant une release stable.
+- [x] Comparer correctement les versions ; utiliser le numéro de build Android et éviter les comparaisons textuelles naïves.
+- [x] Ajouter une vérification discrète au démarrage, limitée à une fois par jour.
+- [x] Ajouter « Vérifier les mises à jour » dans les paramètres des deux applications.
+- [x] Afficher la version disponible, ses nouveautés et les actions « Télécharger » / « Plus tard ».
+- [x] Implémenter l'ouverture du téléchargement adapté dans le navigateur, sans installation silencieuse ; essais natifs encore à effectuer.
+- [x] Gérer sans bloquer l'application les absences de réseau, réponses invalides et téléchargements indisponibles.
+- [x] Tester les versions identiques, plus anciennes et plus récentes, ainsi que les plateformes et architectures différentes.
+- [ ] Valider via les builds et essais utilisateur l'ouverture du navigateur sur les systèmes ciblés et les parcours Android sur appareil.
+
+Travail réalisé le 14 septembre 2026 :
+
+- Logique commune isolée dans `packages/core/src/updates.ts` : validation stricte du schéma et des URL GitHub, version stable numérique, code Android, sélection de l'architecture, temporisation et regroupement des appels simultanés. Stockage de la date de tentative dans une clé dédiée par version installée, sans modification des favoris, historiques ou préférences.
+- Desktop : vérification automatique lorsque version Tauri et architecture sont connues, bouton dans les paramètres et notification non modale. Le runtime expose son architecture ; une commande native limitée aux URL des installateurs Horus ouvre le navigateur système. Le paquet Linux déclare `xdg-utils` pour cette ouverture.
+- Android : ajout d'un panneau Paramètres depuis l'engrenage de l'en-tête et d'une notification discrète ; notes, téléchargement dans le navigateur et action « Plus tard ». La version et le code viennent de la configuration embarquée, contrôlée par le pipeline de release. Aucun retour à EAS/OTA.
+- `updates.yml` utilise le code de la branche par défaut, les événements de release et la réussite du workflow de publication (`workflow_run`), ainsi qu'un lancement manuel. Il régénère toutes les plateformes disponibles dans un même déploiement Pages. Les brouillons et préversions sont ignorés ; une plateforme sans version stable n'a pas de manifeste. Une release sélectionnée mais incomplète/altérée bloque le déploiement.
+- Le générateur contrôle `release-info.json`, `SHA256SUMS`, le commit du tag, la liste, la taille et le digest GitHub des installateurs. Il ne télécharge que les petites métadonnées, sans installer ni reconstruire d'application. Le guide `docs/UPDATES.md` décrit les premières publications et les comportements.
+
+Validations effectuées :
+
+- TypeScript des quatre packages réussi sous Node 26.8.1/pnpm 12.3.4. Les 22 tests UI Desktop passent, dont trois nouveaux parcours de vérification/téléchargement. Les 33 tests de release passent : versions et plateformes, Android à code supérieur, manifestes invalides, publications incomplètes/altérées, indépendance des canaux, limite quotidienne, appels simultanés, réseau absent et délai d'attente simulé.
+- Génération locale sur les métadonnées réelles de GitHub réussie pour Android `mobile-v1.4.1`. Desktop `desktop-v0.1.1` est actuellement marqué **préversion**, donc exclu volontairement : il faudra une release Desktop stable pour générer ses manifestes. Aucun statut de release ni tag modifié.
+- GitHub Pages activé via l'API en mode workflow ; aucun déploiement déclenché, aucun push effectué. L'environnement autorise uniquement `main` : les événements de release passent par un déclenchement sur la branche par défaut avant déploiement, sans élargir cette règle aux tags. Les workflows passent actionlint 1.7.12 ; le fichier Rust passe rustfmt et `git diff --check` passe.
+- Aucun build natif ni essai sur appareil lancé par l'agent. Les appels natifs/réseau des tests UI sont simulés ; les branches Rust macOS/Windows/Linux seront compilées par les workflows lancés par l'utilisateur. Le déploiement public et les essais sur les binaires restent à valider après merge.
 
 Validation : une release Android ne doit jamais être proposée à Desktop, et
 inversement. Les manifestes et fichiers doivent être accessibles aux utilisateurs

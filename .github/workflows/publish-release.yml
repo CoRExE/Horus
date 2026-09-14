@@ -35,5 +35,5 @@ jobs:
         run: |
           mkdir -p build/publication
           node scripts/release/github-release.mjs publish "$TAG" build/publication
-      # Le manifeste public et sa publication seront ajoutés au chantier 4,
-      # uniquement après réussite de l'étape ci-dessus.
+      # updates.yml régénère les manifestes après le succès de ce workflow.
+      # workflow_run couvre aussi les publications faites avec GITHUB_TOKEN.

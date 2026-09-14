@@ -24,6 +24,8 @@ import {
 import { CastController } from './components/CastController';
 import { RemoteCacheQuality, RemoteDeliveryMode, UnifiedCastModal } from './components/UnifiedCastModal';
 import { DisconnectModal } from './components/DisconnectModal';
+import { useReleaseUpdates } from './hooks/useReleaseUpdates';
+import { ReleaseSettings, ReleaseUpdateBanner } from './components/ReleaseUpdates';
 import { DlnaDevice } from './hooks/useDlnaDiscovery';
 import { dlnaController } from './services/dlnaController';
 import LocalVideoProxy from './modules/local-video-proxy/src/LocalVideoProxyModule';
@@ -163,6 +165,8 @@ interface RemotePlaybackSession extends PlaybackContext {
 }
 
 export default function App() {
+  const updates = useReleaseUpdates();
+  const [settingsVisible, setSettingsVisible] = useState(false);
   const [isBooting, setIsBooting] = useState(true);
   const [mediaType, setMediaType] = useState<MediaSection>('anime');
   const [search, setSearch] = useState('');
@@ -1331,7 +1335,10 @@ export default function App() {
           }}
           isCasting={isTvModeEnabled && (!!castSession || !!activeDlnaDevice)}
           onPressExit={Platform.OS === 'android' ? confirmExitApp : undefined}
+          onPressSettings={() => setSettingsVisible(true)}
         />
+        <ReleaseUpdateBanner updates={updates} onOpen={() => setSettingsVisible(true)} />
+        <ReleaseSettings visible={settingsVisible} onClose={() => setSettingsVisible(false)} updates={updates} />
 
         {/* Pilules de Sélection de Type de Média */}
         <View style={[styles.pillsContainer, { paddingHorizontal: 20, marginBottom: 15, marginTop: (mediaType === 'wishlist' || mediaType === 'history' || mediaType === 'downloads') ? 20 : 0 }]}>
