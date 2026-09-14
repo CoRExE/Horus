@@ -1,6 +1,6 @@
 # TODO — Prochaines évolutions de Horus
 
-Dernière mise à jour : 12 septembre 2026.
+Dernière mise à jour : 14 septembre 2026.
 
 Cette feuille de route reprend les prochaines évolutions discutées. Les cases
 non cochées correspondent à du travail à réaliser, pas à des fonctionnalités
@@ -139,7 +139,7 @@ préférences, favoris ou historiques existants. Éviter une réécriture global
 - [x] Intégrer FFmpeg pour rendre les téléchargements autonomes, avec ses sources et licences ; les binaires arm64 et Intel passent les vérifications du workflow.
 - [x] Vérifier la signature ad hoc des bundles macOS dans le workflow.
 - [ ] Vérifier l'installation des builds macOS pour l'usage personnel prévu.
-- [ ] Publier des fichiers identifiables par version et architecture dans GitHub Releases.
+- [x] Publier des fichiers identifiables par version et architecture dans GitHub Releases : `desktop-v0.1.1` publiée le 12 septembre 2026.
 - [ ] Tester l'installation depuis Finder sur un environnement sans les outils de développement du projet.
 
 ### Android — HorusRemote
@@ -147,12 +147,13 @@ préférences, favoris ou historiques existants. Éviter une réécriture global
 - [x] Récupérer et sauvegarder la clé de signature des APK existants si elle est gérée par EAS ; conserver la continuité des mises à jour.
 - [x] Générer le projet Android via `expo prebuild` et compiler un APK release signé avec Gradle.
 - [x] Vérifier l'intégration des modules natifs à la compilation et dans l'APK, notamment le proxy vidéo et Google Cast ; les essais sur appareil restent à effectuer.
-- [x] Remplacer les scripts de build EAS de production/preview Android et reporter les variables nécessaires dans le nouveau workflow ; les scripts EAS de développement Android sont conservés jusqu'à validation de la migration. Les commandes iOS sont retirées à la suite de l'abandon de cette cible.
+- [x] Remplacer les scripts de build EAS de production/preview Android et reporter les variables nécessaires dans le nouveau workflow ; le build de développement Android utilise désormais le SDK local. Les commandes iOS sont retirées à la suite de l'abandon de cette cible.
 - [x] Reprendre la gestion du `versionCode` depuis la dernière valeur réellement distribuée, y compris les incréments gérés à distance par EAS.
 - [x] Tester l'installation de l'APK par-dessus la version existante sans désinstallation : mise à jour confirmée par l'utilisateur.
-- [ ] Publier l'APK dans GitHub Releases et confirmer explicitement la conservation des favoris, historiques et préférences.
+- [x] Publier l'APK dans GitHub Releases : `mobile-v1.4.1` publiée le 12 septembre 2026.
+- [x] Confirmer la conservation des données après mise à jour Android : essai concluant rapporté par l'utilisateur le 14 septembre 2026.
 - [x] Désactiver EAS Update dans le nouveau binaire et adapter les éventuels appels associés ; la migration exige l'installation de ce binaire.
-- [ ] Retirer la configuration EAS devenue inutile une fois la migration validée.
+- [x] Retirer la configuration EAS devenue inutile une fois la migration validée : profils EAS, identifiant de projet, URL OTA, runtime OTA, hook inutilisé et dépendance `expo-updates` supprimés.
 
 ### Windows — HorusDesktop
 
@@ -164,7 +165,8 @@ préférences, favoris ou historiques existants. Éviter une réécriture global
 - [x] Produire l'installateur et documenter les dépendances d'exécution ainsi que les éventuelles étapes de confiance nécessaires à l'installation pour un usage personnel.
 - [x] Valider l'installation Windows sur la machine de l'utilisateur : installateur confirmé fonctionnel.
 - [ ] Tester sur une machine Windows sans outils de développement l'installation, le lancement, la lecture, les téléchargements et l'accès au réseau local ; vérifier qu'une mise à jour conserve les préférences, favoris et historiques.
-- [ ] Publier l'installateur dans la release Desktop avec un nom indiquant version, plateforme et architecture, et vérifier sa somme de contrôle après téléchargement.
+- [x] Publier l'installateur dans la release Desktop avec un nom indiquant version, plateforme et architecture : `desktop-v0.1.1` publiée.
+- [ ] Vérifier la somme de contrôle de l'installateur Windows après téléchargement depuis la release publiée.
 
 ### Linux — HorusDesktop
 
@@ -174,12 +176,14 @@ préférences, favoris ou historiques existants. Éviter une réécriture global
 - [x] Valider jusqu'au bout les contrôles des fichiers extraits Linux et le workflow complet.
 - [x] Embarquer FFmpeg pour Linux avec ses sources et licences, et vérifier son exécution sans installation système de FFmpeg.
 - [ ] Produire les paquets retenus et documenter leurs dépendances d'exécution ; vérifier leur compatibilité sur les distributions ciblées.
+- [x] Valider l'essai Linux pour l'usage personnel : essai concluant confirmé par l'utilisateur le 14 septembre 2026.
 - [ ] Tester sur une machine Linux sans outils de développement l'installation, le lancement, la lecture, les téléchargements et l'accès au réseau local ; vérifier qu'une mise à jour conserve les préférences, favoris et historiques.
-- [ ] Publier les paquets dans la release Desktop avec des noms indiquant version, plateforme et architecture, et vérifier leurs sommes de contrôle après téléchargement.
+- [x] Publier les paquets dans la release Desktop avec des noms indiquant version, plateforme et architecture : `desktop-v0.1.1` publiée.
+- [ ] Vérifier la somme de contrôle du paquet Linux après téléchargement depuis la release publiée.
 
 Windows et Linux ont été intégrés au périmètre le 11 septembre 2026 ; leur
-pipeline 0.1.1 est entièrement réussi. L'installation Windows est confirmée par
-l'utilisateur ; l'essai manuel Linux reste à effectuer.
+pipeline 0.1.1 est entièrement réussi. L'installation Windows et l'essai Linux
+sont confirmés concluants par l'utilisateur.
 La détection des mises à jour pour ces plateformes sera traitée au chantier 4, à partir des fichiers
 publiés ici. Les essais approfondis de diffusion TV restent au chantier 7.
 
@@ -273,13 +277,25 @@ Nettoyage complémentaire du code iOS :
 - `pnpm check` réussi : TypeScript des quatre packages, tests core/API/Desktop et 19 tests UI. Les tests ont nécessité les sockets locales hors du bac à sable. Les 24 tests de release passent, dont trois nouveaux tests exécutant réellement release-it dans des dossiers temporaires, sans Git ni publication : incrément Android seul et synchronisation des versions, compteurs invalides refusés sans écriture, préversion refusée.
 - La configuration Android et la liste des plugins résolues par `expo config --type prebuild` sont identiques avant/après. `git diff --check` et la comparaison octet par octet du `package.json` racine passent. Aucun nouvel APK ou installateur n'a été construit pour ce nettoyage ; les retours utilisateur ci-dessus concernent les builds précédents. Aucun commit ni push effectué pour ce nettoyage.
 
-À terminer avant de clôturer ce chantier : essais Finder/Gatekeeper sur un Mac sans
-outils de développement, confirmation de la conservation des données Android et
-essai des modules natifs sur appareil, puis essais Linux et publication. Aucun
-appareil Android n'était connecté lors de la détection ADB. La configuration EAS
-restante ne sera retirée qu'après ces validations Android ; iOS est désormais exclu du périmètre.
-L'extension Windows et Linux décrite ci-dessus, jusqu'à la publication et aux
-essais sur les machines ciblées, est également nécessaire pour clôturer le chantier.
+État vérifié sur GitHub le 14 septembre 2026 :
+
+- `desktop-v0.1.1` et `mobile-v1.4.1` sont publiées depuis le 12 septembre, respectivement à 02:40:20 et 02:40:42 UTC ; elles ne sont plus en brouillon. Le workflow Desktop complet est réussi. Aucun lancement du workflow manuel de publication n'apparaît dans les derniers runs consultés ; la publication observée ne valide donc pas à elle seule l'exécution de ce workflow.
+- L'utilisateur confirme ensuite l'essai Linux concluant et la conservation des données Android. Le nettoyage EAS ci-dessous finalise la migration du build. Le chantier 4 n'est pas commencé.
+
+Nettoyage EAS le 14 septembre 2026 :
+
+- Suppression d'`eas.json`, du fichier dynamique `app.config.js` devenu inutile, du hook `useAppUpdater` non utilisé et de la commande `build:update`. `app.json` ne contient plus de propriétaire/projet EAS, d'URL OTA ou de politique de runtime ; `updates.enabled=false` reste explicite pour tous les builds.
+- Retrait d'`expo-updates` et de ses dépendances devenues inutiles du lockfile, sans mise à jour des autres versions. `build:dev` compile et lance maintenant le client de développement Android via `expo run:android --variant debug`. Expo, React Native et `expo-dev-client` sont conservés.
+- Les sauvegardes de la clé de signature, les secrets GitHub, les compteurs historiques de signature/version, les préférences et données applicatives sont conservés. `HORUS_ANDROID_RELEASE` reste utile au réglage Metro sans Watchman du build de release.
+- Le premier prebuild local a détecté l'ancien runtime OTA dans le manifeste Android déjà généré. Le wrapper retire uniquement cette métadonnée avant Expo, sans supprimer le dossier natif ni les autres réglages. Le build de développement passe également par ce wrapper. Un test couvre une installation neuve, la conservation des autres entrées et l'idempotence de la migration.
+- Validations : installation verrouillée réussie sous Node 26.8.1 et pnpm 12.3.4 ; seuls `expo-updates` et ses dépendances exclusives sont retirés du lockfile. `pnpm check` passe (TypeScript, tests core/API/Desktop, 19 tests UI), ainsi que les 25 tests de release. Le prebuild réussit sur le dossier Android existant ; l'URL et la métadonnée de runtime OTA sont absentes du manifeste généré, avec `updates.ENABLED=false`. Identifiant, version, `versionCode`, plugins et configuration Android applicative sont préservés.
+- Une compilation Gradle locale a été lancée après ce nettoyage, mais son résultat final et le contrôle du nouvel APK ne sont pas confirmés. Aucun nouveau build signé n'est donc compté comme validé ; aucun APK n'est ajouté au commit.
+
+Les cases manuelles encore ouvertes décrivent les contrôles détaillés non documentés
+par les retours reçus : Finder/Gatekeeper sur Mac sans outils de développement,
+parcours média et réseau détaillés sur les machines ciblées, sommes de contrôle
+après téléchargement. Les installations Windows/Linux et la migration Android
+avec conservation des données sont confirmées ; iOS est exclu du périmètre.
 Les premiers tags ont été lancés par l'utilisateur ; les validations locales
 n'ont créé aucun tag, push, brouillon ou release distant.
 

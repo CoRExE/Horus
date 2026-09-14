@@ -14,11 +14,8 @@
       "resizeMode": "contain",
       "backgroundColor": "#0b0f19"
     },
-    "runtimeVersion": {
-      "policy": "fingerprint"
-    },
     "updates": {
-      "url": "https://u.expo.dev/434a6fd2-49b6-41f5-8df7-80f6a9a58d24"
+      "enabled": false
     },
     "experiments": {
       "autolinkingModuleResolution": true
@@ -64,12 +61,6 @@
           }
         }
       ]
-    ],
-    "extra": {
-      "eas": {
-        "projectId": "434a6fd2-49b6-41f5-8df7-80f6a9a58d24"
-      }
-    },
-    "owner": "ceestos"
+    ]
   }
 }
