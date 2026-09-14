@@ -1,13 +1,14 @@
 import React, { useState } from 'react';
 import { View, StyleSheet, TextInput, TextInputProps, TouchableOpacity } from 'react-native';
 import { MotiText, MotiView } from 'moti';
-import { Search, Cast, Power } from 'lucide-react-native';
+import { Search, Cast, Power, Settings } from 'lucide-react-native';
 
 interface HorusHeaderProps extends TextInputProps {
   title?: string;
   hideSearch?: boolean;
   onPressCast?: () => void;
   onPressExit?: () => void;
+  onPressSettings?: () => void;
   isCasting?: boolean;
 }
 
@@ -16,6 +17,7 @@ export const HorusHeader: React.FC<HorusHeaderProps> = ({
   hideSearch = false,
   onPressCast,
   onPressExit,
+  onPressSettings,
   isCasting = false,
   ...inputProps
 }) => {
@@ -65,6 +67,9 @@ export const HorusHeader: React.FC<HorusHeaderProps> = ({
         {/* Actions à droite (Cast + Statut Système) */}
         <View style={styles.rightActions}>
           <View style={styles.actionRow}>
+            {onPressSettings && <TouchableOpacity style={styles.iconButton} onPress={onPressSettings} accessibilityRole="button" accessibilityLabel="Paramètres">
+              <Settings color={COLOR_ACCENT} size={23} />
+            </TouchableOpacity>}
             <TouchableOpacity
               style={styles.iconButton}
               onPress={onPressCast}

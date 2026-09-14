@@ -13,6 +13,8 @@ Ce dépôt est un monorepo **React Native** en cours de développement. L'applic
 ## 📱 Composants
 
 ### Mobile Remote (`/apps/HorusRemote`)
+L'application mobile est destinée à Android uniquement ; aucune version iOS n'est prévue.
+
 * **Sources :** AnimeSama pour les animés, catalogue TMDB et résolution directe Vidzy pour les films et séries.
 * **Discovery :** Détecte les appareils DLNA via SSDP et les appareils Google Cast.
 * **Lecture :** Lecture locale via Expo Video ou envoi vers Chromecast/DLNA.
@@ -36,7 +38,7 @@ Ce dépôt est un monorepo **React Native** en cours de développement. L'applic
 
 | Technologie | Utilisation |
 | :--- | :--- |
-| **Expo / React Native** | Application mobile Android, iOS et Web |
+| **Expo / React Native** | Application mobile Android et cible Web de développement |
 | **Tauri 2 / React / Vite / Rust** | Application de bureau et services réseau natifs |
 | **FFmpeg / HLS.js** | Remuxage desktop, téléchargements et lecture HLS |
 | **Axios + Cheerio** | Moteur de scraping |
@@ -153,12 +155,18 @@ WebView Tauri et des téléviseurs physiques.
 
 Les workflows de release appellent ces vérifications sur le commit exact du tag,
 avant leurs builds. Le pipeline Desktop 0.1.1 prévoit deux DMG macOS, un installateur
-Windows x64 et un paquet Ubuntu 24.04 x64 avec FFmpeg embarqué ; la vérification
-complète des installateurs Windows/Linux reste à valider. Les tags `mobile-vX.Y.Z` produisent un APK signé avec Gradle,
+Windows x64 et un paquet Ubuntu 24.04 x64 avec FFmpeg embarqué ; leurs builds et
+contrôles ont réussi. Les tags `mobile-vX.Y.Z` produisent un APK signé avec Gradle,
 sans EAS Build. Les fichiers sont déposés dans un brouillon GitHub Release.
 Un workflow manuel vérifie le brouillon avant de le publier, sans modifier le
 `latest` global. Voir [le guide des releases](docs/RELEASES.md) pour les versions,
 la signature, les builds locaux et la première validation des installateurs.
+
+La détection des mises à jour est préparée sur Desktop et Android : vérification
+quotidienne, bouton dans les paramètres et téléchargement manuel du bon
+installateur. Les manifestes publics sont générés depuis les releases stables
+avec GitHub Pages. Le premier déploiement et les essais des nouveaux binaires
+restent à effectuer ; voir [le guide des mises à jour](docs/UPDATES.md).
 
 ## ⚖️ Disclaimer
 

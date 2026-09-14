@@ -5,16 +5,12 @@
   "scripts": {
     "start": "expo start",
     "android": "expo start --android",
-    "ios": "expo start --ios",
     "web": "expo start --web",
     "typecheck": "tsc --noEmit",
-    "build:dev": "eas build --profile development --platform android",
+    "build:dev": "pnpm prebuild:android && expo run:android --variant debug",
     "build:preview": "pnpm build:prod:android",
     "prebuild:android": "node ../../scripts/release/prebuild-android.mjs",
     "build:prod:android": "node ../../scripts/release/build-android.mjs",
-    "build:prod:ios": "eas build --profile production --platform ios",
-    "build:prod:all": "pnpm build:prod:android && pnpm build:prod:ios",
-    "build:update": "eas update",
     "release": "release-it"
   },
   "dependencies": {
@@ -27,7 +23,6 @@
     "expo-dev-client": "~6.0.21",
     "expo-navigation-bar": "~5.0.10",
     "expo-status-bar": "~3.0.9",
-    "expo-updates": "~29.0.19",
     "expo-video": "~3.0.16",
     "fast-xml-parser": "^5.8.0",
     "lucide-react-native": "^1.8.0",
@@ -45,7 +40,6 @@
     "zustand": "^5.0.12"
   },
   "devDependencies": {
-    "@mwillbanks/release-it-expo-bumper-plugin": "^1.0.0",
     "@types/react": "~19.1.0",
     "release-it": "^20.0.0",
     "typescript": "~5.9.2"

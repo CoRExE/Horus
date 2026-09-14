@@ -2,6 +2,7 @@
   "expo": {
     "name": "HorusRemote",
     "slug": "HorusRemote",
+    "platforms": ["android", "web"],
     "scheme": "horusremote",
     "version": "1.4.1",
     "orientation": "portrait",
@@ -13,23 +14,11 @@
       "resizeMode": "contain",
       "backgroundColor": "#0b0f19"
     },
-    "runtimeVersion": {
-      "policy": "fingerprint"
-    },
     "updates": {
-      "url": "https://u.expo.dev/434a6fd2-49b6-41f5-8df7-80f6a9a58d24"
+      "enabled": false
     },
     "experiments": {
       "autolinkingModuleResolution": true
-    },
-    "ios": {
-      "supportsTablet": true,
-      "bundleIdentifier": "com.horus.remote",
-      "buildNumber": "15",
-      "infoPlist": {
-        "ITSAppUsesNonExemptEncryption": false,
-        "NSLocalNetworkUsageDescription": "Nécessaire pour détecter les TV et box compatibles DLNA sur votre réseau local."
-      }
     },
     "android": {
       "package": "com.horus.remote",
@@ -72,12 +61,6 @@
           }
         }
       ]
-    ],
-    "extra": {
-      "eas": {
-        "projectId": "434a6fd2-49b6-41f5-8df7-80f6a9a58d24"
-      }
-    },
-    "owner": "ceestos"
+    ]
   }
 }

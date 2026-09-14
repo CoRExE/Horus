@@ -6,6 +6,10 @@ jobs utilisent le même commit du tag. Chaque build crée un **brouillon** GitHu
 Release ; aucune publication ni création de tag n'est effectuée par les scripts
 de build locaux. Ne pas démarrer les deux workflows pour le même tag.
 
+iOS est exclu du périmètre depuis le 12 septembre 2026 : aucune version iPhone/iPad
+ni aucun workflow iOS n'est prévu. Les commandes `ios`, `build:prod:ios` et
+`build:prod:all` ont été retirées ; utiliser `build:prod:android` pour Mobile.
+
 ## Versions et déclenchement
 
 | Application | Source de vérité | Fichiers à maintenir cohérents | Tag |
@@ -17,7 +21,9 @@ Seules les versions stables `X.Y.Z` sont acceptées dans ce premier pipeline.
 Augmenter `versionCode` à chaque nouvel APK, même si le changement ne concerne
 que le code JavaScript. Ne plus utiliser le compteur distant EAS pour les builds
 Android Gradle. Le script mobile `release` conserve release-it, avec le préfixe
-`mobile-v` ; son plugin incrémente les numéros de build Android et iOS comme avant.
+`mobile-v` ; le plugin local `scripts/release/android-version-plugin.mjs` met à
+jour `expo.version` et incrémente uniquement `android.versionCode`. Il refuse un
+compteur invalide ou épuisé et une version non stable. Aucun bloc iOS n'est requis.
 Vérifier son diff avant de committer. Un changement de version Desktop demande
 également de mettre à jour l'entrée du package dans le verrou Cargo.
 
@@ -129,13 +135,23 @@ aussi ce build Android signé. L'URL API vient de `EXPO_PUBLIC_HORUS_API_URL`, a
 le même défaut que l'ancien profil EAS preview. Dans GitHub, la variable facultative
 `HORUS_API_URL` permet de la remplacer.
 
-`HORUS_ANDROID_RELEASE=1`, défini par ces scripts et le workflow, désactive EAS
-Update dans le nouveau binaire. Installer cet APK est nécessaire pour sortir du
-protocole OTA ; les APK déjà installés ne sont pas modifiés à distance. Les
-parcours de développement/iOS et la configuration EAS sont conservés tant que la
-migration sur un appareil n'est pas validée. Le script EAS `build:update` ne met
-pas à jour les nouveaux APK Gradle. Le chantier 4 ajoutera leur détection de
-versions GitHub ; elle n'est pas implémentée ici.
+La migration et la conservation des données Android sont confirmées par
+l'utilisateur. La configuration EAS, son identifiant de projet, son URL OTA,
+le hook OTA inutilisé et la dépendance `expo-updates` sont retirés.
+`updates.enabled=false` reste explicite dans `app.json` et contrôlé dans l'APK.
+Les anciens APK ne sont pas modifiés à distance. La clé historique et sa sauvegarde
+restent indispensables aux mises à jour signées ; ne pas les supprimer.
+
+`pnpm --filter horusremote build:dev` lance le prebuild puis `expo run:android --variant debug`
+sur le SDK Android local, avec un appareil ou émulateur. Le prebuild retire de façon
+ciblée l'ancien marqueur de runtime OTA des projets Android déjà générés, puis Expo
+retire l'URL OTA et la ressource associée ; aucun nettoyage global du dossier natif
+n'est nécessaire. `expo-dev-client` est
+conservé pour ce développement local ; il ne nécessite pas EAS Build.
+`HORUS_ANDROID_RELEASE=1` conserve uniquement les réglages Metro des builds de
+release. La détection des versions GitHub du chantier 4 est préparée et
+décrite dans [le guide des mises à jour](UPDATES.md), avec un premier déploiement
+Pages et des essais natifs encore à effectuer.
 
 Le workflow contrôle l'identifiant, la version, le certificat, l'arrêt d'EAS
 Update, le bundle JavaScript et les bibliothèques Hermes/React Native pour les

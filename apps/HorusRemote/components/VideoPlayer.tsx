@@ -302,7 +302,7 @@ const styles = StyleSheet.create({
     color: '#CBD5E1',
     fontSize: 12,
     lineHeight: 17,
-    fontFamily: Platform.select({ ios: 'Menlo', android: 'monospace' }),
+    fontFamily: Platform.select({ android: 'monospace' }),
   },
   errorButtons: {
     gap: 12,

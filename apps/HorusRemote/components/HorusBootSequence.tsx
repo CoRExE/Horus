@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { StyleSheet, View, Text, Platform } from 'react-native';
+import { StyleSheet, View, Text } from 'react-native';
 import { MotiView } from 'moti';
 import Svg, { Path, Circle, Defs, RadialGradient, Stop } from 'react-native-svg';
 
@@ -206,7 +206,7 @@ const styles = StyleSheet.create({
     flexDirection: 'column',
   },
   terminalLine: {
-    fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace',
+    fontFamily: 'monospace',
     fontSize: 14,
     fontWeight: 'bold',
     marginBottom: 8,

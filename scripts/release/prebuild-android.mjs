@@ -1,10 +1,12 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { removeLegacyRuntime } from './remove-legacy-runtime.mjs';
 
 const app = fileURLToPath(new URL('../../apps/HorusRemote/', import.meta.url));
 const manifest = `${app}/package.json`;
 const original = readFileSync(manifest, 'utf8');
+await removeLegacyRuntime(app);
 const result = spawnSync(process.execPath, [
   fileURLToPath(new URL('../../node_modules/expo/bin/cli', import.meta.url)),
   'prebuild', '--platform', 'android', '--no-install', '--skip-dependency-update', 'react,react-native',

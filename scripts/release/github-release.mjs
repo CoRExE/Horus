@@ -60,5 +60,5 @@ if (mode === 'draft') {
   }
   if (readFileSync(resolve(folder, 'SHA256SUMS'), 'utf8') !== checksum()) throw new Error('Sommes SHA-256 invalides.');
   gh('release', 'edit', tag, '--repo', repo, '--draft=false', '--latest=false');
-  console.log(`Release publiée : ${tag}. Les manifestes de mise à jour relèvent du chantier 4.`);
+  console.log(`Release publiée : ${tag}. Le workflow des manifestes peut maintenant annoncer cette version.`);
 }

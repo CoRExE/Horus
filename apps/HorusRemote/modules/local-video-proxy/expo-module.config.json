@@ -1,8 +1,5 @@
 {
-  "platforms": ["apple", "android", "web"],
-  "apple": {
-    "modules": ["LocalVideoProxyModule"]
-  },
+  "platforms": ["android", "web"],
   "android": {
     "modules": ["expo.modules.localvideoproxy.LocalVideoProxyModule"],
     "proguardRules": "android/proguard-rules.pro"

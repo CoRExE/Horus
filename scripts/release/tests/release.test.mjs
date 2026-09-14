@@ -182,18 +182,14 @@ test('un versionCode déjà publié bloque un nouveau brouillon Android', () => 
   assert.match(result.stderr, /versionCode/);
 });
 
-test('EAS Update désactivé uniquement pour les nouveaux builds Android de release', async () => {
-  const { default: config } = await import('../../../apps/HorusRemote/app.config.js');
-  const original = process.env.HORUS_ANDROID_RELEASE;
-  try {
-    delete process.env.HORUS_ANDROID_RELEASE;
-    assert.equal(config({config:{updates:{url:'https://example.test'}}}).updates.enabled, undefined);
-    process.env.HORUS_ANDROID_RELEASE = '1';
-    assert.equal(config({config:{updates:{url:'https://example.test'}}}).updates.enabled, false);
-  } finally {
-    if (original === undefined) delete process.env.HORUS_ANDROID_RELEASE;
-    else process.env.HORUS_ANDROID_RELEASE = original;
-  }
+test('Android ne dépend plus du service EAS Update', () => {
+  const config = json(join(root, 'apps/HorusRemote/app.json')).expo;
+  const manifest = json(join(root, 'apps/HorusRemote/package.json'));
+  assert.deepEqual(config.updates, { enabled: false });
+  assert.equal(config.extra?.eas, undefined);
+  assert.equal(config.runtimeVersion, undefined);
+  assert.equal(manifest.dependencies['expo-updates'], undefined);
+  assert.equal(Object.values(manifest.scripts).some((command) => /\beas\b/.test(command)), false);
 });
 
 test('le build Android refuse les identifiants absents avant de générer le projet', () => {
