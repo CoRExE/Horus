@@ -8,6 +8,9 @@ import {
 import type Hls from "hls.js";
 import { PlaybackRange } from "./PlaybackRange";
 import { usePlayerFullscreen } from "./usePlayerFullscreen";
+import { usePlayerShortcuts } from "./usePlayerShortcuts";
+import { usePlayerTracks } from "./usePlayerTracks";
+import { usePlaybackAwake } from "./usePlaybackAwake";
 import { resumePosition } from "../services/playback";
 import {
   Cast,
@@ -62,6 +65,11 @@ export function Player({
   const { container, fullscreen, toggle, exit } = usePlayerFullscreen((error) =>
     setError(`Impossible de changer le plein écran : ${errorMessage(error)}`),
   );
+  const tracks = usePlayerTracks(video, playback);
+  const awakeWarning = usePlaybackAwake(video, playback, !playback.device);
+  usePlayerShortcuts(video, !playback.device, toggle, (error) =>
+    setError(errorMessage(error)),
+  );
   const [status, setStatus] = useState<PlaybackStatus>();
   const [busy, setBusy] = useState(false);
   const progressRef = useRef(onProgress);
@@ -99,6 +107,7 @@ export function Player({
     }
     const element = video.current!;
     let hls: Hls | undefined;
+    let unbindTracks: (() => void) | undefined;
     let cancelled = false;
     const ready = () => {
       const position = resumePosition(playback.resumeAt, element.duration);
@@ -120,6 +129,7 @@ export function Player({
             return;
           }
           hls = new Hls();
+          unbindTracks = tracks.bindHls(hls, Hls.Events);
           hls.loadSource(playback.prepared.url);
           hls.attachMedia(element);
           hls.on(Hls.Events.ERROR, (_event, data) => {
@@ -127,6 +137,8 @@ export function Player({
               setError(
                 "Le flux HLS est indisponible ou incompatible. Essayez un autre serveur.",
               );
+              element.pause();
+              unbindTracks?.();
               hls?.destroy();
             }
           });
@@ -147,6 +159,7 @@ export function Player({
         );
       element.removeEventListener("loadedmetadata", ready);
       element.removeEventListener("error", failed);
+      unbindTracks?.();
       hls?.destroy();
       element.pause();
       element.removeAttribute("src");
@@ -209,7 +222,7 @@ export function Player({
             <button
               className="icon-button"
               aria-label="Passer en plein écran"
-              title="Plein écran (double-clic sur la vidéo)"
+              title="Plein écran (F ou double-clic sur la vidéo)"
               onClick={() => void toggle()}
             >
               <Maximize />
@@ -305,6 +318,52 @@ export function Player({
             onSeeked={flushProgress}
             onEnded={next}
           />
+          {(tracks.audio.length > 0 || tracks.subtitles.length > 0) && (
+            <div className="track-picker">
+              {tracks.audio.length > 0 && (
+                <label>
+                  Audio
+                  <select
+                    aria-label="Piste audio"
+                    value={tracks.audioId}
+                    onChange={(event) =>
+                      tracks.chooseAudio(Number(event.target.value))
+                    }
+                  >
+                    {tracks.audioId === -1 && (
+                      <option value={-1} disabled>
+                        Automatique
+                      </option>
+                    )}
+                    {tracks.audio.map((track) => (
+                      <option key={track.id} value={track.id}>
+                        {track.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
+              {tracks.subtitles.length > 0 && (
+                <label>
+                  Sous-titres
+                  <select
+                    aria-label="Sous-titres"
+                    value={tracks.subtitleId}
+                    onChange={(event) =>
+                      tracks.chooseSubtitle(Number(event.target.value))
+                    }
+                  >
+                    <option value={-1}>Désactivés</option>
+                    {tracks.subtitles.map((track) => (
+                      <option key={track.id} value={track.id}>
+                        {track.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
+            </div>
+          )}
           {fullscreen && (
             <button
               className="fullscreen-exit icon-button"
@@ -316,6 +375,17 @@ export function Player({
             </button>
           )}
         </div>
+      )}
+      {!playback.device && (
+        <p className="player-shortcuts muted">
+          Espace / K : lecture ou pause · ← / → : 10 s · ↑ / ↓ : volume · M :
+          muet · F : plein écran · Échap : quitter le plein écran
+        </p>
+      )}
+      {awakeWarning && (
+        <p className="notice" role="status">
+          {awakeWarning}
+        </p>
       )}
       {error && (
         <p className="notice error" role="alert">

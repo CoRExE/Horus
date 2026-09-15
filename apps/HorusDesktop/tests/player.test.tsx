@@ -6,6 +6,7 @@ const hls = vi.hoisted(() => ({
   loadSource: vi.fn(),
   attachMedia: vi.fn(),
   on: vi.fn(),
+  off: vi.fn(),
   destroy: vi.fn(),
 }));
 vi.mock("hls.js", () => ({
@@ -15,6 +16,7 @@ vi.mock("hls.js", () => ({
     loadSource = hls.loadSource;
     attachMedia = hls.attachMedia;
     on = hls.on;
+    off = hls.off;
     destroy = hls.destroy;
   },
 }));

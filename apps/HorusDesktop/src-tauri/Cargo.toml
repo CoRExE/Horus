@@ -29,3 +29,4 @@ futures-util = "0.3"
 mdns-sd = "0.17"
 rust_cast = { version = "0.21", features = ["thread_safe"] }
 rustls = "0.23"
+keepawake = "=0.6.1"

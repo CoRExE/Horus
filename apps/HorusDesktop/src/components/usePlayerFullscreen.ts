@@ -2,77 +2,90 @@ import { useEffect, useRef, useState } from "react";
 import { isTauri } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 
+// Also serialize cleanup with a newly mounted player in the same window.
+let fullscreenOperations = Promise.resolve();
+
 export function usePlayerFullscreen(onError: (error: unknown) => void) {
   const container = useRef<HTMLDivElement>(null);
   const [fullscreen, setFullscreen] = useState(false);
   const active = useRef(false);
-  const pending = useRef(false);
   const mounted = useRef(false);
-  // Restore the original window mode when the player closes.
   const restoreWindow = useRef(false);
+  const browserElement = useRef<HTMLElement | null>(null);
+  const changing = useRef(false);
   const errorHandler = useRef(onError);
   errorHandler.current = onError;
 
-  const exit = async () => {
-    if (pending.current || !active.current) return;
-    pending.current = true;
-    try {
-      if (isTauri()) {
-        if (restoreWindow.current) {
-          await getCurrentWindow().setFullscreen(false);
-          restoreWindow.current = false;
-        }
-      } else if (document.fullscreenElement === container.current) {
-        await document.exitFullscreen();
+  // Closing during a native transition must restore the window after it finishes.
+  const enqueue = (operation: () => Promise<void>) => {
+    fullscreenOperations = fullscreenOperations.then(async () => {
+      changing.current = true;
+      try {
+        await operation();
+      } catch (error) {
+        if (mounted.current) errorHandler.current(error);
+      } finally {
+        changing.current = false;
       }
-      active.current = false;
-      if (mounted.current) setFullscreen(false);
-    } catch (error) {
-      errorHandler.current(error);
-    } finally {
-      pending.current = false;
-    }
+    });
+    return fullscreenOperations;
   };
-
-  const toggle = async () => {
-    if (active.current) return exit();
-    if (pending.current || !container.current) return;
-    pending.current = true;
-    try {
+  const restore = async () => {
+    if (isTauri()) {
+      if (restoreWindow.current) {
+        await getCurrentWindow().setFullscreen(false);
+        restoreWindow.current = false;
+      }
+    } else if (
+      browserElement.current &&
+      document.fullscreenElement === browserElement.current
+    ) {
+      await document.exitFullscreen();
+    }
+    browserElement.current = null;
+    active.current = false;
+    if (mounted.current) setFullscreen(false);
+  };
+  const exit = () => enqueue(restore);
+  const toggle = () =>
+    enqueue(async () => {
+      if (!mounted.current || !container.current) return;
+      if (active.current) return restore();
       if (isTauri()) {
         const window = getCurrentWindow();
-        restoreWindow.current = !(await window.isFullscreen());
-        if (restoreWindow.current) await window.setFullscreen(true);
-        if (!mounted.current) {
-          if (restoreWindow.current) await window.setFullscreen(false);
-          restoreWindow.current = false;
-          return;
+        const wasFullscreen = await window.isFullscreen();
+        if (!mounted.current) return;
+        if (!wasFullscreen) {
+          await window.setFullscreen(true);
+          restoreWindow.current = true;
         }
       } else {
+        browserElement.current = container.current;
         await container.current.requestFullscreen();
       }
       active.current = true;
       if (mounted.current) setFullscreen(true);
-    } catch (error) {
-      restoreWindow.current = false;
-      errorHandler.current(error);
-    } finally {
-      pending.current = false;
-    }
-  };
+      else await restore();
+    });
 
   useEffect(() => {
     mounted.current = true;
     let disposed = false;
     let unlisten: (() => void) | undefined;
     const syncBrowser = () => {
+      if (isTauri()) return;
       active.current =
         !!document.fullscreenElement &&
         document.fullscreenElement === container.current;
       setFullscreen(active.current);
     };
     const keydown = (event: KeyboardEvent) => {
-      if (event.key === "Escape" && active.current) {
+      if (
+        event.key === "Escape" &&
+        active.current &&
+        !event.defaultPrevented &&
+        !document.querySelector("dialog[open]")
+      ) {
         event.preventDefault();
         void exit();
       }
@@ -83,10 +96,10 @@ export function usePlayerFullscreen(onError: (error: unknown) => void) {
       const window = getCurrentWindow();
       void window
         .onResized(async () => {
-          if (!active.current || pending.current) return;
+          if (!active.current || changing.current) return;
           try {
             const nativeFullscreen = await window.isFullscreen();
-            if (!disposed && !pending.current && !nativeFullscreen) {
+            if (!disposed && !changing.current && !nativeFullscreen) {
               active.current = false;
               restoreWindow.current = false;
               setFullscreen(false);
@@ -109,15 +122,7 @@ export function usePlayerFullscreen(onError: (error: unknown) => void) {
       unlisten?.();
       document.removeEventListener("fullscreenchange", syncBrowser);
       document.removeEventListener("keydown", keydown);
-      if (restoreWindow.current && !pending.current) {
-        void getCurrentWindow()
-          .setFullscreen(false)
-          .catch(errorHandler.current);
-        restoreWindow.current = false;
-      }
-      if (!isTauri() && active.current && document.fullscreenElement) {
-        void document.exitFullscreen().catch(errorHandler.current);
-      }
+      void exit();
     };
   }, []);
 

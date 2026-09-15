@@ -164,7 +164,12 @@ test("la bibliothèque permet encore de retirer un favori et de vider l'historiq
   expect(screen.getByText("Votre bibliothèque commence ici")).toBeTruthy();
   expect(useLibrary.getState().wishlist).toEqual([]);
   fireEvent.click(screen.getByRole("button", { name: "Historique" }));
-  fireEvent.click(screen.getByRole("button", { name: "Vider l’historique" }));
+  fireEvent.click(screen.getByRole("button", { name: "Supprimer" }));
+  expect(useLibrary.getState().history).toHaveLength(1);
+  fireEvent.click(screen.getByRole("button", { name: "Tout sélectionner" }));
+  fireEvent.click(
+    screen.getByRole("button", { name: "Confirmer la suppression (1)" }),
+  );
   expect(useLibrary.getState().history).toEqual([]);
 });
 
@@ -321,4 +326,36 @@ test("fermer sauvegarde immédiatement avant de libérer le relais et nettoie la
   fireEvent.loadedMetadata(video);
   expect(localStorage.getItem("horus-desktop-library")).toBe(stored);
   expect(video.currentTime).toBe(200);
+});
+
+test("l'épisode suivant restaure le plein écran navigateur avant de recréer le lecteur", async () => {
+  remember(episodes[0]);
+  await openHistory();
+  const video = await play();
+  const container = video.parentElement!;
+  container.requestFullscreen = vi.fn(async () => {
+    Object.defineProperty(document, "fullscreenElement", {
+      configurable: true,
+      value: container,
+    });
+    document.dispatchEvent(new Event("fullscreenchange"));
+  });
+  document.exitFullscreen = vi.fn(async () => {
+    Object.defineProperty(document, "fullscreenElement", {
+      configurable: true,
+      value: null,
+    });
+    document.dispatchEvent(new Event("fullscreenchange"));
+  });
+  fireEvent.keyDown(document, { key: "f" });
+  await waitFor(() =>
+    expect(container.classList.contains("is-fullscreen")).toBe(true),
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Épisode suivant" }));
+  await waitFor(() =>
+    expect(useLibrary.getState().history[0].episode.id).toBe("episode-2"),
+  );
+  await waitFor(() => expect(document.exitFullscreen).toHaveBeenCalledTimes(1));
+  expect(document.fullscreenElement).toBeNull();
+  expect(document.body.style.overflow).not.toBe("hidden");
 });
