@@ -1,6 +1,7 @@
 mod cast;
 mod discovery;
 mod downloads;
+mod power;
 mod relay;
 
 use serde::{Deserialize, Serialize};
@@ -132,12 +133,14 @@ pub fn run() {
             app.manage(relay);
             app.manage(downloads::Jobs::default());
             app.manage(cast::CastSession::default());
+            app.manage(power::PlaybackPower::new()?);
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
             http_text,
             runtime_info,
             open_release_url,
+            power::set_playback_awake,
             relay::prepare_stream,
             relay::release_stream,
             discovery::discover_dlna,
@@ -155,7 +158,17 @@ pub fn run() {
         .run(|app, event| {
             static CLOSING: std::sync::atomic::AtomicBool =
                 std::sync::atomic::AtomicBool::new(false);
+            if matches!(
+                &event,
+                tauri::RunEvent::WindowEvent {
+                    event: tauri::WindowEvent::Destroyed,
+                    ..
+                }
+            ) {
+                app.state::<power::PlaybackPower>().shutdown();
+            }
             if let tauri::RunEvent::ExitRequested { api, .. } = event {
+                app.state::<power::PlaybackPower>().shutdown();
                 if !CLOSING.swap(true, std::sync::atomic::Ordering::SeqCst) {
                     api.prevent_exit();
                     let app = app.clone();

@@ -1,6 +1,6 @@
 # TODO — Prochaines évolutions de Horus
 
-Dernière mise à jour : 14 septembre 2026.
+Dernière mise à jour : 15 septembre 2026.
 
 Cette feuille de route reprend les prochaines évolutions discutées. Les cases
 non cochées correspondent à du travail à réaliser, pas à des fonctionnalités
@@ -302,9 +302,9 @@ n'ont créé aucun tag, push, brouillon ou release distant.
 ## 4. Détecter les mises à jour — HorusDesktop et HorusRemote
 
 - [x] Définir le schéma du manifeste : application, plateforme, version, numéro de build si nécessaire, notes et URL des fichiers par architecture.
-- [x] Configurer GitHub Pages en mode GitHub Actions, à l'adresse `https://corexe.github.io/Horus/` ; premier déploiement encore à effectuer.
+- [x] Configurer GitHub Pages en mode GitHub Actions, à l'adresse `https://corexe.github.io/Horus/` ; premier déploiement réussi et vérifié.
 - [x] Préparer la génération et la publication des manifestes Android/macOS/Windows/Linux après publication des releases, sans mélanger les applications ni annoncer les préversions.
-- [ ] Valider le premier déploiement Pages après merge, puis l'accès public aux manifestes des plateformes ayant une release stable.
+- [x] Valider le premier déploiement Pages après merge, puis l'accès public aux manifestes des plateformes ayant une release stable : Android 1.4.2/code 26 accessible. Desktop reste en préversion, sans manifeste attendu.
 - [x] Comparer correctement les versions ; utiliser le numéro de build Android et éviter les comparaisons textuelles naïves.
 - [x] Ajouter une vérification discrète au démarrage, limitée à une fois par jour.
 - [x] Ajouter « Vérifier les mises à jour » dans les paramètres des deux applications.
@@ -333,12 +333,46 @@ Validation : une release Android ne doit jamais être proposée à Desktop, et
 inversement. Les manifestes et fichiers doivent être accessibles aux utilisateurs
 sans embarquer de jeton GitHub privé dans les applications.
 
+Validation du déploiement et des builds, le 14 septembre 2026 :
+
+- L'utilisateur confirme les builds réussis après relance de Windows, initialement interrompu par des délais de téléchargement, ainsi que la publication des releases. Aucun correctif du build n'est apporté pour ce timeout transitoire.
+- Les jobs de manifestes ont été consultés en lecture seule : le [dernier déploiement](https://github.com/CoRExE/Horus/actions/runs/34879127700) a réussi la génération, le transfert et GitHub Pages. Les autres déploiements consultés sont réussis ; un ancien événement `release` a été annulé, suivi de déploiements réussis. Les événements de release déclenchent une exécution supplémentaire sur `main`, conformément au workflow.
+- Le manifeste public Android répond HTTP 200 et annonce `mobile-v1.4.2`, code 26. Les releases `desktop-v0.1.1` et `desktop-v0.1.2` sont publiées en préversion : les manifestes macOS/Windows/Linux sont absents (HTTP 404), conformément au filtre stable. Cela concorde avec l'erreur signalée sur Mac/Windows. Aucun statut de release n'a été modifié.
+- Les essais des mises à jour sur appareil restent ouverts, notamment l'offre d'une version supérieure et l'ouverture du bon téléchargement. L'utilisateur autorise le passage au chantier 5 après vérification des jobs.
+
 ## 5. Améliorer le confort de lecture — HorusDesktop
 
-- [ ] Ajouter des raccourcis cohérents : lecture/pause, avance/recul et volume, sans intercepter la saisie dans les champs.
-- [ ] Empêcher la mise en veille pendant la lecture locale et rétablir le comportement normal à la pause, à l'arrêt et à la fermeture.
-- [ ] Améliorer la sélection des pistes audio et des sous-titres lorsque les sources et le lecteur les exposent ainsi que la selection des Séries/Anime en séparant les saisons de épisodes.
-- [ ] Compléter les essais du plein écran : raccourcis, fermeture, épisode suivant et retour au mode de fenêtre précédent.
+- [x] Ajouter des raccourcis cohérents : lecture/pause, avance/recul et volume, sans intercepter la saisie dans les champs.
+- [x] Implémenter le maintien éveillé pendant la lecture locale et sa libération à la pause, à l'arrêt et à la fermeture ; validation native sur machine encore à effectuer.
+- [x] Améliorer la sélection des pistes audio et des sous-titres lorsque les sources et le lecteur les exposent, ainsi que la sélection des séries/animés en séparant les saisons des épisodes.
+- [x] Compléter les essais automatisés du plein écran : raccourcis, fermeture, épisode suivant et retour au mode de fenêtre précédent.
+- [ ] Valider la compilation des nouveaux appels natifs dans les prochains workflows Desktop macOS/Windows/Linux.
+- [ ] Confirmer sur ces machines le maintien éveillé et sa libération, les pistes réellement exposées par HLS/la WebView et les interactions de plein écran.
+
+Travail réalisé le 14 septembre 2026 :
+
+- Ajout des raccourcis Espace/K, flèches, M et F, avec limites de volume et de déplacement dans les plages disponibles. Les champs, contrôles, dialogues et combinaisons système gardent leurs actions habituelles ; les commandes TV sont préservées.
+- Sélecteurs audio/sous-titres alimentés par HLS.js ou les pistes natives exposées, avec désactivation des sous-titres, suivi des changements et nettoyage au changement de source. Les pistes de métadonnées ne sont pas affichées. Les commandes vidéo natives et les choix VF/VOSTFR de serveur sont conservés.
+- Sélection Saison puis Épisode pour séries/animés ; reprise dans la bonne saison, premier épisode choisi au changement de saison, conservation des arcs/spéciaux et de l'ordre du fournisseur. Aucun changement des identifiants, du stockage ni des fournisseurs partagés avec Android.
+- Maintien éveillé natif via `keepawake` 0.6.1 (écran et veille automatique seulement), sur un thread dédié pour créer et libérer le verrou sur le même thread Windows. Les demandes JS sont ordonnées ; pause/fin/erreur/remplacement/fermeture libèrent le verrou. Un refus laisse la lecture utilisable. L'aperçu navigateur utilise Screen Wake Lock si disponible.
+- Transitions de plein écran ordonnées, y compris entre fermeture et nouveau lecteur : une sortie pendant l'entrée n'est plus perdue. Restauration du mode de fenêtre et du défilement, sans sortir une fenêtre déjà en plein écran à l'origine. Le parcours existant d'épisode suivant ferme/recrée le lecteur et revient au mode précédent.
+- Guide des commandes et des essais manuels ajouté dans [docs/PLAYBACK.md](docs/PLAYBACK.md). Android, l'API, les données, les versions applicatives et les workflows de release ne sont pas modifiés.
+
+Validations effectuées :
+
+- TypeScript Desktop réussi avec Node 22.23.2 disponible localement. Les 40 tests Vitest/jsdom passent, dont 18 nouveaux tests de confort de lecture, ainsi que les 4 tests Desktop historiques (`node --import tsx --test tests/*.test.cts`). Le lanceur direct évite le socket IPC du CLI tsx interdit par le bac à sable.
+- Les tests couvrent lecture/pause/volume et déplacement borné, respect des champs/dialogues, pistes HLS/natives et nettoyage, saison de reprise, fermeture pendant l'entrée en plein écran, sortie en attente, refus du système, plein écran initial et épisode suivant dans le parcours App réel.
+- Les tests de veille simulent activation/pause/fin/erreur/fermeture, remplacement de source, absence d'activation TV, refus du service et acquisition tardive après fermeture ou pause/reprise.
+- `rustfmt` 1.88.0 et les métadonnées Cargo `--locked --offline` passent. Résolution Cargo compatible Rust 1.88 : 45 entrées ajoutées pour la nouvelle dépendance, aucune version préexistante retirée ou modifiée. `git diff --check` passe.
+- Aucun build natif ni essai de veille/lecture sur appareil lancé par l'agent. Les API natives, médias et plein écran sont simulés dans les tests JS ; leur compilation et leur comportement système restent à valider par les prochains workflows et essais utilisateur.
+
+Compléments bibliothèque demandés et réalisés le 15 septembre 2026 :
+
+- [x] Séparer « Ma liste » en sections Films, Séries et Animés, en conservant l'ordre des favoris dans chaque catégorie, leur ouverture et leur suppression individuelle.
+- [x] Remplacer l'effacement immédiat de l'historique dans l'interface par un mode « Supprimer » : cases à cocher sur les contenus, Tout sélectionner, Tout désélectionner, confirmation avec le nombre sélectionné et Annuler. Le changement d'onglet abandonne la sélection.
+- [x] Supprimer seulement les entrées sélectionnées, identifiées par fournisseur et média ; préserver les autres positions de reprise, les favoris, l'URL API et le format de stockage version 1. Un contenu ajouté après « Tout sélectionner » n'est pas supprimé sans être coché.
+- Validations : TypeScript Desktop et les 45 tests UI réussis, dont cinq nouveaux tests de catégories, suppression partielle persistée/restaurée, sélection globale avec exclusion, annulation/navigation et arrivée d'une nouvelle lecture. Le parcours App existant de vidage de l'historique passe désormais par la sélection et la confirmation. `git diff --check` réussi.
+- Les modifications préexistantes du chantier 5 sont conservées. Aucun changement Android, aucune compilation native et aucun essai manuel dans la WebView pour ce complément.
 
 ## 6. Améliorer les téléchargements — HorusDesktop
 

@@ -26,6 +26,7 @@ interface Library {
   toggleWishlist: (media: SearchResult) => void;
   remember: (entry: Omit<HistoryEntry, "updatedAt">) => void;
   clearHistory: () => void;
+  removeFromHistory: (keys: string[]) => void;
 }
 
 export const useLibrary = create<Library>()(
@@ -53,6 +54,14 @@ export const useLibrary = create<Library>()(
           }),
         })),
       clearHistory: () => set({ history: [] }),
+      removeFromHistory: (keys) => {
+        const selected = new Set(keys);
+        set((state) => ({
+          history: state.history.filter(
+            (item) => !selected.has(mediaKey(item.media)),
+          ),
+        }));
+      },
     }),
     { name: "horus-desktop-library", version: 1 },
   ),

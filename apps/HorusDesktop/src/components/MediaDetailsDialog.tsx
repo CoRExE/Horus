@@ -7,6 +7,7 @@ import {
   type Stream,
 } from "@horus/core";
 import { Modal } from "./Modal";
+import { EpisodePicker } from "./EpisodePicker";
 import { mediaKey } from "../store/library";
 import type {
   MediaDetails,
@@ -88,28 +89,14 @@ export function MediaDetailsDialog({
           </p>
         )}
         {details.episodes.length > 0 && (
-          <label className="field">
-            Épisode
-            <select
-              disabled={detailsBusy || starting}
-              value={details.episode?.id ?? ""}
-              onChange={(event) => {
-                const episode = details.episodes.find(
-                  (item) => item.id === event.target.value,
-                );
-                if (episode) void chooseEpisode(details, episode);
-              }}
-            >
-              <option value="" disabled>
-                Choisir un épisode
-              </option>
-              {details.episodes.map((episode) => (
-                <option key={episode.id} value={episode.id}>
-                  {episode.title ?? `Épisode ${episode.number}`}
-                </option>
-              ))}
-            </select>
-          </label>
+          <EpisodePicker
+            key={mediaKey(details.media)}
+            episodes={details.episodes}
+            selected={details.episode}
+            showSeasons={details.media.type !== "movie"}
+            disabled={detailsBusy || starting}
+            onChoose={(episode) => void chooseEpisode(details, episode)}
+          />
         )}
         {details.streams.length > 0 && (
           <>
