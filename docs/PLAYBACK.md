@@ -97,3 +97,28 @@ Pour observer les demandes de maintien éveillé sans changer les réglages syst
 `systemd-inhibit --list` sur Linux (la protection de l'écran utilise aussi le bus
 D-Bus de session). Les tests JS simulent les services natifs ; ils ne remplacent
 pas ces essais sur machine.
+
+
+## Serveurs des animés
+
+Le lecteur Desktop affiche le serveur du flux en cours à côté de sa langue.
+Pour un animé en ligne, le sélecteur « Serveur » permet de changer de source
+à tout moment, même si la lecture fonctionne. Il reste accessible dans la barre
+sous la vidéo en plein écran, ainsi que pendant une diffusion TV. Le lecteur
+sauvegarde la position avant le changement et la reprend sur le nouveau flux.
+La liste est limitée à la langue en cours ; les téléchargements hors ligne
+n’ont pas de sélecteur de serveur.
+
+À l’épisode suivant, demandé par le bouton ou à la fin de la vidéo, le serveur
+actuellement choisi est prioritaire, y compris après « Serveur suivant » sur une
+erreur. La correspondance utilise le nom du serveur et la langue, jamais l’URL
+propre à l’épisode ; la qualité est conservée si elle est disponible. Si le serveur
+manque, une autre source de même langue est utilisée avec un message explicatif.
+Si la langue manque, la fiche de l’épisode demande un choix explicite.
+Ce choix suit la lecture en cours : aucune préférence globale ni nouvelle donnée
+persistante n’est ajoutée.
+
+Validation le 19 septembre 2026 : TypeScript et 59 tests UI réussis, dont quatre
+nouveaux tests du parcours App des animés (changement manuel, reprise de position,
+serveur conservé après erreur, nouvel épisode et indisponibilités). Les sources
+et commandes natives sont simulées ; les essais sur sources réelles restent à faire.

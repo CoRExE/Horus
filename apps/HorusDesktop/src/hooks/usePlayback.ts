@@ -42,6 +42,7 @@ export function usePlayback({
   const [starting, setStarting] = useState(false);
   const playbackGeneration = useRef(0);
   const lastProgressSave = useRef(0);
+  const changingServer = useRef(false);
   const stopPlayback = async () => {
     ++playbackGeneration.current;
     const current = playingRef.current;
@@ -122,6 +123,7 @@ export function usePlayback({
         prepared,
         title,
         language: normalizeStreamLanguage(stream.language),
+        server: offlineId ? undefined : stream.server,
         format,
         device,
         resumeAt: previous?.position ?? 0,
@@ -166,9 +168,19 @@ export function usePlayback({
     try {
       const streams = await providerFor(current.media).getStreams(next.id);
       if (playingRef.current !== current) return;
-      const stream = streams.find(
+      const sameLanguage = streams.filter(
         (item) => normalizeStreamLanguage(item.language) === current.language,
       );
+      const sameServer =
+        current.media.type === "anime"
+          ? sameLanguage.filter(
+              (item) => item.server.trim().toLowerCase() ===
+                current.stream.server.trim().toLowerCase(),
+            )
+          : [];
+      const stream =
+        sameServer.find((item) => item.quality === current.stream.quality) ??
+        sameServer[0] ?? sameLanguage[0];
       if (!stream) {
         await stopPlayback();
         showEpisode(
@@ -192,6 +204,14 @@ export function usePlayback({
         stream,
         current.device,
       );
+      if (
+        current.media.type === "anime" && sameServer.length === 0 &&
+        playingRef.current?.episode.id === next.id
+      ) {
+        setNotice(
+          `Le serveur ${current.stream.server} n’est pas disponible pour cet épisode. Lecture sur ${stream.server}, en ${current.language}.`,
+        );
+      }
     } catch (error) {
       setError(errorMessage(error));
     } finally {
@@ -215,23 +235,37 @@ export function usePlayback({
     });
   };
 
+  const changeServer = async (stream: Stream) => {
+    const current = playingRef.current;
+    if (
+      !current || current.offlineId || starting || changingServer.current ||
+      stream === current.stream || !current.alternatives.includes(stream) ||
+      normalizeStreamLanguage(stream.language) !== current.language
+    ) return;
+    changingServer.current = true;
+    try {
+      await startPlayback(
+        {
+          media: current.media,
+          episodes: current.episodes,
+          episode: current.episode,
+          streams: current.alternatives,
+        },
+        stream,
+        current.device,
+      );
+    } finally {
+      changingServer.current = false;
+    }
+  };
+
   const retryPlayback = async () => {
     if (!playing || playing.offlineId) return;
     const alternatives = playing.alternatives.filter(
       (item) => normalizeStreamLanguage(item.language) === playing.language,
     );
     const next = alternatives[alternatives.indexOf(playing.stream) + 1];
-    if (next)
-      await startPlayback(
-        {
-          media: playing.media,
-          episodes: playing.episodes,
-          episode: playing.episode,
-          streams: playing.alternatives,
-        },
-        next,
-        playing.device,
-      );
+    if (next) await changeServer(next);
     else setError("Aucun autre serveur disponible dans cette langue.");
   };
   const nextEpisode =
@@ -249,6 +283,7 @@ export function usePlayback({
     stopPlayback,
     playNext,
     retryPlayback,
+    changeServer,
     progress,
     nextEpisode,
   };

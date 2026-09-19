@@ -1,4 +1,4 @@
-import { groupStreamsByLanguage } from "@horus/core";
+import { groupStreamsByLanguage, normalizeStreamLanguage } from "@horus/core";
 import { useState } from "react";
 import {
   Film,
@@ -94,6 +94,7 @@ export default function App() {
     stopPlayback,
     playNext,
     retryPlayback,
+    changeServer,
     progress,
     nextEpisode,
   } = usePlayback({
@@ -213,6 +214,16 @@ export default function App() {
           <Player
             ref={playerRef}
             playback={playing}
+            serverOptions={
+              playing.media.type === "anime" && !playing.offlineId
+                ? playing.alternatives.filter(
+                    (stream) => normalizeStreamLanguage(stream.language) === playing.language,
+                  )
+                : undefined
+            }
+            selectedServer={playing.stream}
+            onServerChange={(stream) => void changeServer(stream)}
+            serverBusy={starting}
             onStop={() =>
               void stopPlayback().catch((error) =>
                 setError(errorMessage(error)),

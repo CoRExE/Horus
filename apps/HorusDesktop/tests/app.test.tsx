@@ -359,3 +359,75 @@ test("l'épisode suivant restaure le plein écran navigateur avant de recréer l
   expect(document.fullscreenElement).toBeNull();
   expect(document.body.style.overflow).not.toBe("hidden");
 });
+
+const anime: SearchResult = { ...media, id: "anime-42", title: "Animé de test", type: "anime", providerId: "anime-sama" };
+const animeStreams: Stream[] = [
+  { url: "https://fixture.invalid/sibnet-1.mp4", server: "Sibnet", language: "VOSTFR", quality: "auto" },
+  { url: "https://fixture.invalid/sendvid-vf-1.mp4", server: "Sendvid", language: "VF" },
+  { url: "https://fixture.invalid/sendvid-1.mp4", server: "Sendvid", language: "VOSTFR", quality: "auto" },
+];
+async function playAnime() {
+  remember(episodes[0], anime);
+  getStreams.mockResolvedValue(animeStreams);
+  render(<App />);
+  fireEvent.click(screen.getByRole("button", { name: "Historique" }));
+  fireEvent.click(screen.getByRole("button", { name: /^ANIMÉ Animé de test/ }));
+  fireEvent.click(await screen.findByRole("button", { name: "VOSTFR" }));
+  await waitFor(() => expect(screen.getByRole("button", { name: "Lire ici" }).hasAttribute("disabled")).toBe(false));
+  return play();
+}
+
+test("un animé affiche son serveur et permet d’en changer sans erreur, en gardant la position puis le serveur au prochain épisode", async () => {
+  const video = await playAnime();
+  expect(screen.getByText("VOSTFR · Serveur : Sibnet")).toBeTruthy();
+  const select = screen.getByRole("combobox", { name: "Serveur de lecture" });
+  expect(within(select).getAllByRole("option").map(option => option.textContent?.trim())).toEqual(["Sibnet", "Sendvid"]);
+  expect(screen.queryByRole("alert")).toBeNull();
+  video.currentTime = 143;
+  fireEvent.change(select, { target: { value: "1" } });
+  await screen.findByText("VOSTFR · Serveur : Sendvid");
+  expect(metadata().currentTime).toBe(143);
+  expect(releaseStream).toHaveBeenCalledWith("stream-1");
+  expect(invoke).toHaveBeenLastCalledWith("prepare_stream", expect.objectContaining({ source: { url: animeStreams[2].url, headers: {} } }));
+  const next = [
+    { ...animeStreams[1], url: "https://fixture.invalid/sendvid-vf-2.mp4" },
+    { ...animeStreams[0], url: "https://fixture.invalid/sibnet-2.mp4" },
+    { ...animeStreams[2], server: "sendvid", url: "https://fixture.invalid/sendvid-2.mp4" },
+  ];
+  getStreams.mockResolvedValueOnce(next);
+  fireEvent.click(screen.getByRole("button", { name: "Épisode suivant" }));
+  await screen.findByText("VOSTFR · Serveur : sendvid");
+  expect(invoke).toHaveBeenLastCalledWith("prepare_stream", expect.objectContaining({ source: { url: next[2].url, headers: {} } }));
+  expect(metadata().currentTime).toBe(0);
+  expect(useLibrary.getState().history[0].episode.id).toBe(episodes[1].id);
+});
+
+test("le serveur choisi après l’échec du premier flux est conservé lors de l’enchaînement automatique d’un animé", async () => {
+  const video = await playAnime();
+  fireEvent.error(video);
+  fireEvent.click(screen.getByRole("button", { name: "Serveur suivant" }));
+  await screen.findByText("VOSTFR · Serveur : Sendvid");
+  getStreams.mockResolvedValueOnce(animeStreams.map(stream => ({ ...stream, url: stream.url.replace("1.mp4", "2.mp4") })));
+  fireEvent.ended(metadata());
+  await waitFor(() => expect(useLibrary.getState().history[0].episode.id).toBe(episodes[1].id));
+  expect(invoke).toHaveBeenLastCalledWith("prepare_stream", expect.objectContaining({ source: { url: "https://fixture.invalid/sendvid-2.mp4", headers: {} } }));
+});
+
+test("si le serveur de l’animé est absent du prochain épisode, le repli reste dans la langue choisie et l’indique", async () => {
+  await playAnime();
+  fireEvent.change(screen.getByRole("combobox", { name: "Serveur de lecture" }), { target: { value: "1" } });
+  await screen.findByText("VOSTFR · Serveur : Sendvid");
+  getStreams.mockResolvedValueOnce([animeStreams[1], { ...animeStreams[0], url: "https://fixture.invalid/sibnet-2.mp4" }]);
+  fireEvent.click(screen.getByRole("button", { name: "Épisode suivant" }));
+  await screen.findByText("Le serveur Sendvid n’est pas disponible pour cet épisode. Lecture sur Sibnet, en VOSTFR.");
+  expect(invoke).toHaveBeenLastCalledWith("prepare_stream", expect.objectContaining({ source: { url: "https://fixture.invalid/sibnet-2.mp4", headers: {} } }));
+});
+
+test("un animé n’adopte pas une autre langue pour conserver le même serveur", async () => {
+  await playAnime();
+  getStreams.mockResolvedValueOnce([{ ...animeStreams[0], language: "VF" }]);
+  fireEvent.click(screen.getByRole("button", { name: "Épisode suivant" }));
+  await screen.findByText("La piste VOSTFR est indisponible. Choisissez une autre langue pour continuer.");
+  expect(invoke).toHaveBeenCalledTimes(1);
+  expect(screen.queryByRole("region", { name: "Lecteur" })).toBeNull();
+});

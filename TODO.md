@@ -1,6 +1,6 @@
 # TODO — Prochaines évolutions de Horus
 
-Dernière mise à jour : 16 septembre 2026.
+Dernière mise à jour : 19 septembre 2026.
 
 Cette feuille de route reprend les prochaines évolutions discutées. Les cases
 non cochées correspondent à du travail à réaliser, pas à des fonctionnalités
@@ -373,6 +373,14 @@ Compléments bibliothèque demandés et réalisés le 15 septembre 2026 :
 - [x] Supprimer seulement les entrées sélectionnées, identifiées par fournisseur et média ; préserver les autres positions de reprise, les favoris, l'URL API et le format de stockage version 1. Un contenu ajouté après « Tout sélectionner » n'est pas supprimé sans être coché.
 - Validations : TypeScript Desktop et les 45 tests UI réussis, dont cinq nouveaux tests de catégories, suppression partielle persistée/restaurée, sélection globale avec exclusion, annulation/navigation et arrivée d'une nouvelle lecture. Le parcours App existant de vidage de l'historique passe désormais par la sélection et la confirmation. `git diff --check` réussi.
 - Les modifications préexistantes du chantier 5 sont conservées. Aucun changement Android, aucune compilation native et aucun essai manuel dans la WebView pour ce complément.
+
+Corrections de lecture des animés le 19 septembre 2026 :
+
+- [x] Afficher dans le lecteur Desktop le nom du serveur en cours, comme sur Remote.
+- [x] Permettre de choisir un autre serveur de la même langue pendant la lecture d’un animé, sans attendre une erreur, avec sauvegarde/reprise de la position. Le sélecteur reste dans les contrôles en plein écran et est disponible en diffusion TV ; les fichiers hors ligne sont exclus.
+- [x] Prioriser le serveur actuellement sélectionné à l’épisode suivant, manuel ou automatique, y compris après le bouton de repli sur erreur. Comparaison par nom et langue, indépendante de l’URL et de l’ordre des sources du nouvel épisode ; repli signalé dans la même langue si le serveur manque et choix explicite si la langue manque.
+- Validations : TypeScript Desktop et 59 tests UI réussis, dont quatre nouveaux parcours App réels avec sources/appels natifs simulés : changement sans erreur avec conservation de la position, serveur conservé malgré changement d’URL/ordre, repli après erreur puis enchaînement automatique, serveur ou langue absents. `git diff --check` réussi. Aucun build natif ni essai sur source réelle/TV lancé.
+- Le choix reste lié à la session de lecture ; stockage, fournisseurs partagés, Android et backend natif inchangés. Le chantier 6 et le déplacement du dossier vers Paramètres ont été committés séparément avant ces corrections (`b52d668`).
 
 ## 6. Améliorer les téléchargements — HorusDesktop
 

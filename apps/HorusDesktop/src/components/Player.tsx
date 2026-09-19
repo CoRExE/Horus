@@ -22,7 +22,7 @@ import {
   SkipForward,
   X,
 } from "lucide-react";
-import { formatPlaybackTime } from "@horus/core";
+import { formatPlaybackTime, type Stream } from "@horus/core";
 import { controlDevice, deviceStatus } from "../services/devices";
 import {
   errorMessage,
@@ -36,6 +36,7 @@ export interface Playback {
   prepared: PreparedStream;
   title: string;
   language: string;
+  server?: string;
   format: "hls" | "file";
   device?: Device;
   resumeAt: number;
@@ -52,6 +53,10 @@ export function Player({
   onProgress,
   onNext,
   onRetry,
+  serverOptions,
+  selectedServer,
+  onServerChange,
+  serverBusy = false,
 }: {
   ref?: Ref<PlayerHandle>;
   playback: Playback;
@@ -59,6 +64,10 @@ export function Player({
   onProgress: (position: number, duration: number, flush?: boolean) => void;
   onNext?: () => void;
   onRetry?: () => void;
+  serverOptions?: Stream[];
+  selectedServer?: Stream;
+  onServerChange?: (stream: Stream) => void;
+  serverBusy?: boolean;
 }) {
   const video = useRef<HTMLVideoElement>(null);
   const [error, setError] = useState("");
@@ -205,6 +214,32 @@ export function Player({
     }
   };
 
+  const serverPicker = serverOptions?.length && onServerChange ? (
+    <label>
+      Serveur
+      <select
+        aria-label="Serveur de lecture"
+        value={selectedServer ? serverOptions.indexOf(selectedServer) : -1}
+        disabled={serverBusy || serverOptions.length < 2}
+        onChange={(event) => {
+          const stream = serverOptions[Number(event.target.value)];
+          if (stream && stream !== selectedServer) {
+            flushProgress();
+            onServerChange(stream);
+          }
+        }}
+      >
+        {serverOptions.map((stream, index) => (
+          <option key={index} value={index}>
+            {stream.server}
+            {stream.quality && !["auto", "unknown"].includes(stream.quality)
+              ? ` · ${stream.quality}` : ""}
+          </option>
+        ))}
+      </select>
+    </label>
+  ) : null;
+
   return (
     <section className="player-panel" aria-label="Lecteur">
       <header>
@@ -215,7 +250,10 @@ export function Player({
               : "LECTURE SUR CET ORDINATEUR"}
           </span>
           <h2>{playback.title}</h2>
-          <span className="muted">{playback.language}</span>
+          <span className="muted">
+            {playback.language}
+            {playback.server ? ` · Serveur : ${playback.server}` : ""}
+          </span>
         </div>
         <div className="player-actions">
           {!playback.device && (
@@ -240,6 +278,7 @@ export function Player({
       {playback.device ? (
         <div className="remote-player">
           <Cast size={48} />
+          {serverPicker && <div className="track-picker">{serverPicker}</div>}
           <p>
             {status?.transportState === "PLAYING"
               ? "Lecture en cours sur votre téléviseur"
@@ -318,8 +357,9 @@ export function Player({
             onSeeked={flushProgress}
             onEnded={next}
           />
-          {(tracks.audio.length > 0 || tracks.subtitles.length > 0) && (
+          {(serverPicker || tracks.audio.length > 0 || tracks.subtitles.length > 0) && (
             <div className="track-picker">
+              {serverPicker}
               {tracks.audio.length > 0 && (
                 <label>
                   Audio
