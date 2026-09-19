@@ -327,11 +327,23 @@ mod tests {
         // A directory where the temporary index should be forces a real write failure.
         let obstruction = root.0.join(format!("{}.json.part", item.id));
         fs::create_dir(&obstruction).unwrap();
-        assert!(commit(&root.0, &item).unwrap_err().contains("écrire"));
+        // Error kinds (and therefore user-facing messages) differ across platforms.
+        assert!(commit(&root.0, &item).is_err());
+        let file = item.file_path.as_ref().unwrap();
+        let pending = root.0.join(format!("{}.pending", item.id));
+        let index = root.0.join(format!("{}.json", item.id));
+        assert!(file.is_file()); // The MP4 rename succeeded before the index write failed.
+        assert!(!index.exists());
         rollback(&root.0, &item);
-        assert!(!item.file_path.as_ref().unwrap().exists());
-        fs::remove_dir(obstruction).unwrap();
+        assert!(!file.exists());
+        assert!(!file.with_extension("part").exists());
+        assert!(obstruction.is_dir());
+        assert!(pending.is_file()); // Keep the journal until cleanup can finish.
+        fs::remove_dir(&obstruction).unwrap();
         clean_pending(&root.0);
+        assert!(!obstruction.exists());
+        assert!(!pending.exists());
+        assert!(!index.exists());
         assert!(list(&root.0).unwrap().is_empty());
         finish(&root.0);
         assert_eq!(list(&root.0).unwrap().len(), 1);
