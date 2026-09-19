@@ -540,6 +540,18 @@ mod tests {
         tokio::fs::write(directory.join(format!("{file_id}.mp4")), "abcdef")
             .await
             .unwrap();
+        // Legacy downloads still have an index entry, without an explicit filePath.
+        tokio::fs::write(
+            directory.join(format!("{file_id}.json")),
+            serde_json::to_vec(&serde_json::json!({
+                "id": file_id,
+                "metadata": { "title": "Offline fixture" },
+                "sizeBytes": 6,
+                "downloadedAt": 0
+            })).unwrap(),
+        )
+        .await
+        .unwrap();
         let offline = register_offline(&relay, file_id.clone(), None)
             .await
             .unwrap();
@@ -565,6 +577,9 @@ mod tests {
         relay.release(&offline.id).await;
         source_task.abort();
         tokio::fs::remove_file(directory.join(format!("{file_id}.mp4")))
+            .await
+            .unwrap();
+        tokio::fs::remove_file(directory.join(format!("{file_id}.json")))
             .await
             .unwrap();
         tokio::fs::remove_dir(directory).await.unwrap();
