@@ -420,6 +420,13 @@ Préparation de Desktop 0.1.4 le 19 septembre 2026 :
 - La CI du merge #16 a compilé le code natif, puis détecté une fixture obsolète dans le test du relais hors ligne : le MP4 était créé sans son entrée d’index JSON. La fixture et son nettoyage sont complétés avec le format historique sans `filePath`, en conservant les assertions HTTP Range et la protection par URL de session. Aucun comportement applicatif modifié par cette correction.
 - Versions Desktop alignées sur 0.1.4 ; Android reste inchangé. La nouvelle CI et la release doivent encore confirmer le test corrigé et les installateurs.
 
+Correction Windows et préparation de Desktop 0.1.5 le 19 septembre 2026 :
+
+- La release 0.1.4 a réussi les checks, les builds macOS arm64/x64 et Linux. Windows a compilé le code et réussi 16 tests natifs, dont le média MP4/HLS, mais a échoué sur l’assertion textuelle du test d’écriture des métadonnées ; le job de création du brouillon n’a pas été exécuté.
+- Le test vérifie désormais `commit(...).is_err()` sans dépendre du message, qui varie selon le type d’erreur système. Il vérifie aussi le renommage préalable du MP4, l’absence d’index publié, la suppression du MP4 et du partiel, la conservation du journal tant que l’obstacle subsiste, son nettoyage ensuite et la réussite d’un nouveau téléchargement. Aucun changement de code applicatif ou de workflow.
+- Validation locale : dix tests Rust de stockage/parseurs réussis dans le harnais léger hors ligne, rustfmt, contrôle de version `desktop-v0.1.5` et `git diff --check` réussis. Aucun build natif complet local ; le résultat Windows corrigé reste à confirmer en CI.
+- La nouvelle version 0.1.5 évite de déplacer le tag 0.1.4 en échec ; les quatre sources de version Desktop sont alignées. Android reste inchangé.
+
 ## 7. Valider la diffusion TV — HorusDesktop
 
 - [ ] Tester DLNA et Chromecast sur de vrais appareils : découverte, démarrage, pause/reprise, volume et arrêt.
