@@ -415,6 +415,11 @@ Ajustement de l’interface le 16 septembre 2026 :
 - Le contrôle d’écriture, l’enregistrement explicite, le retour au dossier par défaut et le verrouillage pendant le traitement de la file sont conservés. Aucun changement du backend ni des emplacements existants pour ce déplacement.
 - Validation : TypeScript et `git diff --check` réussis ; 55 tests UI validés (52 au lancement complet, puis les trois tests de mise à jour après adaptation de leur simulation native au chargement du dossier). Le nouveau parcours vérifie le changement d’onglet, le focus sur la rubrique et l’absence de modification automatique du dossier.
 
+Préparation de Desktop 0.1.4 le 19 septembre 2026 :
+
+- La CI du merge #16 a compilé le code natif, puis détecté une fixture obsolète dans le test du relais hors ligne : le MP4 était créé sans son entrée d’index JSON. La fixture et son nettoyage sont complétés avec le format historique sans `filePath`, en conservant les assertions HTTP Range et la protection par URL de session. Aucun comportement applicatif modifié par cette correction.
+- Versions Desktop alignées sur 0.1.4 ; Android reste inchangé. La nouvelle CI et la release doivent encore confirmer le test corrigé et les installateurs.
+
 ## 7. Valider la diffusion TV — HorusDesktop
 
 - [ ] Tester DLNA et Chromecast sur de vrais appareils : découverte, démarrage, pause/reprise, volume et arrêt.
