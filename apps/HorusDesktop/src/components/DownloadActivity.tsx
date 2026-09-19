@@ -14,10 +14,26 @@ export function DownloadActivity({ download, cancelDownload }: Props) {
       <div>
         <strong>{download.title}</strong>
         <small>
-          {bytesLabel(download.bytes)} téléchargés · préparation du fichier MP4
+          {bytesLabel(download.bytes)} téléchargés ·{" "}
+          {download.phase === "cancelling"
+            ? "Annulation…"
+            : download.phase === "finalizing"
+              ? "Finalisation du MP4…"
+              : download.phase === "preparing"
+                ? "Préparation…"
+                : "Téléchargement"}
+          {download.bytesPerSecond != null &&
+            ` · ${download.bytesPerSecond < 1024 ** 2 ? `${Math.round(download.bytesPerSecond / 1024)} Ko` : bytesLabel(download.bytesPerSecond)}/s (écriture)`}
+          {download.percent != null && ` · ${Math.floor(download.percent)} %`}
+          {download.etaSeconds != null &&
+            ` · environ ${Math.max(1, Math.ceil(download.etaSeconds / 60))} min restantes`}
         </small>
       </div>
-      <button className="secondary" onClick={() => void cancelDownload()}>
+      <button
+        className="secondary"
+        disabled={download.phase === "cancelling"}
+        onClick={() => void cancelDownload()}
+      >
         Annuler
       </button>
     </div>

@@ -1,6 +1,6 @@
 # TODO — Prochaines évolutions de Horus
 
-Dernière mise à jour : 15 septembre 2026.
+Dernière mise à jour : 19 septembre 2026.
 
 Cette feuille de route reprend les prochaines évolutions discutées. Les cases
 non cochées correspondent à du travail à réaliser, pas à des fonctionnalités
@@ -374,13 +374,46 @@ Compléments bibliothèque demandés et réalisés le 15 septembre 2026 :
 - Validations : TypeScript Desktop et les 45 tests UI réussis, dont cinq nouveaux tests de catégories, suppression partielle persistée/restaurée, sélection globale avec exclusion, annulation/navigation et arrivée d'une nouvelle lecture. Le parcours App existant de vidage de l'historique passe désormais par la sélection et la confirmation. `git diff --check` réussi.
 - Les modifications préexistantes du chantier 5 sont conservées. Aucun changement Android, aucune compilation native et aucun essai manuel dans la WebView pour ce complément.
 
+Corrections de lecture des animés le 19 septembre 2026 :
+
+- [x] Afficher dans le lecteur Desktop le nom du serveur en cours, comme sur Remote.
+- [x] Permettre de choisir un autre serveur de la même langue pendant la lecture d’un animé, sans attendre une erreur, avec sauvegarde/reprise de la position. Le sélecteur reste dans les contrôles en plein écran et est disponible en diffusion TV ; les fichiers hors ligne sont exclus.
+- [x] Prioriser le serveur actuellement sélectionné à l’épisode suivant, manuel ou automatique, y compris après le bouton de repli sur erreur. Comparaison par nom et langue, indépendante de l’URL et de l’ordre des sources du nouvel épisode ; repli signalé dans la même langue si le serveur manque et choix explicite si la langue manque.
+- Validations : TypeScript Desktop et 59 tests UI réussis, dont quatre nouveaux parcours App réels avec sources/appels natifs simulés : changement sans erreur avec conservation de la position, serveur conservé malgré changement d’URL/ordre, repli après erreur puis enchaînement automatique, serveur ou langue absents. `git diff --check` réussi. Aucun build natif ni essai sur source réelle/TV lancé.
+- Le choix reste lié à la session de lecture ; stockage, fournisseurs partagés, Android et backend natif inchangés. Le chantier 6 et le déplacement du dossier vers Paramètres ont été committés séparément avant ces corrections (`b52d668`).
+
 ## 6. Améliorer les téléchargements — HorusDesktop
 
-- [ ] Ajouter une file d'attente avec suppression d'un élément et annulation du téléchargement actif.
-- [ ] Afficher une progression plus informative : état, octets, vitesse et estimation lorsque les informations sont disponibles.
-- [ ] Permettre le choix du dossier de destination et gérer les fichiers devenus introuvables.
-- [ ] Traiter explicitement le manque d'espace disque et les erreurs d'écriture.
-- [ ] Étudier séparément la reprise après interruption, selon les formats et les capacités de la source.
+- [x] Ajouter une file d'attente avec suppression d'un élément et annulation du téléchargement actif.
+- [x] Afficher une progression plus informative : état, octets, vitesse et estimation lorsque les informations sont disponibles.
+- [x] Permettre le choix du dossier de destination et gérer les fichiers devenus introuvables : saisie d'un chemin absolu, conservation des anciens emplacements, signalement des fichiers absents.
+- [x] Traiter explicitement le manque d'espace disque et les erreurs d'écriture.
+- [x] Étudier séparément la reprise après interruption, selon les formats et les capacités de la source : étude documentée ; reprise partielle non implémentée.
+- [ ] Valider en CI l'intégration native et le test média étendu, puis les téléchargements, dossiers externes et annulations dans les applications macOS/Windows/Linux.
+
+Travail réalisé le 15 septembre 2026 :
+
+- File séquentielle pendant la session : ajout depuis plusieurs fiches/épisodes, déduplication d'une demande identique, retrait d'un élément en attente, annulation de l'actif et démarrage du suivant après le nettoyage natif. Un échec signale le titre concerné et laisse la suite continuer. La fermeture abandonne la file et empêche le backend de démarrer de nouveaux téléchargements.
+- Progression FFmpeg : état, octets du MP4 produit, débit d'écriture entre deux échantillons, pourcentage et temps restant estimés seulement quand la durée/vitesse du média sont disponibles. Aucun total de taille inventé ; la finalisation MP4 et les métadonnées restent nécessaires avant d'annoncer un succès.
+- Dossier configurable dans Paramètres → Téléchargements par saisie d'un chemin absolu existant, contrôle d'écriture et retour au dossier par défaut. Le réglage est indisponible pendant la file. Les fichiers existants ne sont pas déplacés ; leur index reste central, avec un chemin facultatif pour préserver la compatibilité des anciennes entrées.
+- Les fichiers absents restent visibles avec leur chemin ; lecture/Cast désactivés et suppression de leur référence possible. Rouvrir l'onglet actualise leur disponibilité après reconnexion d'un disque. Lecture locale et diffusion utilisent l'emplacement enregistré.
+- Messages dédiés aux erreurs disque plein/écriture, sans exposer les journaux FFmpeg. Nettoyage après échec/annulation et journal des fichiers partiels pour les arrêts brutaux, limité aux fichiers identifiés du téléchargement, sans parcourir les fichiers personnels du dossier externe.
+- Étude dans [docs/DOWNLOADS.md](docs/DOWNLOADS.md) : une reprise HTTP ou HLS demanderait un transfert séparé du remuxage, validation du contenu et gestion des URL/segments expirés. Aucun simple ajout d'octets au MP4 partiel ni reprise automatique n'est annoncé. Une nouvelle tentative repart du début.
+- Android, API, fournisseurs partagés, bibliothèque/favoris/historique, dépendances, versions et workflows inchangés. Le répertoire de travail était propre au début du chantier.
+
+Validations effectuées :
+
+- TypeScript Desktop réussi sous Node 22.23.2. Les 54 tests Vitest/jsdom passent, dont neuf nouveaux tests de file, annulation, retrait, déduplication par épisode/langue, fermeture, réponse de liste obsolète, résultat pour la TV, fichiers absents, réglage de dossier et progression conditionnelle. Les quatre tests Desktop historiques passent également.
+- Dix tests Rust de stockage/parseurs réussis avec Rust 1.88.0, dans un petit harnais Cargo temporaire important les modules réels, hors ligne, sans compiler Tauri : ancien index, changement de destination, absence de dossier sans repli silencieux, suppression ciblée, fichiers partiels externes, arrêt après enregistrement complet, identifiant déjà utilisé, erreur réelle d'écriture des métadonnées, diagnostics et estimations inconnues. Aucun disque réel n'a été rempli.
+- Le test média existant est étendu au téléchargement HLS dans un dossier externe, à sa lecture via le relais et au refus d'un téléchargement pendant la fermeture. Cette extension n'a pas été exécutée localement ; elle sera vérifiée par la CI native.
+- Compilation Vite de l’interface réussie ; seul l’avertissement existant sur les chunks de plus de 500 ko reste présent. Contrôle final le 16 septembre : TypeScript, tests ciblés de la file, rustfmt des modules modifiés et `git diff --check` réussis.
+- Aucun build natif complet, essai sur appareil, commit, push, tag ou publication effectué pour ce chantier. La file ne persiste pas après fermeture et le choix de dossier se fait par saisie du chemin, sans sélecteur natif.
+
+Ajustement de l’interface le 16 septembre 2026 :
+
+- Le formulaire de destination est déplacé dans une carte dédiée des Paramètres. La page Téléchargements conserve un bouton discret « Dossier de téléchargement », qui ouvre cet onglet et place le focus sur la rubrique correspondante.
+- Le contrôle d’écriture, l’enregistrement explicite, le retour au dossier par défaut et le verrouillage pendant le traitement de la file sont conservés. Aucun changement du backend ni des emplacements existants pour ce déplacement.
+- Validation : TypeScript et `git diff --check` réussis ; 55 tests UI validés (52 au lancement complet, puis les trois tests de mise à jour après adaptation de leur simulation native au chargement du dossier). Le nouveau parcours vérifie le changement d’onglet, le focus sur la rubrique et l’absence de modification automatique du dossier.
 
 ## 7. Valider la diffusion TV — HorusDesktop
 

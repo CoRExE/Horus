@@ -1,9 +1,19 @@
 use crate::{
+    download_storage as storage,
+    download_support::{write_error, Diagnostics, Progress},
+};
+use crate::{
     relay::{self, PreparedStream, Relay},
     MediaSource,
 };
-use serde::{Deserialize, Serialize};
-use std::{collections::HashMap, path::Path, process::Stdio, sync::Mutex};
+use serde::Serialize;
+use std::{
+    collections::HashMap,
+    path::Path,
+    process::Stdio,
+    sync::{Arc, Mutex},
+};
+use storage::Download;
 use tauri::Emitter;
 use tokio::{
     io::{AsyncBufReadExt, AsyncReadExt, BufReader},
@@ -12,7 +22,10 @@ use tokio::{
 use uuid::Uuid;
 
 #[derive(Default)]
-pub struct Jobs(Mutex<HashMap<String, Option<oneshot::Sender<()>>>>);
+pub struct Jobs(
+    Mutex<HashMap<String, Option<oneshot::Sender<()>>>>,
+    std::sync::atomic::AtomicBool,
+);
 
 impl Jobs {
     fn cancel(&self, id: &str) -> Result<(), String> {
@@ -29,6 +42,7 @@ impl Jobs {
     }
     pub fn cancel_all(&self) {
         if let Ok(mut jobs) = self.0.lock() {
+            self.1.store(true, std::sync::atomic::Ordering::SeqCst);
             for sender in jobs.values_mut() {
                 if let Some(sender) = sender.take() {
                     let _ = sender.send(());
@@ -41,16 +55,39 @@ impl Jobs {
     }
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct Download {
-    id: String,
-    metadata: serde_json::Value,
-    size_bytes: u64,
-    downloaded_at: u64,
+struct DownloadProgress {
+    bytes: u64,
+    phase: &'static str,
+    bytes_per_second: Option<f64>,
+    percent: Option<f64>,
+    eta_seconds: Option<f64>,
+}
+
+#[tauri::command]
+pub async fn get_download_directory(state: tauri::State<'_, Relay>) -> Result<String, String> {
+    Ok(storage::directory(&state.downloads)?
+        .to_string_lossy()
+        .into())
+}
+#[tauri::command]
+pub async fn set_download_directory(
+    directory: Option<String>,
+    state: tauri::State<'_, Relay>,
+    jobs: tauri::State<'_, Jobs>,
+) -> Result<String, String> {
+    let guard = jobs.0.lock().map_err(|e| e.to_string())?;
+    if !guard.is_empty() {
+        return Err("Attendez la fin du téléchargement avant de changer de dossier.".into());
+    }
+    Ok(storage::set_directory(&state.downloads, directory)?
+        .to_string_lossy()
+        .into())
 }
 
 pub fn clean_partial_files(directory: &Path) {
+    storage::clean_pending(directory);
     if let Ok(entries) = std::fs::read_dir(directory) {
         for entry in entries.flatten() {
             if entry.path().extension().is_some_and(|ext| ext == "part") {
@@ -80,11 +117,10 @@ pub async fn download_media(
     app: tauri::AppHandle,
 ) -> Result<Download, String> {
     let progress_id = id.clone();
-    run_download(id, source, metadata, &state, &jobs, move |bytes| {
-        let _ = app.emit(
-            "download-progress",
-            serde_json::json!({ "id": progress_id, "bytes": bytes }),
-        );
+    run_download(id, source, metadata, &state, &jobs, move |progress| {
+        let mut payload = serde_json::to_value(progress).unwrap();
+        payload["id"] = progress_id.clone().into();
+        let _ = app.emit("download-progress", payload);
     })
     .await
 }
@@ -95,77 +131,90 @@ async fn run_download(
     metadata: serde_json::Value,
     state: &Relay,
     jobs: &Jobs,
-    on_progress: impl Fn(u64) + Send + 'static,
+    on_progress: impl Fn(DownloadProgress) + Send + 'static,
 ) -> Result<Download, String> {
     let id = Uuid::parse_str(&id)
         .map_err(|_| "Identifiant invalide")?
         .to_string();
     let (cancel, cancelled) = oneshot::channel();
-    {
-        let mut jobs = jobs.0.lock().map_err(|e| e.to_string())?;
-        if !jobs.is_empty() {
+    let mut download = {
+        let mut running = jobs.0.lock().map_err(|e| e.to_string())?;
+        if jobs.1.load(std::sync::atomic::Ordering::SeqCst) {
+            return Err("Application en cours de fermeture".into());
+        }
+        if !running.is_empty() {
             return Err("Un téléchargement est déjà en cours".into());
         }
-        if state.downloads.join(format!("{id}.mp4")).exists() {
-            return Err("Identifiant déjà utilisé".into());
-        }
-        jobs.insert(id.clone(), Some(cancel));
-    }
-    let partial = state.downloads.join(format!("{id}.part"));
-    let file = state.downloads.join(format!("{id}.mp4"));
+        let download = storage::begin(&state.downloads, &id, metadata)?;
+        running.insert(id.clone(), Some(cancel));
+        download
+    };
+    let file = download.file_path.as_ref().unwrap().clone();
+    let partial = file.with_extension("part");
     let relay_id = match state.register(source).await {
         Ok(id) => id,
         Err(e) => {
+            storage::rollback(&state.downloads, &download);
             jobs.0.lock().unwrap().remove(&id);
             return Err(e);
         }
     };
     let result = async {
         let mut command = relay::ffmpeg_command(&state.local_url(&relay_id))?;
-        command.args(["-movflags", "+faststart", "-progress", "pipe:1", "-f", "mp4", "-y"]).arg(&partial).stdout(Stdio::piped()).stderr(Stdio::piped());
-        let mut child = command.spawn().map_err(|e| e.to_string())?;
+        command.args(["-loglevel", "info", "-nostats", "-movflags", "+faststart", "-progress", "pipe:1", "-f", "mp4", "-y"])
+            .arg(&partial).stdout(Stdio::piped()).stderr(Stdio::piped());
+        let mut child = command.spawn().map_err(|_| "Impossible de démarrer FFmpeg pour le téléchargement")?;
         let stdout = child.stdout.take().unwrap();
         let stderr = child.stderr.take().unwrap();
+        let diagnostics = Arc::new(Mutex::new(Diagnostics::default()));
+        let stats = diagnostics.clone();
         let progress = tokio::spawn(async move {
             let mut lines = BufReader::new(stdout).lines();
+            let mut progress = Progress::default();
+            let mut last = (std::time::Instant::now(), 0_u64);
             while let Ok(Some(line)) = lines.next_line().await {
-                if let Some(bytes) = line.strip_prefix("total_size=").and_then(|s| s.parse::<u64>().ok()) {
-                    on_progress(bytes);
+                if progress.feed(&line) {
+                    let duration = stats.lock().unwrap().duration_seconds;
+                    let (percent, eta_seconds) = progress.estimate(duration);
+                    let elapsed = last.0.elapsed().as_secs_f64();
+                    let bytes_per_second = (elapsed >= 0.1).then(|| progress.bytes.saturating_sub(last.1) as f64 / elapsed);
+                    last = (std::time::Instant::now(), progress.bytes);
+                    on_progress(DownloadProgress {
+                        bytes: progress.bytes,
+                        phase: if line == "progress=end" || percent == Some(99.0) { "finalizing" } else { "downloading" },
+                        bytes_per_second, percent, eta_seconds,
+                    });
                 }
             }
         });
+        let errors_seen = diagnostics.clone();
         let errors = tokio::spawn(async move {
             let mut reader = BufReader::new(stderr);
             let mut buffer = [0; 4096];
-            // Drain stderr without retaining source URLs or allowing unbounded memory.
+            // Keep only bounded diagnostic markers, never log stderr/source URLs.
             while let Ok(length) = reader.read(&mut buffer).await {
                 if length == 0 { break; }
+                errors_seen.lock().unwrap().feed(&buffer[..length]);
             }
         });
         let status = tokio::select! {
-            result = child.wait() => result.map_err(|e| e.to_string()),
+            result = child.wait() => result.map_err(|_| "Impossible de suivre le téléchargement".to_string()),
             _ = cancelled => { let _ = child.kill().await; Err("Téléchargement annulé".into()) }
         };
         let _ = progress.await;
         let _ = errors.await;
-        if !status?.success() { return Err("Le téléchargement a échoué. Essayez un autre serveur ou vérifiez la compatibilité du flux avec MP4.".into()); }
-        let size_bytes = tokio::fs::metadata(&partial).await.map_err(|e| e.to_string())?.len();
-        if size_bytes == 0 { return Err("Le fichier téléchargé est vide".into()); }
-        let download = Download { id: id.clone(), metadata, size_bytes, downloaded_at: std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_millis() as u64 };
-        tokio::fs::rename(&partial, &file).await.map_err(|e| e.to_string())?;
-        let json = serde_json::to_vec(&download).map_err(|e| e.to_string())?;
-        let metadata_partial = state.downloads.join(format!("{id}.json.part"));
-        tokio::fs::write(&metadata_partial, json).await.map_err(|e| e.to_string())?;
-        tokio::fs::rename(&metadata_partial, state.downloads.join(format!("{id}.json"))).await.map_err(|e| e.to_string())?;
-        Ok(download)
+        if !status?.success() { return Err(diagnostics.lock().unwrap().message().into()); }
+        download.size_bytes = tokio::fs::metadata(&partial).await.map_err(write_error)?.len();
+        if download.size_bytes == 0 { return Err("Le fichier téléchargé est vide".into()); }
+        download.downloaded_at = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_millis() as u64;
+        storage::commit(&state.downloads, &download)?;
+        Ok(download.clone())
     }.await;
     state.release(&relay_id).await;
-    jobs.0.lock().unwrap().remove(&id);
     if result.is_err() {
-        let _ = tokio::fs::remove_file(&partial).await;
-        let _ = tokio::fs::remove_file(&file).await;
-        let _ = tokio::fs::remove_file(state.downloads.join(format!("{id}.json.part"))).await;
+        storage::rollback(&state.downloads, &download);
     }
+    jobs.0.lock().unwrap().remove(&id);
     result
 }
 
@@ -176,42 +225,12 @@ pub fn cancel_download(id: String, jobs: tauri::State<'_, Jobs>) -> Result<(), S
 
 #[tauri::command]
 pub async fn list_downloads(state: tauri::State<'_, Relay>) -> Result<Vec<Download>, String> {
-    let mut entries = tokio::fs::read_dir(&state.downloads)
-        .await
-        .map_err(|e| e.to_string())?;
-    let mut downloads = Vec::new();
-    while let Some(entry) = entries.next_entry().await.map_err(|e| e.to_string())? {
-        if entry.path().extension().is_some_and(|ext| ext == "json") {
-            if let Ok(data) = tokio::fs::read(entry.path()).await {
-                if let Ok(download) = serde_json::from_slice::<Download>(&data) {
-                    if Uuid::parse_str(&download.id).is_ok()
-                        && state
-                            .downloads
-                            .join(format!("{}.mp4", download.id))
-                            .is_file()
-                    {
-                        downloads.push(download);
-                    }
-                }
-            }
-        }
-    }
-    downloads.sort_by_key(|item| std::cmp::Reverse(item.downloaded_at));
-    Ok(downloads)
+    storage::list(&state.downloads)
 }
 
 #[tauri::command]
 pub async fn remove_download(id: String, state: tauri::State<'_, Relay>) -> Result<(), String> {
-    let id = Uuid::parse_str(&id).map_err(|_| "Identifiant invalide")?;
-    for extension in ["mp4", "json"] {
-        let file = state.downloads.join(format!("{id}.{extension}"));
-        match tokio::fs::remove_file(file).await {
-            Ok(()) => {}
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
-            Err(e) => return Err(e.to_string()),
-        }
-    }
-    Ok(())
+    storage::remove(&state.downloads, &id)
 }
 
 #[tauri::command]
@@ -295,7 +314,13 @@ mod tests {
             headers: HashMap::from([("X-Horus-Fixture".into(), "required".into())]),
         };
 
+        let external = TestDirectory(directory.0.join("external"));
+        tokio::fs::create_dir_all(&external.0).await.unwrap();
         for name in ["sample.mp4", "sample.m3u8"] {
+            if name == "sample.m3u8" {
+                storage::set_directory(&state.downloads, Some(external.0.to_string_lossy().into()))
+                    .unwrap();
+            }
             let id = Uuid::new_v4().to_string();
             let progress = Arc::new(AtomicU64::new(0));
             let observed = progress.clone();
@@ -307,8 +332,8 @@ mod tests {
                     serde_json::json!({ "title": "Synthetic fixture" }),
                     &state,
                     &jobs,
-                    move |bytes| {
-                        observed.fetch_max(bytes, Ordering::SeqCst);
+                    move |progress| {
+                        observed.fetch_max(progress.bytes, Ordering::SeqCst);
                     },
                 ),
             )
@@ -356,6 +381,8 @@ mod tests {
             state.release(&prepared.id).await;
         }
 
+        assert_eq!(storage::list(&state.downloads).unwrap().len(), 2);
+        storage::set_directory(&state.downloads, None).unwrap();
         let bridge_id = state.register(source("sample.m3u8")).await.unwrap();
         let response = state
             .client
@@ -437,6 +464,18 @@ mod tests {
                 .join(format!("{cancelled_id}.{extension}"))
                 .exists());
         }
+        jobs.cancel_all();
+        assert!(run_download(
+            Uuid::new_v4().to_string(),
+            source("sample.mp4"),
+            serde_json::Value::Null,
+            &state,
+            &jobs,
+            |_| {}
+        )
+        .await
+        .unwrap_err()
+        .contains("fermeture"));
         state.stop();
         source_task.abort();
     }

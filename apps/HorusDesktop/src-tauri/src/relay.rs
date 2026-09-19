@@ -435,10 +435,10 @@ async fn offline(
     let Ok(file_id) = Uuid::parse_str(&resource.source.url) else {
         return failure(StatusCode::NOT_FOUND, "Fichier invalide");
     };
-    match ServeFile::new(state.downloads.join(format!("{file_id}.mp4")))
-        .oneshot(request)
-        .await
-    {
+    let Ok(file) = crate::download_storage::path_for(&state.downloads, &file_id.to_string()) else {
+        return failure(StatusCode::NOT_FOUND, "Fichier indisponible");
+    };
+    match ServeFile::new(file).oneshot(request).await {
         Ok(response) => response.map(Body::new),
         Err(_) => failure(StatusCode::NOT_FOUND, "Fichier indisponible"),
     }
@@ -452,8 +452,8 @@ pub async fn register_offline(
     let file_id = Uuid::parse_str(&file_id)
         .map_err(|_| "Identifiant invalide")?
         .to_string();
-    if !state.downloads.join(format!("{file_id}.mp4")).is_file() {
-        return Err("Téléchargement introuvable".into());
+    if !crate::download_storage::path_for(&state.downloads, &file_id)?.is_file() {
+        return Err("Téléchargement introuvable. Vérifiez que son disque est connecté.".into());
     }
     let host = state.host_for(receiver.as_deref()).await?;
     let id = Uuid::new_v4().to_string();

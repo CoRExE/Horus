@@ -1,8 +1,11 @@
+import { DownloadSettings } from "../components/DownloadSettings";
 import type { FormEvent } from "react";
 import type { RuntimeInfo } from "../types/media";
-import type { useUpdates } from '../hooks/useUpdates';
+import type { useUpdates } from "../hooks/useUpdates";
 
 interface Props {
+  downloadsBusy: boolean;
+  focusDownloadSettings?: boolean;
   apiInput: string;
   setApiInput: (url: string) => void;
   saveApiUrl: (event: FormEvent) => void;
@@ -12,6 +15,8 @@ interface Props {
 }
 
 export function SettingsScreen({
+  downloadsBusy,
+  focusDownloadSettings,
   apiInput,
   setApiInput,
   saveApiUrl,
@@ -40,6 +45,10 @@ export function SettingsScreen({
           <button className="primary">Enregistrer</button>
         </form>
       </section>
+      <DownloadSettings
+        busy={downloadsBusy}
+        autoFocus={focusDownloadSettings}
+      />
       <section className="settings-card">
         <h2>Cette installation</h2>
         <dl>
@@ -56,22 +65,33 @@ export function SettingsScreen({
             <dd>{runtime?.ffmpeg ? "Disponible" : "Non détecté"}</dd>
           </div>
         </dl>
-        <button disabled={!updates.enabled || updates.result.kind === 'checking'} onClick={() => void updates.check()}>
-          {updates.result.kind === 'checking' ? 'Vérification…' : 'Vérifier les mises à jour'}
+        <button
+          disabled={!updates.enabled || updates.result.kind === "checking"}
+          onClick={() => void updates.check()}
+        >
+          {updates.result.kind === "checking"
+            ? "Vérification…"
+            : "Vérifier les mises à jour"}
         </button>
         <p role="status">
-          {!updates.enabled ? 'Vérification disponible dans une installation prise en charge.'
-            : updates.result.kind === 'current' ? 'Cette version est à jour.'
-            : updates.result.kind === 'unavailable' ? 'Vérification impossible pour le moment. Réessayez plus tard.'
-            : updates.result.kind === 'available' ? `Version ${updates.result.manifest.version} disponible.` : ''}
+          {!updates.enabled
+            ? "Vérification disponible dans une installation prise en charge."
+            : updates.result.kind === "current"
+              ? "Cette version est à jour."
+              : updates.result.kind === "unavailable"
+                ? "Vérification impossible pour le moment. Réessayez plus tard."
+                : updates.result.kind === "available"
+                  ? `Version ${updates.result.manifest.version} disponible.`
+                  : ""}
         </p>
         <p>
           FFmpeg permet les téléchargements MP4 et le relais HLS vers DLNA. Il
           doit être installé sur chaque ordinateur.
         </p>
         <p>
-          Les favoris et l’historique sont propres à cette application. Les
-          téléchargements sont conservés dans son dossier de données.
+          Les favoris et l’historique sont propres à cette application. Le
+          dossier de téléchargement peut être choisi dans les paramètres
+          ci-dessus.
         </p>
       </section>
     </div>
