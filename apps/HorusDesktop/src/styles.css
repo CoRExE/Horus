@@ -974,3 +974,9 @@ dt {
     gap: 22px 13px;
   }
 }
+
+.download-queue { margin-bottom: 24px; }
+.download-settings-link { display: inline-flex; align-items: center; gap: 8px; margin-bottom: 20px; }
+.download-queue li { display: flex; align-items: center; gap: 16px; margin-bottom: 10px; }
+.download-queue li span { flex: 1; }
+.download-path { display: block; overflow-wrap: anywhere; }

@@ -1,3 +1,4 @@
+import { groupStreamsByLanguage } from "@horus/core";
 import { useState } from "react";
 import {
   Film,
@@ -41,6 +42,7 @@ const sections = [
 ] as const;
 export default function App() {
   const library = useLibrary();
+  const [focusDownloadSettings, setFocusDownloadSettings] = useState(false);
   const [section, setSection] = useState<Section>("catalogue");
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -76,6 +78,9 @@ export default function App() {
   const {
     offline,
     download,
+    queue,
+    removeQueued,
+    isDownloading,
     refreshOffline,
     downloadMedia,
     cancelDownload,
@@ -107,6 +112,7 @@ export default function App() {
     setNotice,
   );
   const navigate = (next: Section) => {
+    setFocusDownloadSettings(false);
     resetSearch();
     setSection(next);
     setError("");
@@ -244,7 +250,11 @@ export default function App() {
         )}
         {section === "downloads" && (
           <DownloadsScreen
-            {...{ offline, starting }}
+            {...{ offline, starting, queue, removeQueued }}
+            openDownloadSettings={() => {
+              navigate("settings");
+              setFocusDownloadSettings(true);
+            }}
             playingOfflineId={playing?.offlineId}
             playOffline={(item) =>
               startPlayback(
@@ -262,6 +272,8 @@ export default function App() {
         )}
         {section === "settings" && (
           <SettingsScreen
+            downloadsBusy={!!download || queue.length > 0}
+            focusDownloadSettings={focusDownloadSettings}
             {...{ apiInput, setApiInput, version, runtime }}
             saveApiUrl={saveApiUrl}
             updates={updates}
@@ -286,7 +298,15 @@ export default function App() {
             openCast,
             downloadMedia,
           }}
-          downloading={!!download}
+          downloading={
+            !!details &&
+            isDownloading(
+              details,
+              (groupStreamsByLanguage(details.streams)[language] ?? [])[
+                selectedStream
+              ],
+            )
+          }
           ffmpeg={!!runtime?.ffmpeg}
         />
       )}

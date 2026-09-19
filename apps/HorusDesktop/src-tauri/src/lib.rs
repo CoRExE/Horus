@@ -1,5 +1,7 @@
 mod cast;
 mod discovery;
+mod download_storage;
+mod download_support;
 mod downloads;
 mod power;
 mod relay;
@@ -147,6 +149,8 @@ pub fn run() {
             discovery::discover_cast,
             cast::cast_load,
             cast::cast_control,
+            downloads::get_download_directory,
+            downloads::set_download_directory,
             downloads::download_media,
             downloads::cancel_download,
             downloads::list_downloads,

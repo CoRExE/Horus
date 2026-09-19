@@ -95,6 +95,8 @@ export interface OfflineMedia {
   id: string;
   metadata: DownloadMetadata;
   sizeBytes: number;
+  available?: boolean;
+  filePath?: string;
   downloadedAt: number;
 }
 export interface PlaybackStatus {

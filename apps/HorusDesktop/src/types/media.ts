@@ -4,7 +4,12 @@ import type { Device, OfflineMedia } from "../services/native";
 import type { useLibrary } from "../store/library";
 
 export type Section =
-  "catalogue" | "anime" | "wishlist" | "history" | "downloads" | "settings";
+  | "catalogue"
+  | "anime"
+  | "wishlist"
+  | "history"
+  | "downloads"
+  | "settings";
 export type LibraryState = ReturnType<typeof useLibrary.getState>;
 export interface MediaDetails {
   media: SearchResult;
@@ -29,6 +34,10 @@ export interface DownloadProgress {
   id: string;
   title: string;
   bytes: number;
+  phase?: "preparing" | "downloading" | "finalizing" | "cancelling";
+  bytesPerSecond?: number;
+  percent?: number;
+  etaSeconds?: number;
 }
 export interface CastTarget {
   details: MediaDetails;

@@ -1,9 +1,13 @@
-import { Download, Play, Cast, Trash2 } from "lucide-react";
+import type { DownloadProgress } from "../types/media";
+import { Download, Play, Cast, Trash2, Settings } from "lucide-react";
 import type { OfflineMedia } from "../services/native";
 import { bytesLabel } from "../utils/format";
 
 interface Props {
   offline: OfflineMedia[];
+  queue: DownloadProgress[];
+  removeQueued: (id: string) => void;
+  openDownloadSettings: () => void;
   starting: boolean;
   playingOfflineId?: string;
   playOffline: (item: OfflineMedia) => Promise<void>;
@@ -13,6 +17,9 @@ interface Props {
 
 export function DownloadsScreen({
   offline,
+  queue,
+  removeQueued,
+  openDownloadSettings,
   starting,
   playingOfflineId,
   playOffline,
@@ -25,6 +32,35 @@ export function DownloadsScreen({
         Vos fichiers restent disponibles sans connexion et peuvent être diffusés
         sur votre réseau local.
       </p>
+      <button
+        className="text-button download-settings-link"
+        onClick={openDownloadSettings}
+      >
+        <Settings size={16} /> Dossier de téléchargement
+      </button>
+      {queue.length > 0 && (
+        <section className="download-queue" aria-label="File d’attente">
+          <h2>En attente ({queue.length})</h2>
+          <ol>
+            {queue.map((item) => (
+              <li key={item.id}>
+                <span>{item.title}</span>
+                <button
+                  className="secondary"
+                  onClick={() => removeQueued(item.id)}
+                  aria-label={`Retirer ${item.title} de la file`}
+                >
+                  Retirer
+                </button>
+              </li>
+            ))}
+          </ol>
+          <p className="muted">
+            Un fichier à la fois. La file est conservée tant que l’application
+            reste ouverte.
+          </p>
+        </section>
+      )}
       {!offline.length && (
         <div className="empty-state">
           <Download size={36} />
@@ -41,13 +77,17 @@ export function DownloadsScreen({
             <div className="offline-title">
               <h3>{item.metadata.title}</h3>
               <small>
+                {item.available === false ? "Fichier introuvable · " : ""}
                 {item.metadata.language} · {bytesLabel(item.sizeBytes)} ·{" "}
                 {new Date(item.downloadedAt).toLocaleDateString("fr-FR")}
               </small>
+              {item.filePath && (
+                <small className="download-path">{item.filePath}</small>
+              )}
             </div>
             <button
               className="secondary"
-              disabled={starting}
+              disabled={starting || item.available === false}
               onClick={() => void playOffline(item)}
             >
               <Play size={16} /> Lire
@@ -55,7 +95,7 @@ export function DownloadsScreen({
             <button
               className="icon-button"
               aria-label={`Diffuser ${item.metadata.title}`}
-              disabled={starting}
+              disabled={starting || item.available === false}
               onClick={() => castOffline(item)}
             >
               <Cast size={19} />

@@ -90,6 +90,8 @@ beforeEach(() => {
     switch (command) {
       case "runtime_info":
         return { platform: "macos", ffmpeg: true } as never;
+      case "get_download_directory":
+        return "/downloads" as never;
       case "list_downloads":
         return files as never;
       case "download_media":
@@ -120,13 +122,11 @@ beforeEach(() => {
   vi.mocked(discoverDevices).mockResolvedValue({ devices: [tv], warnings: [] });
   vi.mocked(loadDevice).mockReset().mockResolvedValue(undefined);
   vi.mocked(controlDevice).mockReset().mockResolvedValue(undefined);
-  vi.mocked(deviceStatus)
-    .mockReset()
-    .mockResolvedValue({
-      transportState: "PLAYING",
-      positionSeconds: 45,
-      durationSeconds: 600,
-    });
+  vi.mocked(deviceStatus).mockReset().mockResolvedValue({
+    transportState: "PLAYING",
+    positionSeconds: 45,
+    durationSeconds: 600,
+  });
 });
 
 async function openFilm() {
@@ -314,4 +314,29 @@ test("changer de section ignore les résultats d'une recherche encore en cours",
     ).value,
   ).toBe("");
   expect(screen.queryByText("Recherche en cours…")).toBeNull();
+});
+
+test("le raccourci Téléchargements ouvre les paramètres et cible leur rubrique dédiée", async () => {
+  render(<App />);
+  fireEvent.click(screen.getByRole("button", { name: "Téléchargements" }));
+  expect(screen.queryByLabelText("Dossier de destination")).toBeNull();
+  fireEvent.click(
+    screen.getByRole("button", { name: "Dossier de téléchargement" }),
+  );
+  expect(
+    screen.getByRole("heading", { level: 1, name: "Paramètres" }),
+  ).toBeTruthy();
+  expect(document.activeElement).toBe(
+    screen.getByRole("heading", { level: 2, name: "Téléchargements" }),
+  );
+  await waitFor(() =>
+    expect(
+      (screen.getByLabelText("Dossier de destination") as HTMLInputElement)
+        .value,
+    ).toBe("/downloads"),
+  );
+  expect(invoke).not.toHaveBeenCalledWith(
+    "set_download_directory",
+    expect.anything(),
+  );
 });
