@@ -53,6 +53,8 @@ export function Player({
   onProgress,
   onNext,
   onRetry,
+  languageOptions,
+  onLanguageChange,
   serverOptions,
   selectedServer,
   onServerChange,
@@ -64,6 +66,8 @@ export function Player({
   onProgress: (position: number, duration: number, flush?: boolean) => void;
   onNext?: () => void;
   onRetry?: () => void;
+  languageOptions?: string[];
+  onLanguageChange?: (language: string) => void;
   serverOptions?: Stream[];
   selectedServer?: Stream;
   onServerChange?: (stream: Stream) => void;
@@ -75,11 +79,18 @@ export function Player({
     setError(`Impossible de changer le plein écran : ${errorMessage(error)}`),
   );
   const tracks = usePlayerTracks(video, playback);
-  const awakeWarning = usePlaybackAwake(video, playback, !playback.device);
+  const [status, setStatus] = useState<PlaybackStatus>();
+  const remoteInactive = ["PAUSED_PLAYBACK", "STOPPED", "NO_MEDIA_PRESENT"].includes(
+    status?.transportState ?? "",
+  );
+  const awakeWarning = usePlaybackAwake(
+    video,
+    playback,
+    playback.device ? (remoteInactive ? "inactive" : "remote") : "local",
+  );
   usePlayerShortcuts(video, !playback.device, toggle, (error) =>
     setError(errorMessage(error)),
   );
-  const [status, setStatus] = useState<PlaybackStatus>();
   const [busy, setBusy] = useState(false);
   const progressRef = useRef(onProgress);
   progressRef.current = onProgress;
@@ -214,6 +225,28 @@ export function Player({
     }
   };
 
+  const languagePicker = languageOptions && languageOptions.length > 1 && onLanguageChange ? (
+    <label>
+      Langue
+      <select
+        aria-label="Langue de lecture"
+        value={playback.language}
+        disabled={serverBusy}
+        onChange={(event) => {
+          const language = event.target.value;
+          if (language !== playback.language && languageOptions.includes(language)) {
+            flushProgress();
+            onLanguageChange(language);
+          }
+        }}
+      >
+        {languageOptions.map((language) => (
+          <option key={language} value={language}>{language}</option>
+        ))}
+      </select>
+    </label>
+  ) : null;
+
   const serverPicker = serverOptions?.length && onServerChange ? (
     <label>
       Serveur
@@ -278,7 +311,9 @@ export function Player({
       {playback.device ? (
         <div className="remote-player">
           <Cast size={48} />
-          {serverPicker && <div className="track-picker">{serverPicker}</div>}
+          {(languagePicker || serverPicker) && (
+            <div className="track-picker">{languagePicker}{serverPicker}</div>
+          )}
           <p>
             {status?.transportState === "PLAYING"
               ? "Lecture en cours sur votre téléviseur"
@@ -357,12 +392,13 @@ export function Player({
             onSeeked={flushProgress}
             onEnded={next}
           />
-          {(serverPicker || tracks.audio.length > 0 || tracks.subtitles.length > 0) && (
+          {(languagePicker || serverPicker || tracks.audio.length > 1 || tracks.subtitles.length > 0) && (
             <div className="track-picker">
+              {languagePicker}
               {serverPicker}
-              {tracks.audio.length > 0 && (
+              {tracks.audio.length > 1 && (
                 <label>
-                  Audio
+                  Piste audio
                   <select
                     aria-label="Piste audio"
                     value={tracks.audioId}

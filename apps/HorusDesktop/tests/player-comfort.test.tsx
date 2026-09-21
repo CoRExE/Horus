@@ -274,3 +274,38 @@ test("les animés conservent leurs arcs, films et identifiants, sans inventer de
   ]);
   expect(groups.flatMap((group) => group.episodes)).toEqual(source);
 });
+
+test.each(["file", "hls"] as const)("une piste audio unique reste masquée (%s), mais plusieurs pistes restent sélectionnables", async (format) => {
+  const { video } = player({ ...playback, format });
+  if (format === "hls") {
+    await waitFor(() => expect(fixture.engine).toBeDefined());
+    const engine = fixture.engine;
+    engine.audioTracks = [{ name: "FRA", lang: "fr" }];
+    engine.audioTrack = 0;
+    act(() => engine.emit("audio"));
+    expect(screen.queryByLabelText("Piste audio")).toBeNull();
+    engine.audioTracks.push({ name: "ENG", lang: "en" });
+    act(() => engine.emit("audio"));
+    fireEvent.change(screen.getByLabelText("Piste audio"), { target: { value: "1" } });
+    expect(engine.audioTrack).toBe(1);
+    engine.audioTracks = [{ name: "FRA", lang: "fr" }];
+    act(() => engine.emit("audio"));
+  } else {
+    const audio = Object.assign(new EventTarget(), {
+      length: 1,
+      0: { label: "FRA", language: "fr", enabled: true },
+      1: { label: "ENG", language: "en", enabled: false },
+    });
+    Object.defineProperty(video, "audioTracks", { value: audio });
+    fireEvent.loadedMetadata(video);
+    expect(screen.queryByLabelText("Piste audio")).toBeNull();
+    audio.length = 2;
+    fireEvent.loadedMetadata(video);
+    fireEvent.change(screen.getByLabelText("Piste audio"), { target: { value: "1" } });
+    expect(audio[1].enabled).toBe(true);
+    audio.length = 1;
+    fireEvent.loadedMetadata(video);
+  }
+  expect(screen.queryByLabelText("Piste audio")).toBeNull();
+  expect(screen.queryByLabelText("Langue de lecture")).toBeNull();
+});

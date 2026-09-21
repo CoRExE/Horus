@@ -14,13 +14,13 @@ function nativeAwake(active: boolean) {
 export function usePlaybackAwake(
   video: RefObject<HTMLVideoElement | null>,
   source: object,
-  enabled: boolean,
+  mode: "local" | "remote" | "inactive",
 ) {
   const [warning, setWarning] = useState("");
   useEffect(() => {
     setWarning("");
-    const element = video.current;
-    if (!element || !enabled) return;
+    const element = mode === "local" ? video.current : null;
+    if (mode === "inactive" || (mode === "local" && !element)) return;
     let disposed = false;
     let playing = false;
     let browserLock: WakeLockSentinel | undefined;
@@ -82,18 +82,19 @@ export function usePlaybackAwake(
     const visibility = () => {
       if (!isTauri() && document.visibilityState === "visible") void acquire();
     };
-    element.addEventListener("playing", start);
+    if (mode === "remote") start();
+    element?.addEventListener("playing", start);
     for (const event of ["pause", "ended", "error", "emptied"])
-      element.addEventListener(event, release);
+      element?.addEventListener(event, release);
     document.addEventListener("visibilitychange", visibility);
     return () => {
       disposed = true;
-      element.removeEventListener("playing", start);
+      element?.removeEventListener("playing", start);
       for (const event of ["pause", "ended", "error", "emptied"])
-        element.removeEventListener(event, release);
+        element?.removeEventListener(event, release);
       document.removeEventListener("visibilitychange", visibility);
       release();
     };
-  }, [source, enabled]);
+  }, [source, mode]);
   return warning;
 }

@@ -7,6 +7,7 @@ import {
   type Stream,
 } from "@horus/core";
 import { Modal } from "./Modal";
+import { EpisodeDownloads } from "./EpisodeDownloads";
 import { EpisodePicker } from "./EpisodePicker";
 import { mediaKey } from "../store/library";
 import type {
@@ -31,6 +32,7 @@ interface Props {
   startPlayback: StartPlayback;
   openCast: (details: MediaDetails, stream: Stream) => void;
   downloadMedia: DownloadMedia;
+  downloadEpisodes: (details: MediaDetails, episodes: Episode[], language: string, server?: string) => void;
   downloading: boolean;
   ffmpeg: boolean;
 }
@@ -50,6 +52,7 @@ export function MediaDetailsDialog({
   startPlayback,
   openCast,
   downloadMedia,
+  downloadEpisodes,
   downloading,
   ffmpeg,
 }: Props) {
@@ -97,6 +100,11 @@ export function MediaDetailsDialog({
             disabled={detailsBusy || starting}
             onChoose={(episode) => void chooseEpisode(details, episode)}
           />
+        )}
+        {details.media.type !== "movie" && details.episodes.length > 0 && (
+          <EpisodeDownloads key={`downloads:${mediaKey(details.media)}`} episodes={details.episodes} language={language}
+            disabled={detailsBusy || starting || !ffmpeg}
+            onDownload={(episodes, targetLanguage) => downloadEpisodes(details, episodes, targetLanguage, stream?.server)} />
         )}
         {details.streams.length > 0 && (
           <>

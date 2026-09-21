@@ -108,7 +108,7 @@ les dépendances installées. `setup-gradle` gère son cache ; pnpm installe ave
 les modules existants : ce pipeline ne garantit pas une reproduction octet pour
 octet des APK.
 
-Pour un build local, définir `ANDROID_HOME` et les quatre variables
+Pour un build local de production, définir `ANDROID_HOME` et les quatre variables
 `HORUS_ANDROID_KEYSTORE` (chemin absolu), `HORUS_ANDROID_STORE_PASSWORD`,
 `HORUS_ANDROID_KEY_ALIAS`, `HORUS_ANDROID_KEY_PASSWORD` dans l'environnement :
 
@@ -130,10 +130,58 @@ Les builds Android de release utilisent la lecture directe du système de fichie
 par Metro, sans dépendre de l'état d'un daemon Watchman local. Le mode de
 développement conserve sa configuration actuelle.
 Le plugin de signature refuse un build release sans identifiants ; il ne laisse
-pas le template signer la release avec la clé de debug. `build:preview` utilise
-aussi ce build Android signé. L'URL API vient de `EXPO_PUBLIC_HORUS_API_URL`, avec
-le même défaut que l'ancien profil EAS preview. Dans GitHub, la variable facultative
-`HORUS_API_URL` permet de la remplacer.
+pas le template signer la release avec la clé de debug. L'adresse du catalogue
+est désormais saisie dans les paramètres de HorusRemote : aucune URL de worker
+n'est choisie par défaut dans le build ou le workflow. Les anciennes variables
+`EXPO_PUBLIC_HORUS_API_URL` et `HORUS_API_URL` ne configurent plus l'application.
+
+### Configurer le catalogue dans HorusRemote
+
+Ouvrir **Paramètres → Catalogue HorusApi**, saisir l'adresse HTTP/HTTPS du worker,
+puis **Enregistrer l'adresse**. Android utilise le clavier intégré avec des raccourcis
+`https://`, `.workers.dev`, points, tirets et barres obliques ; aucun clavier système
+n'est demandé. L'adresse est enregistrée localement et les nouvelles recherches
+utilisent immédiatement ce catalogue, sans rebuild.
+
+Une installation sans adresse invite à ouvrir les paramètres pour rechercher des
+films/séries par titre. Les animés, les médias hors ligne et l'accès direct par
+identifiant restent indépendants de ce catalogue. Le jeton TMDB demeure uniquement
+dans le worker. Modifier l'adresse ne réinitialise ni l'historique, ni les favoris,
+ni les téléchargements. Une preview installée séparément possède son propre réglage.
+
+### APK de preview local, sans secrets de production
+
+Depuis `apps/HorusRemote` :
+
+```sh
+pnpm build:preview
+# --local reste accepté, mais le build est toujours local.
+```
+
+Le SDK Android, Java et les dépendances du projet doivent être installés comme
+pour la production. La commande lance le prebuild puis `:app:assemblePreview`.
+Cette variante reprend la configuration release et embarque le JavaScript :
+aucun serveur Metro n'est nécessaire. Elle utilise le keystore de debug fourni
+par le projet Android généré, sans demander les quatre variables de signature
+et sans transmettre leurs valeurs si elles existent dans le shell.
+
+L'APK attendu est `apps/HorusRemote/android/app/build/outputs/apk/preview/app-preview.apk`
+depuis la racine du dépôt. Il s'installe sous **Horus Preview**, avec l'identifiant
+`com.horus.remote.preview`, à côté de la version officielle et avec ses propres
+données. Il ne remplace pas l'application officielle et ne permet donc pas de
+tester une mise à jour de ses données existantes. La production conserve son
+identifiant et sa signature historique. Garder le keystore local de debug pour
+mettre à jour une preview déjà installée.
+
+La séparation utilise les [variantes Android](https://developer.android.com/build/build-variants)
+et conserve le [bundle React Native](https://reactnative.dev/docs/react-native-gradle-plugin#debuggablevariants)
+pour la variante preview non débogable. Un prebuild met aussi à jour les anciens
+blocs de signature sans exiger de supprimer le dossier Android.
+
+Validation le 21 septembre 2026 : 19 tests ciblés des modes de build, du plugin
+Expo et des garde-fous de publication réussis. La compilation et l'installation
+de cette nouvelle variante restent à confirmer par l'utilisateur ; aucun build
+natif lancé par l'agent.
 
 La migration et la conservation des données Android sont confirmées par
 l'utilisateur. La configuration EAS, son identifiant de projet, son URL OTA,

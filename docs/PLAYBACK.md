@@ -34,10 +34,13 @@ les épisodes restent dans « Tous les épisodes ». Les fiches de films n'ajout
 pas de sélecteur Saison. L'ordre global de l'épisode suivant reste celui du fournisseur.
 
 Le lecteur affiche les pistes audio et sous-titres exposées par HLS.js ou par la
-WebView pour les fichiers et le HLS natif. Les listes suivent les changements du
+WebView pour les fichiers et le HLS natif. Le sélecteur « Piste audio » n’apparaît
+que si au moins deux pistes sont disponibles : une piste unique « FRA » ne
+constitue pas un choix de langue. Les listes suivent les changements du
 manifeste et sont nettoyées lors du remplacement de la source. Les pistes de
 métadonnées ne sont pas proposées comme sous-titres. « Désactivés » coupe les
-sous-titres sélectionnables. Les contrôles restent accessibles en plein écran.
+sous-titres sélectionnables. La barre de sélection est masquée en plein écran et réapparaît en mode fenêtre,
+sans modifier les choix actifs.
 
 Le choix VF/VOSTFR des serveurs reste distinct des pistes internes à la vidéo.
 Aucune piste n'est inventée lorsqu'un flux ou une WebView ne l'expose pas ; les
@@ -48,7 +51,13 @@ persistant de langue ou de sous-titres n'est ajouté.
 
 Le maintien éveillé commence à l'événement de lecture effective (`playing`). Il
 est libéré à la pause, à la fin, à l'erreur, au changement de source et à la
-fermeture. Il concerne la lecture sur cet ordinateur, pas la diffusion TV.
+fermeture pour la lecture sur cet ordinateur.
+En diffusion DLNA/Chromecast, il commence dès l'ouverture des commandes TV,
+après le démarrage du flux. Il reste actif pendant la lecture, les transitions
+et les erreurs temporaires de consultation de l'état du récepteur. Une pause,
+un arrêt ou une absence de média signalés par la TV le libèrent ; une reprise
+le réactive. Fermer le lecteur ou l'application le libère également.
+Si la TV ne répond plus, arrêter la diffusion dans Horus libère le verrou.
 Une indisponibilité du service de veille affiche une information sans bloquer
 la lecture. La veille manuelle reste une décision du système/utilisateur.
 
@@ -99,17 +108,27 @@ D-Bus de session). Les tests JS simulent les services natifs ; ils ne remplacent
 pas ces essais sur machine.
 
 
-## Serveurs des animés
+## Langue de lecture et serveurs
 
 Le lecteur Desktop affiche le serveur du flux en cours à côté de sa langue.
-Pour un animé en ligne, le sélecteur « Serveur » permet de changer de source
+Pour une lecture en ligne, le sélecteur « Serveur » permet de changer de source
 à tout moment, même si la lecture fonctionne. Il reste accessible dans la barre
-sous la vidéo en plein écran, ainsi que pendant une diffusion TV. Le lecteur
+sous la vidéo en mode fenêtre, ainsi que pendant une diffusion TV. Le lecteur
 sauvegarde la position avant le changement et la reprend sur le nouveau flux.
 La liste est limitée à la langue en cours ; les téléchargements hors ligne
 n’ont pas de sélecteur de serveur.
 
-À l’épisode suivant, demandé par le bouton ou à la fin de la vidéo, le serveur
+Si plusieurs langues sont disponibles, le sélecteur « Langue » précède les
+serveurs. Il choisit un flux de la langue demandée en conservant le serveur et
+la qualité si disponibles, sinon le premier serveur de cette langue. Le lecteur
+sauvegarde la position avant de changer de source et tente de la reprendre,
+y compris sur TV lorsque le flux permet le déplacement. Les listes de serveurs
+sont immédiatement limitées à la nouvelle langue. Ces choix restent accessibles
+en mode fenêtre et pendant la diffusion TV, et sont absents pour les fichiers
+hors ligne. La langue choisie est conservée à l’épisode suivant ; si elle manque,
+un choix explicite est demandé.
+
+Pour les animés, à l’épisode suivant, demandé par le bouton ou à la fin de la vidéo, le serveur
 actuellement choisi est prioritaire, y compris après « Serveur suivant » sur une
 erreur. La correspondance utilise le nom du serveur et la langue, jamais l’URL
 propre à l’épisode ; la qualité est conservée si elle est disponible. Si le serveur
@@ -122,3 +141,25 @@ Validation le 19 septembre 2026 : TypeScript et 59 tests UI réussis, dont quatr
 nouveaux tests du parcours App des animés (changement manuel, reprise de position,
 serveur conservé après erreur, nouvel épisode et indisponibilités). Les sources
 et commandes natives sont simulées ; les essais sur sources réelles restent à faire.
+
+Validation le 21 septembre 2026 : TypeScript Desktop et 63 tests UI réussis,
+dont les pistes uniques HLS/natives masquées, le passage VOSTFR → VF → VOSTFR,
+la reprise de position, les serveurs filtrés et la langue conservée à l’épisode
+suivant. Les essais natifs et TV de ce changement restent à confirmer.
+
+## Recherche et navigation Android
+
+La recherche Android utilise un clavier intégré au lieu d’un champ ouvrant le clavier
+système : AZERTY, majuscules, accents, chiffres, ponctuation, espace, retour arrière,
+effacement et déplacement du curseur. Rechercher valide la saisie ; Fermer, le fond et
+le bouton Retour ferment le clavier sans perdre le texte. La saisie Desktop/web reste
+inchangée. Ce clavier ne fournit pas les suggestions ni la dictée du clavier système.
+
+Le lecteur ne réaffiche plus volontairement les boutons Android à sa fermeture.
+La barre est remasquée au retour actif/focus de l’application, à l’ouverture/fermeture
+du clavier et aux transitions de plein écran. Les appels aux couleurs et au comportement
+incompatibles avec le mode edge-to-edge ont été retirés, conformément à la
+[documentation Expo NavigationBar](https://docs.expo.dev/versions/v54.0.0/sdk/navigation-bar/).
+Les tests de logique et l’export JavaScript ne valident pas le rendu système : tester
+la saisie, un lancement vidéo, le plein écran, les changements de serveur, le retour
+d’application et la navigation Android à trois boutons sur téléphone.

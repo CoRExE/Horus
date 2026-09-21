@@ -7,8 +7,9 @@
     "desktop": "pnpm --filter horus-desktop tauri:d",
     "desktop:build": "pnpm --filter horus-desktop tauri:b",
     "desktop:clean": "pnpm --filter horus-desktop tauri:clean",
+    "mobile:preview": "pnpm --filter horusremote build:preview",
     "typecheck": "pnpm --filter @horus/core typecheck && pnpm --filter horusremote typecheck && pnpm --filter horus-api typecheck && pnpm --filter horus-desktop typecheck",
-    "test": "pnpm --filter @horus/core test && pnpm --filter horus-api test && pnpm --filter horus-desktop test",
+    "test": "pnpm --filter @horus/core test && pnpm --filter horusremote test && pnpm --filter horus-api test && pnpm --filter horus-desktop test",
     "check": "pnpm run typecheck && pnpm run test"
   },
   "engines": {

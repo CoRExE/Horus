@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, Modal, Pressable, TouchableOpacity, ScrollView, ActivityIndicator } from 'react-native';
 import { MotiView } from 'moti';
 import { Episode } from '@horus/core';
@@ -11,6 +11,8 @@ export interface HorusEpisodeListProps {
   selectedSeason: string;
   onSelectSeason: (season: string) => void;
   episodes: Episode[];
+  allEpisodes?: Episode[];
+  onDownloadEpisodes?: (episodes: Episode[], language: string) => void;
   isExtracting: boolean;
   onPlayEpisode: (episode: Episode) => void;
   onDownloadEpisode?: (episode: Episode) => void;
@@ -32,6 +34,8 @@ export const HorusEpisodeList: React.FC<HorusEpisodeListProps> = ({
   selectedSeason,
   onSelectSeason,
   episodes,
+  allEpisodes = episodes,
+  onDownloadEpisodes,
   isExtracting,
   onPlayEpisode,
   onDownloadEpisode,
@@ -39,6 +43,14 @@ export const HorusEpisodeList: React.FC<HorusEpisodeListProps> = ({
   downloadingEpisodeId,
   isLoading = false,
 }) => {
+  const [selecting, setSelecting] = useState(false);
+  const [selected, setSelected] = useState<string[]>([]);
+  const [language, setLanguage] = useState('VF');
+  useEffect(() => {
+    if (!visible) { setSelecting(false); setSelected([]); }
+  }, [visible]);
+  const toggleEpisode = (episode: Episode) => setSelected(current => current.includes(episode.id)
+    ? current.filter(id => id !== episode.id) : [...current, episode.id]);
   return (
     <Modal
       visible={visible}
@@ -90,6 +102,40 @@ export const HorusEpisodeList: React.FC<HorusEpisodeListProps> = ({
               </View>
             )}
 
+            {onDownloadEpisodes && <View style={styles.batchControls}>
+              {!selecting ? <TouchableOpacity accessibilityRole="button" disabled={isLoading || isExtracting || !!downloadingEpisodeId}
+                onPress={() => setSelecting(true)} style={styles.batchButton}>
+                <Text style={styles.batchText}>Télécharger plusieurs épisodes</Text>
+              </TouchableOpacity> : <>
+                <Text style={styles.batchText}>Langue des téléchargements</Text>
+                <View style={styles.batchRow}>{['VF', 'VOSTFR', 'VO'].map(value => <TouchableOpacity key={value}
+                  accessibilityRole="radio" accessibilityState={{ selected: language === value }}
+                  onPress={() => setLanguage(value)} style={[styles.batchButton, language === value && styles.seasonTabActive]}>
+                  <Text style={styles.batchText}>{value}</Text>
+                </TouchableOpacity>)}</View>
+                <View style={styles.batchRow}>
+                  <TouchableOpacity accessibilityRole="button" style={styles.batchButton}
+                    onPress={() => setSelected(current => [...new Set([...current, ...episodes.map(episode => episode.id)])])}>
+                    <Text style={styles.batchText}>Toute la saison</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity accessibilityRole="button" style={styles.batchButton} onPress={() => setSelected([])}>
+                    <Text style={styles.batchText}>Tout désélectionner</Text>
+                  </TouchableOpacity>
+                </View>
+                <View style={styles.batchRow}>
+                  <TouchableOpacity accessibilityRole="button" style={[styles.batchButton, !selected.length && { opacity: 0.4 }]}
+                    disabled={!selected.length || !!downloadingEpisodeId || isExtracting}
+                    onPress={() => { onDownloadEpisodes(allEpisodes.filter(episode => selected.includes(episode.id)), language); setSelected([]); setSelecting(false); }}>
+                    <Text style={styles.batchText}>Télécharger ({selected.length})</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity accessibilityRole="button" style={styles.batchButton} onPress={() => { setSelecting(false); setSelected([]); }}>
+                    <Text style={styles.batchText}>Annuler</Text>
+                  </TouchableOpacity>
+                </View>
+                <Text style={styles.batchHint}>Dans l’ordre des épisodes. Les épisodes déjà présents dans cette langue sont ignorés ; une langue absente est signalée.</Text>
+              </>}
+            </View>}
+
             {/* Liste des Épisodes avec Staggered Animation */}
             <ScrollView style={styles.episodesList} contentContainerStyle={{ paddingBottom: 40, paddingTop: 10 }}>
               {episodes.map((ep, idx) => {
@@ -113,7 +159,10 @@ export const HorusEpisodeList: React.FC<HorusEpisodeListProps> = ({
                     <View style={styles.episodeCard}>
                       <TouchableOpacity
                         style={styles.episodePlayArea}
-                        onPress={() => onPlayEpisode(ep)}
+                        onPress={() => selecting ? toggleEpisode(ep) : onPlayEpisode(ep)}
+                        accessibilityRole={selecting ? "checkbox" : "button"}
+                        accessibilityState={selecting ? { checked: selected.includes(ep.id) } : undefined}
+                        accessibilityLabel={displayTitle}
                         disabled={isExtracting}
                         activeOpacity={0.7}
                       >
@@ -128,14 +177,16 @@ export const HorusEpisodeList: React.FC<HorusEpisodeListProps> = ({
                           </Text>
                         </View>
                         <View style={styles.playAction}>
-                          {isExtracting ? (
+                          {selecting ? (
+                            <Text style={styles.playIconText}>{selected.includes(ep.id) ? '☑' : '☐'}</Text>
+                          ) : isExtracting ? (
                             <ActivityIndicator size="small" color={COLOR_ACCENT_PURPLE} />
                           ) : (
                             <Text style={styles.playIconText}>▶</Text>
                           )}
                         </View>
                       </TouchableOpacity>
-                      {onDownloadEpisode && (
+                      {onDownloadEpisode && !selecting && (
                         <TouchableOpacity
                           style={styles.downloadAction}
                           onPress={() => onDownloadEpisode(ep)}
@@ -176,6 +227,11 @@ export const HorusEpisodeList: React.FC<HorusEpisodeListProps> = ({
 };
 
 const styles = StyleSheet.create({
+  batchControls: { gap: 6, marginBottom: 8 },
+  batchRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
+  batchButton: { borderWidth: 1, borderColor: '#475569', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 6 },
+  batchText: { color: '#F8FAFC', fontSize: 13 },
+  batchHint: { color: '#94A3B8', fontSize: 11 },
   container: {
     flex: 1,
     justifyContent: 'flex-end',

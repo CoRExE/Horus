@@ -7,6 +7,7 @@ import {
   waitFor,
 } from "@testing-library/react";
 import { beforeEach, expect, test, vi } from "vitest";
+import { providerFor } from "../src/services/providers";
 import { useDownloads } from "../src/hooks/useDownloads";
 import { invoke, type OfflineMedia } from "../src/services/native";
 import { DownloadSettings } from "../src/components/DownloadSettings";
@@ -14,6 +15,7 @@ import { DownloadsScreen } from "../src/screens/DownloadsScreen";
 import { DownloadActivity } from "../src/components/DownloadActivity";
 import type { MediaDetails } from "../src/types/media";
 
+vi.mock("../src/services/providers", () => ({ providerFor: vi.fn() }));
 vi.mock("../src/services/native", async (original) => ({
   ...(await original<typeof import("../src/services/native")>()),
   isTauri: () => true,
@@ -329,4 +331,41 @@ test("le dossier est verrouillé pendant le traitement et un refus d’écriture
       .getByRole("button", { name: "Enregistrer le dossier" })
       .hasAttribute("disabled"),
   ).toBe(false);
+});
+
+
+test("un lot résout les sources une à une, déduplique et ignore une langue manquante sans lancer la VO", async () => {
+  const getStreams = vi.fn(async (id: string) => id === "2" ? [{ ...stream, language: "VOSTFR" }] : [{ ...stream, url: `https://fixture.invalid/${id}` }]);
+  vi.mocked(providerFor).mockReturnValue({ getStreams } as unknown as ReturnType<typeof providerFor>);
+  const { result } = renderHook(() => useDownloads(callbacks));
+  const current = { ...details("series"), media: { ...details("series").media, type: "series" as const } };
+  const episodes = [1, 2, 3].map(number => ({ id: String(number), number }));
+  act(() => {
+    result.current.downloadEpisodes(current, episodes, "VF");
+    result.current.downloadEpisodes(current, episodes, "VF");
+  });
+  await waitFor(() => expect(calls).toHaveLength(1));
+  expect(getStreams).toHaveBeenCalledTimes(1);
+  expect(result.current.queue).toHaveLength(2);
+  expect(result.current.isDownloading({ ...current, episode: episodes[0] }, stream)).toBe(true);
+  await act(async () => calls[0].resolve(item("one")));
+  await waitFor(() => expect(calls).toHaveLength(2));
+  expect(getStreams.mock.calls.map(call => call[0])).toEqual(["1", "2", "3"]);
+  expect(callbacks.setError).toHaveBeenCalledWith(expect.stringContaining("Aucun serveur disponible en VF"));
+  expect(invoke).toHaveBeenCalledWith("download_media", expect.objectContaining({ source: { url: "https://fixture.invalid/3", headers: {} } }));
+  await act(async () => calls[1].resolve(item("three")));
+});
+
+test("annuler pendant la résolution puis retirer le suivant ne lance aucun téléchargement tardif", async () => {
+  let resolve!: (streams: typeof stream[]) => void;
+  const getStreams = vi.fn(() => new Promise<typeof stream[]>(done => { resolve = done; }));
+  vi.mocked(providerFor).mockReturnValue({ getStreams } as unknown as ReturnType<typeof providerFor>);
+  const { result } = renderHook(() => useDownloads(callbacks));
+  act(() => result.current.downloadEpisodes(details("series"), [{ id: "1", number: 1 }, { id: "2", number: 2 }], "VF"));
+  await act(async () => result.current.cancelDownload());
+  act(() => result.current.removeQueued(result.current.queue[0].id));
+  await act(async () => resolve([stream]));
+  expect(calls).toHaveLength(0);
+  expect(getStreams).toHaveBeenCalledTimes(1);
+  expect(result.current.download).toBeUndefined();
 });

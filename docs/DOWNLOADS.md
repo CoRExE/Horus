@@ -1,6 +1,6 @@
-# Téléchargements Desktop
+# Téléchargements Desktop et Android
 
-## File d’attente
+## File d’attente Desktop
 
 Dans une fiche, « Télécharger » démarre le fichier ou l’ajoute à la suite du
 fichier actif. Une même demande (fournisseur, média, épisode, langue et URL) ne
@@ -16,6 +16,39 @@ le titre concerné et laisse les demandes suivantes continuer. Le parcours
 La file vit pendant la session de l’application : elle n’est pas restaurée après
 fermeture. Quitter annule le fichier actif et abandonne les demandes en attente.
 Les URL des sources ne sont pas enregistrées dans un nouveau stockage persistant.
+
+## Sélection d’épisodes — Desktop et Android
+
+Pour une série ou un animé, « Télécharger plusieurs épisodes » ouvre une sélection
+avec cases à cocher. Choisir la langue avant de confirmer : une langue absente est
+signalée et ne se transforme jamais automatiquement en une autre langue. Les épisodes
+sont traités dans l’ordre du catalogue, indépendamment de l’ordre des clics. Les sources
+sont résolues au démarrage de chaque épisode pour éviter d’attendre avec des URL expirées.
+Les épisodes déjà téléchargés dans la même langue sont ignorés.
+
+Sur Desktop, la sélection ajoute les épisodes à la file habituelle. On peut sélectionner
+ou désélectionner tous les épisodes, retirer individuellement ceux en attente et annuler
+l’actif, y compris pendant la résolution des serveurs. Un échec laisse les suivants
+continuer. Si un serveur était choisi dans la fiche, il est préféré lorsqu’il existe
+dans la langue demandée ; sinon le premier serveur de cette langue est retenu.
+
+Sur Android, la sélection peut couvrir plusieurs saisons. « Toute la saison » ajoute
+les épisodes de la saison affichée et « Tout désélectionner » efface la sélection entière.
+La confirmation affiche le titre, la langue, le numéro dans le lot et la progression du
+fichier courant. Les serveurs de la langue demandée sont essayés successivement selon
+le mécanisme existant. Un bilan final liste les échecs sans interrompre le lot. Annuler
+arrête le fichier actif et abandonne les épisodes restants après nettoyage ; les fichiers
+déjà terminés sont conservés. Arrêter la lecture ou la diffusion avant de lancer ce lot.
+
+Les lots restent limités à la session. Android conserve le mécanisme existant de récupération
+du seul épisode actif après interruption, désormais avec sa langue choisie ; les épisodes
+pas encore commencés doivent être sélectionnés à nouveau. La récupération repart du début,
+sans reprise partielle. Aucun changement du format des fichiers hors ligne existants.
+
+Validation le 21 septembre 2026 : 66 tests Desktop, 6 tests de logique Android (lot,
+annulation, clavier et cycle d’immersion), TypeScript Desktop/Remote, build Vite et export
+JavaScript Android réussis. Les téléchargements et l’annulation sur appareils réels restent
+à confirmer. Aucun APK ni binaire Desktop compilé par l’agent pour cette modification.
 
 ## Progression
 
