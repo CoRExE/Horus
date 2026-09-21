@@ -6,6 +6,11 @@ jobs utilisent le même commit du tag. Chaque build crée un **brouillon** GitHu
 Release ; aucune publication ni création de tag n'est effectuée par les scripts
 de build locaux. Ne pas démarrer les deux workflows pour le même tag.
 
+Les vérifications s'exécutent sur les pull requests, à la demande et lors des
+builds de release. Un push ou une fusion sur `main`/`master` ne les relance pas
+automatiquement. Un push direct sur ces branches ne sera donc vérifié qu'au
+prochain lancement manuel ou build de release.
+
 iOS est exclu du périmètre depuis le 12 septembre 2026 : aucune version iPhone/iPad
 ni aucun workflow iOS n'est prévu. Les commandes `ios`, `build:prod:ios` et
 `build:prod:all` ont été retirées ; utiliser `build:prod:android` pour Mobile.

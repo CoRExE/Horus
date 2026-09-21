@@ -46,6 +46,13 @@ concerne aussi Mobile. La TODO graphique existante de
 
 Travail terminé le 10 septembre 2026 :
 
+Évolution du 22 septembre 2026 : retrait du déclencheur `push` sur `main`/`master`
+pour éviter une nouvelle exécution après fusion. Les pull requests, le lancement
+manuel et les appels bloquants depuis les deux workflows de release sont conservés.
+Validation : analyse YAML des cinq workflows réussie, comparaison avec le commit
+précédent confirmant que seul le déclencheur `push` change, dépendances et commit
+vérifié des releases préservés ; `git diff --check` réussi. Aucun workflow lancé.
+
 - Ajout de [`.github/workflows/checks.yml`](.github/workflows/checks.yml) : pull requests, pushes sur `main`/`master`, lancement manuel et appel depuis un autre workflow. Deux jobs vérifient le monorepo sur Ubuntu et Desktop/Rust/FFmpeg sur macOS, sans secret de publication.
 - Node 26.8.1 fixé dans `.nvmrc`, pnpm 12.3.4 lu dans `package.json`, Rust 1.88.0 fixé dans le workflow ; installations `--frozen-lockfile` et commandes Cargo `--locked`. Les dépendances précédemment verrouillées sont conservées, avec ajout des dépendances de test uniquement. Les caches pnpm/Cargo utilisent les fichiers de verrouillage ; les journaux d'échec sont conservés sept jours.
 - Huit tests Vitest/jsdom ajoutés et intégrés à `pnpm check` : reprise du bon épisode, absence de reprise sur un autre épisode ou fournisseur, restauration de la bibliothèque et compatibilité du stockage version 1, repli sur un serveur de même langue jusqu'à épuisement, sauvegarde immédiate et libération à la fermeture, destruction de la session HLS au démontage. Les composants et le store réels sont utilisés avec les entrées réseau/natives et médias du navigateur simulés.
