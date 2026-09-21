@@ -429,6 +429,12 @@ Correction Windows et préparation de Desktop 0.1.5 le 19 septembre 2026 :
 
 ## 7. Valider la diffusion TV — HorusDesktop
 
+Préparation de la mise à jour, le 22 septembre 2026 :
+
+- [x] Préparer Desktop 0.1.6 et Remote 1.4.3 (code Android 27), avec versions synchronisées et notes dans `docs/RELEASE-NOTES-2026-09-22.md`.
+- [x] Valider TypeScript Core/Remote/Desktop/API, tests Core, 70 tests UI Desktop et 4 tests historiques, 8 tests Remote, 3 tests API, 37 tests des scripts de release, les deux tags prévus avec `version.mjs` et `git diff --check`.
+- [ ] Pousser/fusionner les commits, créer les nouveaux tags, vérifier les builds et les essais sur appareils, publier les releases puis vérifier les manifestes. Aucun build natif ni publication lancé pour cette préparation.
+
 Maintien éveillé pendant la diffusion TV, le 21 septembre 2026 :
 
 - [x] Étendre le maintien éveillé natif aux diffusions DLNA et Chromecast, sans dépendre d'un élément vidéo local. Conserver le verrou pendant la lecture, le chargement et une erreur temporaire de consultation de la TV ; le libérer à la pause, à l'arrêt ou en l'absence de média signalés par la TV, ainsi qu'à la fermeture. Le réactiver à la reprise et conserver l'ordonnancement des acquisitions/libérations.
