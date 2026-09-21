@@ -12,6 +12,8 @@ export interface Episode {
   id: string; // URL or identifier for specific episode
   number: string | number;
   title?: string;
+  // Anime-sama season locator, kept separate from the legacy episode id/history key.
+  sourceContext?: { seasonUrl: string; episodeIndex: number };
 }
 
 export interface Stream {
@@ -31,7 +33,7 @@ export interface HorusProvider {
   name: string;
   search(query: string): Promise<SearchResult[]>;
   getEpisodes(mediaId: string): Promise<Episode[]>;
-  getStreams(episodeId: string): Promise<Stream[]>;
+  getStreams(episodeId: string, episode?: Episode): Promise<Stream[]>;
 }
 
 export function normalizeStreamLanguage(language?: string): string {
