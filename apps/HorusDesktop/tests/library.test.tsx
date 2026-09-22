@@ -17,7 +17,7 @@ const entry = {
 
 beforeEach(() => {
   localStorage.clear();
-  useLibrary.setState({ apiUrl: "", wishlist: [], history: [] });
+  useLibrary.setState({ apiUrl: "", wishlist: [], history: [], watchedMedia: {} });
 });
 
 test("favoris, historique et URL API sont restaurés depuis le stockage persistant", async () => {
@@ -68,5 +68,6 @@ test("le format version 1 existant reste lisible et les suppressions sont persis
     apiUrl: "https://existing.invalid",
     wishlist: [],
     history: [],
+    watchedMedia: {},
   });
 });

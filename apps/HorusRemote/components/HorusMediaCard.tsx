@@ -10,6 +10,9 @@ export interface HorusMediaCardProps {
   index: number;
   onPress: () => void;
   onLongPress?: () => void;
+  watched?: boolean;
+  onToggleWatched?: () => void;
+  selected?: boolean;
 }
 
 const CARD_IMAGE_HEIGHT = 220; // Utilisé pour définir l'amplitude du balayage
@@ -22,6 +25,9 @@ export const HorusMediaCard: React.FC<HorusMediaCardProps> = ({
   index, 
   onPress,
   onLongPress,
+  watched = false,
+  onToggleWatched,
+  selected,
 }) => {
   return (
     <MotiView
@@ -37,6 +43,9 @@ export const HorusMediaCard: React.FC<HorusMediaCardProps> = ({
       }}
     >
       <Pressable 
+        accessibilityRole={selected === undefined ? 'button' : 'checkbox'}
+        accessibilityLabel={selected === undefined ? title : `Sélectionner ${title}`}
+        accessibilityState={selected === undefined ? undefined : { checked: selected }}
         onPress={onPress} 
         onLongPress={onLongPress}
         style={({ pressed }) => [
@@ -47,6 +56,7 @@ export const HorusMediaCard: React.FC<HorusMediaCardProps> = ({
         
         {/* -- Conteneur Visuel (Image + Scanner) -- */}
         <View style={styles.imageContainer}>
+          {selected !== undefined && <Text style={styles.selectionMark}>{selected ? '☑' : '☐'}</Text>}
           {imageUrl ? (
             <Image source={{ uri: imageUrl }} style={styles.image} />
           ) : (
@@ -87,7 +97,7 @@ export const HorusMediaCard: React.FC<HorusMediaCardProps> = ({
                </Text>
             )}
             {highlightText && (
-               <Text style={[styles.subtitle, styles.highlightText]} numberOfLines={1}>
+               <Text style={[styles.subtitle, styles.highlightText]} numberOfLines={2}>
                  {highlightText.toUpperCase()}
                </Text>
             )}
@@ -99,11 +109,26 @@ export const HorusMediaCard: React.FC<HorusMediaCardProps> = ({
         <View style={styles.notchBottomLeft} pointerEvents="none" />
 
       </Pressable>
+      {onToggleWatched && (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={`Marquer ${title} comme ${watched ? 'non vu' : 'vu'}`}
+          accessibilityState={{ selected: watched }}
+          onPress={onToggleWatched}
+          style={[styles.watchStatus, watched && styles.watched]}
+        >
+          <Text style={styles.watchStatusText}>{watched ? '✓ Vu' : 'À voir'}</Text>
+        </Pressable>
+      )}
     </MotiView>
   );
 };
 
 const styles = StyleSheet.create({
+  selectionMark: { position: 'absolute', top: 8, left: 8, zIndex: 5, color: '#FFFFFF', backgroundColor: '#4C1D95', fontSize: 25, paddingHorizontal: 5 },
+  watchStatus: { minHeight: 44, marginTop: 6, padding: 8, alignItems: 'center', justifyContent: 'center', backgroundColor: '#131A2A', borderWidth: 1, borderColor: '#334155' },
+  watched: { borderColor: '#8B5CF6', backgroundColor: '#271D42' },
+  watchStatusText: { color: '#E2E8F0', fontSize: 13 },
   container: {
     width: '48%', // Assure l'affichage en 2 colonnes dans la Grid
     marginBottom: 15,

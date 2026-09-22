@@ -4,9 +4,11 @@ import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { useImmersiveNavigation } from './services/immersiveNavigation';
 import { runDownloadBatch } from './services/downloadBatch';
+import { historyMediaKey, historyResumeAt, resumeHistoryOnRemote } from './services/history';
+import { HorusHistory } from './components/HorusHistory';
 
 // Imports de notre librairie locale @horus/core
-import { AnimeSamaProvider, VidzyProvider, SearchResult, Episode, Stream, ProviderId, HorusProvider, formatRemoteMediaTitle, groupStreamsByLanguage, inferStreamFormat, normalizeStreamLanguage, selectPlaybackDuration, sortStreamLanguages, sortStreamsForRemotePlayback } from '@horus/core';
+import { AnimeSamaProvider, VidzyProvider, SearchResult, Episode, Stream, ProviderId, HorusProvider, formatRemoteMediaTitle, groupLibraryMedia, watchedMediaKey, groupStreamsByLanguage, inferStreamFormat, normalizeStreamLanguage, selectPlaybackDuration, sortStreamLanguages, sortStreamsForRemotePlayback } from '@horus/core';
 
 import VideoPlayer from './components/VideoPlayer';
 import { HorusBootSequence } from './components/HorusBootSequence';
@@ -14,7 +16,7 @@ import { HorusHeader } from './components/HorusHeader';
 import { HorusMediaCard } from './components/HorusMediaCard';
 import { HorusMediaDetailsOverlay } from './components/HorusMediaDetailsOverlay';
 import { HorusEpisodeList } from './components/HorusEpisodeList';
-import { HistoryItem, MediaItem, OfflineMediaItem, useUserStore } from './store/useUserStore';
+import { MediaItem, OfflineMediaItem, useUserStore } from './store/useUserStore';
 import {
   CastContext,
   MediaPlayerIdleReason,
@@ -174,9 +176,13 @@ export default function App() {
   const [results, setResults] = useState<SearchResult[]>([]);
 
   const wishlist = useUserStore(state => state.wishlist);
+  const watchedMedia = useUserStore(state => state.watchedMedia);
+  const toggleWatched = useUserStore(state => state.toggleWatched);
   const history = useUserStore(state => state.history);
   const offlineMedia = useUserStore(state => state.offlineMedia);
   const addToHistory = useUserStore(state => state.addToHistory);
+  const updateHistoryProgress = useUserStore(state => state.updateHistoryProgress);
+  const removeFromHistory = useUserStore(state => state.removeFromHistory);
   const addOfflineMedia = useUserStore(state => state.addOfflineMedia);
   const removeOfflineMediaFromStore = useUserStore(state => state.removeOfflineMedia);
   const setPendingOfflineDownload = useUserStore(state => state.setPendingOfflineDownload);
@@ -200,6 +206,7 @@ export default function App() {
   const [isCastRemoteVisible, setIsCastRemoteVisible] = useState(false);
   const [pendingCastInfo, setPendingCastInfo] = useState<{title: string, imageUrl: string} | null>(null);
   const [pendingPlayback, setPendingPlayback] = useState<PlaybackContext | null>(null);
+  const [localPlayback, setLocalPlayback] = useState<PlaybackContext | null>(null);
   const [remotePlayback, setRemotePlayback] = useState<RemotePlaybackSession | null>(null);
   const [isChangingRemoteEpisode, setIsChangingRemoteEpisode] = useState(false);
 
@@ -236,9 +243,7 @@ export default function App() {
   const isExitingRef = useRef(false);
 
   const recordPlaybackInHistory = (context: PlaybackContext) => {
-    const historyEpisode = context.media.type === 'movie'
-      ? undefined
-      : { lastEpisode: context.episode };
+    const historyEpisode = { lastEpisode: context.episode };
     addToHistory({
       id: context.media.id,
       title: context.media.title,
@@ -304,8 +309,9 @@ export default function App() {
     return preparedStreams;
   };
 
-  const startLocalPlayback = async (streams: Stream[]) => {
+  const startLocalPlayback = async (streams: Stream[], context = pendingPlayback) => {
     const preparedStreams = await prepareStreamsForLocalPlayback(streams);
+    setLocalPlayback(context);
     setAllStreams(preparedStreams);
     setCurrentStreamIndex(0);
   };
@@ -332,6 +338,12 @@ export default function App() {
       })
     );
   };
+
+  const resumeOnRemote = (context: PlaybackContext, canSeek: boolean) =>
+    resumeHistoryOnRemote(useUserStore.getState().history, context.media, context.episode, canSeek, async position => {
+      if (castSession) await castSession.client.seek({ position });
+      else if (activeDlnaDevice) await dlnaController.seek(activeDlnaDevice.controlUrl, position);
+    });
 
   const playOnSelectedRemote = async (
     streams: Stream[],
@@ -443,6 +455,7 @@ export default function App() {
         Boolean(castSession) || inferStreamFormat(selectedStream) === 'file'
       )
     );
+    const resumeNotice = await resumeOnRemote(context, canSeekSelectedStream);
     setRemotePlayback({
       ...context,
       language,
@@ -451,7 +464,7 @@ export default function App() {
       durationSeconds: selectedStream.durationSeconds,
       playbackNotice: isMpegTsFallback
         ? selectedFallbackReason || 'La conversion MP4 a échoué. Lecture MPEG-TS sans déplacement temporel.'
-        : undefined,
+        : resumeNotice,
     });
     recordPlaybackInHistory(context);
     setIsCastRemoteVisible(true);
@@ -612,7 +625,7 @@ export default function App() {
             context
           );
           if (!didPlayRemotely) {
-            await startLocalPlayback(preferredStreams);
+            await startLocalPlayback(preferredStreams, context);
           }
           return;
         }
@@ -625,7 +638,7 @@ export default function App() {
             context
           );
           if (!didPlayRemotely) {
-            await startLocalPlayback(streamList);
+            await startLocalPlayback(streamList, context);
           }
         } else if (langs.length >= 1) {
           setIsLangModalVisible(true);
@@ -888,6 +901,7 @@ export default function App() {
         } else if (activeDlnaDevice) {
           await dlnaController.castVideo(activeDlnaDevice.controlUrl, stream, context.title);
         }
+        const resumeNotice = await resumeOnRemote(context, item.seekable);
         setRemotePlayback({
           ...context,
           language: item.language,
@@ -895,13 +909,14 @@ export default function App() {
           usesCachedMedia: true,
           durationSeconds: item.durationSeconds,
           playbackNotice: item.seekable
-            ? undefined
+            ? resumeNotice
             : 'Ce téléchargement utilise un format de compatibilité sans déplacement temporel.',
         });
         recordPlaybackInHistory(context);
         setIsCastRemoteVisible(true);
       } else {
         localPlaybackUsesProxyRef.current = false;
+        setLocalPlayback(context);
         setAllStreams([stream]);
         setCurrentStreamIndex(0);
       }
@@ -1008,7 +1023,7 @@ export default function App() {
     } else if (alternateLocalLanguage) {
       const alternateStreams = availableLanguages[alternateLocalLanguage];
       try {
-        await startLocalPlayback(alternateStreams);
+        await startLocalPlayback(alternateStreams, localPlayback);
       } catch (error) {
         console.error(error);
         alert(`Impossible de préparer le flux ${alternateLocalLanguage}.`);
@@ -1025,6 +1040,7 @@ export default function App() {
   };
 
   const closePlayer = () => {
+    setLocalPlayback(null);
     if (localPlaybackUsesProxyRef.current) {
       localPlaybackUsesProxyRef.current = false;
       LocalVideoProxy.stopServer().catch(console.error);
@@ -1199,6 +1215,19 @@ export default function App() {
     let cancelled = false;
     let refreshInProgress = false;
     let dlnaPlaybackStarted = false;
+    let lastHistoryWrite = 0;
+    let lastProgress: { position: number; duration: number } | undefined;
+    const saveProgress = (position: number, duration: number, force = false) => {
+      if (cancelled || !Number.isFinite(position) || position < 0 || !Number.isFinite(duration) || duration <= 0) return;
+      lastProgress = { position, duration };
+      if (force || Date.now() - lastHistoryWrite >= 5000) {
+        lastHistoryWrite = Date.now();
+        updateHistoryProgress(remotePlayback.media, remotePlayback.episode, position, duration);
+      }
+    };
+    const flushProgress = () => {
+      if (lastProgress) updateHistoryProgress(remotePlayback.media, remotePlayback.episode, lastProgress.position, lastProgress.duration);
+    };
     const shouldSyncNotification =
       Platform.OS === 'android' && remotePlayback.usesCachedMedia;
     const updateNotification = (
@@ -1206,7 +1235,9 @@ export default function App() {
       positionSeconds: number,
       durationSeconds: number
     ) => {
-      if (cancelled || !shouldSyncNotification) return;
+      if (cancelled) return;
+      saveProgress(positionSeconds, durationSeconds, !isPlaying);
+      if (!shouldSyncNotification) return;
       LocalVideoProxy.updateTvPlaybackState(
         isPlaying,
         positionSeconds,
@@ -1240,6 +1271,9 @@ export default function App() {
           status.playerState === MediaPlayerState.IDLE &&
           status.idleReason !== MediaPlayerIdleReason.INTERRUPTED
         ) {
+          if (status.idleReason === MediaPlayerIdleReason.FINISHED && lastProgress) {
+            saveProgress(lastProgress.duration, lastProgress.duration, true);
+          }
           cancelled = true;
           void finishRemotePlayback();
           return;
@@ -1258,6 +1292,7 @@ export default function App() {
         updateNotification(castIsPlaying, castPosition, castDuration);
       }, 1_000);
       return () => {
+        flushProgress();
         cancelled = true;
         statusSubscription.remove();
         progressSubscription.remove();
@@ -1307,6 +1342,7 @@ export default function App() {
       void refreshDlnaStatus();
       const interval = setInterval(() => void refreshDlnaStatus(), 2_000);
       return () => {
+        flushProgress();
         cancelled = true;
         clearInterval(interval);
       };
@@ -1432,7 +1468,7 @@ export default function App() {
               style={[styles.pill, mediaType === 'wishlist' && styles.pillActive]}
               onPress={() => selectMediaType('wishlist')}
             >
-              <Text style={[styles.pillText, mediaType === 'wishlist' && styles.pillTextActive]}>Wishlist</Text>
+              <Text style={[styles.pillText, mediaType === 'wishlist' && styles.pillTextActive]}>Ma liste</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={[styles.pill, mediaType === 'history' && styles.pillActive]}
@@ -1450,7 +1486,20 @@ export default function App() {
         </View>
 
         <ScrollView contentContainerStyle={styles.scrollContent}>
-          {isSearching && (mediaType === 'anime' || mediaType === 'film_series') ? (
+          {mediaType === 'history' ? (
+            <View style={{ paddingHorizontal: 15 }}>
+              <HorusHistory history={history} remove={removeFromHistory} open={item => {
+                const media = toSearchResult(item);
+                if (item.lastEpisode) {
+                  mediaRequestIdRef.current += 1;
+                  setSelectedMedia(media);
+                  void extractStreamsAndCast(item.lastEpisode, media);
+                } else {
+                  void openMedia(media);
+                }
+              }} />
+            </View>
+          ) : isSearching && (mediaType === 'anime' || mediaType === 'film_series') ? (
             <ActivityIndicator size="large" color="#8B5CF6" style={{ marginTop: 50 }} />
           ) : (
             <View style={styles.grid}>
@@ -1461,11 +1510,9 @@ export default function App() {
               )}
               {(() => {
                 const dataToDisplay: Array<SearchResult & {
-                  sourceItem?: HistoryItem;
                   sourceOffline?: OfflineMediaItem;
                 }> =
                   (mediaType === 'wishlist') ? wishlist.map(toSearchResult)
-                  : (mediaType === 'history') ? history.map(item => ({ ...toSearchResult(item), sourceItem: item }))
                   : (mediaType === 'downloads') ? offlineMedia.map(item => ({
                       ...toSearchResult(item.media),
                       id: item.id,
@@ -1476,10 +1523,7 @@ export default function App() {
 
                 if (dataToDisplay.length === 0) {
                   if (mediaType === 'wishlist') {
-                     return <Text style={styles.emptyText}>Votre Wishlist est vide. Ajoutez des médias pour les retrouver ici.</Text>;
-                  }
-                  if (mediaType === 'history') {
-                     return <Text style={styles.emptyText}>Votre Historique est vide.</Text>;
+                     return <Text style={styles.emptyText}>Votre liste est vide. Ajoutez des médias pour les retrouver ici.</Text>;
                   }
                   if (mediaType === 'downloads') {
                      return <Text style={styles.emptyText}>Aucun média téléchargé. Utilisez l’icône de téléchargement depuis un film ou un épisode.</Text>;
@@ -1494,19 +1538,17 @@ export default function App() {
                   );
                 }
 
-                return dataToDisplay.map((item, idx) => (
+                const renderCard = (item: typeof dataToDisplay[number], idx: number) => (
                   <HorusMediaCard
-                    key={`${item.id}-${idx}`}
+                    key={item.sourceOffline?.id ?? watchedMediaKey(item)}
+                    watched={Boolean(watchedMedia[watchedMediaKey(item)])}
+                    onToggleWatched={mediaType === 'wishlist' ? () => toggleWatched(item) : undefined}
                     title={item.title}
                     subtitle={mediaType === 'downloads' ? 'hors ligne' : item.type}
                     highlightText={
                       mediaType === 'downloads' && item.sourceOffline
                         ? formatByteCount(item.sourceOffline.sizeBytes)
-                        : mediaType === 'history' &&
-                          item.type !== 'movie' &&
-                          item.sourceItem?.lastEpisode?.number
-                          ? `ÉPISODE ${item.sourceItem.lastEpisode.number}`
-                          : undefined
+                        : undefined
                     }
                     imageUrl={item.coverUrl}
                     index={idx}
@@ -1516,18 +1558,28 @@ export default function App() {
                     onPress={() => {
                       if (mediaType === 'downloads' && item.sourceOffline) {
                         void playOfflineMedia(item.sourceOffline);
-                      } else if (mediaType === 'history' && item.sourceItem?.lastEpisode) {
-                        // Reprise directe de l'épisode sans passer par l'overlay de détails
-                        mediaRequestIdRef.current += 1;
-                        setSelectedMedia(item as SearchResult);
-                        extractStreamsAndCast(item.sourceItem.lastEpisode, item as SearchResult);
+
                       } else {
                         // Comportement normal pour la recherche ou la wishlist
                         openMedia(item as SearchResult);
                       }
                     }}
                   />
-                ));
+                );
+                if (mediaType === 'wishlist') {
+                  return [
+                    <Text key="wishlist-hint" style={styles.offlineHint}>
+                      Marquez un titre comme vu sans le retirer de votre liste. Ce statut concerne le titre entier et reste indépendant de l’historique.
+                    </Text>,
+                    ...groupLibraryMedia(dataToDisplay).flatMap(group => [
+                      <Text key={`category-${group.type}`} accessibilityRole="header" style={[styles.offlineHint, { color: '#E2E8F0', fontSize: 18, fontWeight: 'bold', marginTop: 12 }]}>
+                        {group.title} · {group.items.length}
+                      </Text>,
+                      ...group.items.map(renderCard),
+                    ]),
+                  ];
+                }
+                return dataToDisplay.map(renderCard);
               })()}
             </View>
           )}
@@ -1648,7 +1700,7 @@ export default function App() {
             onRequestClose={closePlayer}
           >
             <VideoPlayer
-              key={`${currentStreamIndex}:${allStreams[currentStreamIndex].url}`}
+              key={`${localPlayback ? historyMediaKey(localPlayback.media) : ""}:${localPlayback?.episode.id}:${currentStreamIndex}:${allStreams[currentStreamIndex].url}`}
               stream={allStreams[currentStreamIndex]}
               onClose={closePlayer}
               onError={
@@ -1663,8 +1715,12 @@ export default function App() {
                     ? `Essayer en ${alternateLocalLanguage}`
                     : undefined
               }
+              resumeAt={localPlayback ? historyResumeAt(history, localPlayback.media, localPlayback.episode) : 0}
               onPlaybackStarted={() => {
-                if (pendingPlayback) recordPlaybackInHistory(pendingPlayback);
+                if (localPlayback) recordPlaybackInHistory(localPlayback);
+              }}
+              onPlaybackProgress={(position, duration) => {
+                if (localPlayback) updateHistoryProgress(localPlayback.media, localPlayback.episode, position, duration);
               }}
             />
           </Modal>
