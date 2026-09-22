@@ -11,6 +11,14 @@ builds de release. Un push ou une fusion sur `main`/`master` ne les relance pas
 automatiquement. Un push direct sur ces branches ne sera donc vérifié qu'au
 prochain lancement manuel ou build de release.
 
+Le build Android utilise le SDK préinstallé du runner Ubuntu 24.04 : il vérifie
+`cmdline-tools/latest/bin/sdkmanager`, accepte les licences puis installe
+explicitement `platform-tools`, Android 36, Build Tools 36.0.0, NDK 27.1.12297006
+et CMake 3.22.1. Le chemin du SDK est transmis aux étapes suivantes. L'action
+`android-actions/setup-android@v3` a été retirée après l'échec du 22 septembre 2026
+sur sa demande implicite du paquet legacy `tools`. Toute erreur de `sdkmanager`
+reste bloquante.
+
 iOS est exclu du périmètre depuis le 12 septembre 2026 : aucune version iPhone/iPad
 ni aucun workflow iOS n'est prévu. Les commandes `ios`, `build:prod:ios` et
 `build:prod:all` ont été retirées ; utiliser `build:prod:android` pour Mobile.

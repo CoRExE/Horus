@@ -436,6 +436,13 @@ Correction Windows et préparation de Desktop 0.1.5 le 19 septembre 2026 :
 
 ## 7. Valider la diffusion TV — HorusDesktop
 
+Correction du build Android, le 22 septembre 2026 :
+
+- [x] Confirmer dans le run `35672429791` l'échec de `setup-android@v3` sur sa demande de `tools platform-tools`, avant compilation. Remplacer l'action par le SDK préinstallé, vérifier son exécutable et transmettre ses chemins aux étapes suivantes ; installer uniquement les composants nécessaires. Conserver les erreurs de licences/installation comme bloquantes.
+- [x] Valider le YAML des cinq workflows, `bash -n`, `git diff --check` et cinq scénarios hors réseau avec un faux `sdkmanager` : `ANDROID_HOME`, repli sur `ANDROID_SDK_ROOT`, SDK absent, échec des licences, échec d'installation. Vérifier les arguments exacts et les chemins transmis, y compris avec des espaces ; aucun SDK téléchargé.
+- [x] Préparer Remote 1.4.4 (code Android 28) et ses notes de release pour intégrer ce correctif sans déplacer `mobile-v1.4.3`. Versions validées par `version.mjs`. Le build GitHub Desktop 0.1.6 (`35672429622`) est confirmé réussi et son brouillon existe.
+- [ ] Confirmer la correction sur un nouveau build GitHub Android incluant ce changement ; le tag `mobile-v1.4.3` pointe toujours sur le workflow en échec. Aucun build natif lancé localement.
+
 Préparation de la mise à jour, le 22 septembre 2026 :
 
 - [x] Préparer Desktop 0.1.6 et Remote 1.4.3 (code Android 27), avec versions synchronisées et notes dans `docs/RELEASE-NOTES-2026-09-22.md`.
