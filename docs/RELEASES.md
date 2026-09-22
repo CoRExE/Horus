@@ -162,6 +162,26 @@ identifiant restent indépendants de ce catalogue. Le jeton TMDB demeure uniquem
 dans le worker. Modifier l'adresse ne réinitialise ni l'historique, ni les favoris,
 ni les téléchargements. Une preview installée séparément possède son propre réglage.
 
+### Nettoyer les compilations Android locales
+
+Depuis la racine : `pnpm mobile:clean`. Depuis `apps/HorusRemote` :
+`pnpm android:clean`.
+
+La commande Node supprime uniquement `android/build`, `android/app/build`,
+`android/.cxx`, `android/app/.cxx` et les dossiers `build`/`.cxx` du module local
+`local-video-proxy/android`. Les APK générés sont donc supprimés. Le projet
+Android, ses sources, son keystore de debug, les fichiers de signature de
+production, la configuration locale, les dépendances et les caches Gradle
+restent présents. Les données de l'application installée sur le téléphone ne
+sont pas concernées.
+
+Ce nettoyage n'appelle ni Gradle ni CMake : il fonctionne même sans Java/SDK,
+avant le premier prebuild, ou quand le code généré de l'autolinking est incomplet.
+Il évite l'échec de `externalNativeBuildCleanPreview`, qui tente de reconfigurer
+CMake pendant `gradlew clean` alors que certains dossiers JNI ont déjà disparu.
+Fermer toute compilation en cours avant de nettoyer. La compilation suivante
+devra régénérer ses sorties.
+
 ### APK de preview local, sans secrets de production
 
 Depuis `apps/HorusRemote` :

@@ -436,6 +436,11 @@ Correction Windows et préparation de Desktop 0.1.5 le 19 septembre 2026 :
 
 ## 7. Valider la diffusion TV — HorusDesktop
 
+Outillage local Remote, le 22 septembre 2026 :
+
+- [x] Ajouter `pnpm mobile:clean` à la racine et `pnpm android:clean` dans Remote. Après l'échec utilisateur de `externalNativeBuildCleanPreview` (CMake relancé avec des dossiers JNI générés absents), remplacer `gradlew clean` par un script Node ciblant uniquement les sorties Android et les caches CMake du projet et du module local. Préserver sources, clés, configuration, dépendances et caches Gradle ; documenter la suppression des APK générés.
+- [x] Valider trois tests dans des dossiers temporaires : nettoyage des sorties avec préservation des fichiers locaux, absence de projet/idempotence et liens symboliques sans toucher aux cibles externes. Syntaxe Node, fichiers JSON et `git diff --check` réussis. Aucun nettoyage ni build réel lancé par l'agent ; modifications utilisateur de pnpm et de son lockfile préservées.
+
 Correction du build Android, le 22 septembre 2026 :
 
 - [x] Confirmer dans le run `35672429791` l'échec de `setup-android@v3` sur sa demande de `tools platform-tools`, avant compilation. Remplacer l'action par le SDK préinstallé, vérifier son exécutable et transmettre ses chemins aux étapes suivantes ; installer uniquement les composants nécessaires. Conserver les erreurs de licences/installation comme bloquantes.
