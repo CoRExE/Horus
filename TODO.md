@@ -46,6 +46,13 @@ concerne aussi Mobile. La TODO graphique existante de
 
 Travail terminé le 10 septembre 2026 :
 
+Évolution du 22 septembre 2026 : retrait du déclencheur `push` sur `main`/`master`
+pour éviter une nouvelle exécution après fusion. Les pull requests, le lancement
+manuel et les appels bloquants depuis les deux workflows de release sont conservés.
+Validation : analyse YAML des cinq workflows réussie, comparaison avec le commit
+précédent confirmant que seul le déclencheur `push` change, dépendances et commit
+vérifié des releases préservés ; `git diff --check` réussi. Aucun workflow lancé.
+
 - Ajout de [`.github/workflows/checks.yml`](.github/workflows/checks.yml) : pull requests, pushes sur `main`/`master`, lancement manuel et appel depuis un autre workflow. Deux jobs vérifient le monorepo sur Ubuntu et Desktop/Rust/FFmpeg sur macOS, sans secret de publication.
 - Node 26.8.1 fixé dans `.nvmrc`, pnpm 12.3.4 lu dans `package.json`, Rust 1.88.0 fixé dans le workflow ; installations `--frozen-lockfile` et commandes Cargo `--locked`. Les dépendances précédemment verrouillées sont conservées, avec ajout des dépendances de test uniquement. Les caches pnpm/Cargo utilisent les fichiers de verrouillage ; les journaux d'échec sont conservés sept jours.
 - Huit tests Vitest/jsdom ajoutés et intégrés à `pnpm check` : reprise du bon épisode, absence de reprise sur un autre épisode ou fournisseur, restauration de la bibliothèque et compatibilité du stockage version 1, repli sur un serveur de même langue jusqu'à épuisement, sauvegarde immédiate et libération à la fermeture, destruction de la session HLS au démontage. Les composants et le store réels sont utilisés avec les entrées réseau/natives et médias du navigateur simulés.
@@ -362,7 +369,7 @@ Validations effectuées :
 
 - TypeScript Desktop réussi avec Node 22.23.2 disponible localement. Les 40 tests Vitest/jsdom passent, dont 18 nouveaux tests de confort de lecture, ainsi que les 4 tests Desktop historiques (`node --import tsx --test tests/*.test.cts`). Le lanceur direct évite le socket IPC du CLI tsx interdit par le bac à sable.
 - Les tests couvrent lecture/pause/volume et déplacement borné, respect des champs/dialogues, pistes HLS/natives et nettoyage, saison de reprise, fermeture pendant l'entrée en plein écran, sortie en attente, refus du système, plein écran initial et épisode suivant dans le parcours App réel.
-- Les tests de veille simulent activation/pause/fin/erreur/fermeture, remplacement de source, absence d'activation TV, refus du service et acquisition tardive après fermeture ou pause/reprise.
+- Les tests initiaux de veille simulent activation/pause/fin/erreur/fermeture, remplacement de source, refus du service et acquisition tardive après fermeture ou pause/reprise. La couverture TV a ensuite été ajoutée au chantier 7.
 - `rustfmt` 1.88.0 et les métadonnées Cargo `--locked --offline` passent. Résolution Cargo compatible Rust 1.88 : 45 entrées ajoutées pour la nouvelle dépendance, aucune version préexistante retirée ou modifiée. `git diff --check` passe.
 - Aucun build natif ni essai de veille/lecture sur appareil lancé par l'agent. Les API natives, médias et plein écran sont simulés dans les tests JS ; leur compilation et leur comportement système restent à valider par les prochains workflows et essais utilisateur.
 
@@ -377,7 +384,7 @@ Compléments bibliothèque demandés et réalisés le 15 septembre 2026 :
 Corrections de lecture des animés le 19 septembre 2026 :
 
 - [x] Afficher dans le lecteur Desktop le nom du serveur en cours, comme sur Remote.
-- [x] Permettre de choisir un autre serveur de la même langue pendant la lecture d’un animé, sans attendre une erreur, avec sauvegarde/reprise de la position. Le sélecteur reste dans les contrôles en plein écran et est disponible en diffusion TV ; les fichiers hors ligne sont exclus.
+- [x] Permettre de choisir un autre serveur de la même langue pendant la lecture d’un animé, sans attendre une erreur, avec sauvegarde/reprise de la position. Le sélecteur est disponible en mode fenêtre et en diffusion TV ; les fichiers hors ligne sont exclus.
 - [x] Prioriser le serveur actuellement sélectionné à l’épisode suivant, manuel ou automatique, y compris après le bouton de repli sur erreur. Comparaison par nom et langue, indépendante de l’URL et de l’ordre des sources du nouvel épisode ; repli signalé dans la même langue si le serveur manque et choix explicite si la langue manque.
 - Validations : TypeScript Desktop et 59 tests UI réussis, dont quatre nouveaux parcours App réels avec sources/appels natifs simulés : changement sans erreur avec conservation de la position, serveur conservé malgré changement d’URL/ordre, repli après erreur puis enchaînement automatique, serveur ou langue absents. `git diff --check` réussi. Aucun build natif ni essai sur source réelle/TV lancé.
 - Le choix reste lié à la session de lecture ; stockage, fournisseurs partagés, Android et backend natif inchangés. Le chantier 6 et le déplacement du dossier vers Paramètres ont été committés séparément avant ces corrections (`b52d668`).
@@ -429,6 +436,65 @@ Correction Windows et préparation de Desktop 0.1.5 le 19 septembre 2026 :
 
 ## 7. Valider la diffusion TV — HorusDesktop
 
+Préparation de la mise à jour, le 22 septembre 2026 :
+
+- [x] Préparer Desktop 0.1.6 et Remote 1.4.3 (code Android 27), avec versions synchronisées et notes dans `docs/RELEASE-NOTES-2026-09-22.md`.
+- [x] Valider TypeScript Core/Remote/Desktop/API, tests Core, 70 tests UI Desktop et 4 tests historiques, 8 tests Remote, 3 tests API, 37 tests des scripts de release, les deux tags prévus avec `version.mjs` et `git diff --check`.
+- [ ] Pousser/fusionner les commits, créer les nouveaux tags, vérifier les builds et les essais sur appareils, publier les releases puis vérifier les manifestes. Aucun build natif ni publication lancé pour cette préparation.
+
+Maintien éveillé pendant la diffusion TV, le 21 septembre 2026 :
+
+- [x] Étendre le maintien éveillé natif aux diffusions DLNA et Chromecast, sans dépendre d'un élément vidéo local. Conserver le verrou pendant la lecture, le chargement et une erreur temporaire de consultation de la TV ; le libérer à la pause, à l'arrêt ou en l'absence de média signalés par la TV, ainsi qu'à la fermeture. Le réactiver à la reprise et conserver l'ordonnancement des acquisitions/libérations.
+- [x] Valider TypeScript Desktop, les 70 tests d'interface (dont neuf de maintien éveillé couvrant les états DLNA/Chromecast, les erreurs réseau et une acquisition tardive après fermeture) et `git diff --check`.
+- [ ] Confirmer sur appareil que l'ordinateur reste éveillé pendant une diffusion TV prolongée et retrouve la veille normale après arrêt. Aucun build natif lancé pour cette correction.
+
+Préalable Anime-sama — VF, le 21 septembre 2026 :
+
+- [x] Corriger le fournisseur commun à Remote et Desktop : découvrir les variantes `vf`, `vf1` et `vf2` à la sélection d'un épisode et transmettre leur langue aux extracteurs existants. Les pages de langue sans liste exploitable ou en échec ne bloquent pas les autres sources.
+- [x] Conserver les identifiants d'épisodes et les positions de reprise existantes ; ajouter le contexte de saison séparément. Enrichir les anciennes entrées d'historique depuis la liste actuelle avant résolution sur Remote ; Desktop utilise déjà l'épisode rechargé. Transmettre ce contexte aussi à l'épisode suivant et aux téléchargements.
+- [x] Préserver les emplacements vides dans les listes de serveurs pour ne pas attribuer la VF d'un épisode ultérieur au mauvais épisode ; dédupliquer les sources identiques par langue.
+- [x] Valider les tests Core hors réseau (VF/VOSTFR, VF1, langue principale VF, VF absente/incomplète, anciens identifiants et fournisseur recréé), les 60 tests d'interface Desktop, ainsi que TypeScript Core/Remote/Desktop et `git diff --check`. Une page et une liste VF publiques de My Hero Academia saison 1 ont également été consultées ; aucune vidéo téléchargée pour cette vérification.
+- [ ] Confirmer la lecture VF réelle dans Remote et Desktop, puis sa conservation à l'épisode suivant. Aucun build natif ni essai TV effectué pour ce correctif.
+
+Ajustement du lecteur Desktop — langues et pistes, le 21 septembre 2026 :
+
+- [x] Masquer le sélecteur « Piste audio » pour un flux à zéro ou une piste ; le conserver pour plusieurs pistes HLS ou natives. Conserver le choix d'activer/désactiver un sous-titre même s'il est unique.
+- [x] Ajouter « Langue » avant « Serveur » pendant la lecture en ligne lorsqu'il existe plusieurs langues ; proposer uniquement les serveurs de la langue choisie, conserver la position et prioriser le serveur actuel s'il existe dans cette langue. Le choix reste accessible en mode fenêtre et dans les commandes TV ; les fichiers hors ligne sont exclus.
+- [x] Valider TypeScript Desktop, 63 tests d'interface (dont trois nouveaux tests couvrant les pistes uniques HLS/natives et le changement de langue avec reprise, filtrage des serveurs et épisode suivant) et `git diff --check`.
+- [ ] Confirmer ces changements de langue sur les lecteurs natifs et pendant une diffusion TV réelle.
+
+Correction du plein écran Desktop, le 21 septembre 2026 :
+
+- [x] Masquer la barre Langue/Serveur/Piste audio/Sous-titres en plein écran natif et navigateur pour laisser toute la hauteur à la vidéo ; la barre revient en mode fenêtre avec les choix inchangés. Les commandes TV restent disponibles.
+- Validation : compilation Vite et six tests existants des transitions de plein écran réussis ; `git diff --check` réussi. Rendu natif à confirmer visuellement dans l'application.
+
+APK local de validation Remote, le 21 septembre 2026 :
+
+- [x] Séparer `build:preview` du build de production : variante `preview` signée avec la clé de debug locale, bundle JavaScript embarqué, nom « Horus Preview » et identifiant `com.horus.remote.preview` pour cohabiter avec la production sans remplacer ses données. `--local` reste accepté.
+- [x] Garder les quatre secrets obligatoires pour la production ; les retirer de l'environnement des sous-processus preview. Mettre à jour le bloc Gradle existant au prebuild et documenter la commande et l'emplacement de l'APK.
+- [x] Valider 19 tests ciblés (modes preview/release, migration et idempotence du plugin Expo, garde-fous de release), les contrôles de syntaxe Node et `git diff --check`.
+- [ ] Compiler et installer la preview sur Android : opération laissée à l'utilisateur, aucun build natif lancé par l'agent.
+
+Téléchargements par lots et clavier Android, le 21 septembre 2026 :
+
+- [x] Ajouter la sélection de plusieurs épisodes de séries/animés sur Desktop et Android, avec choix de langue et confirmation. Conserver l'ordre du catalogue, ignorer les épisodes déjà présents dans cette langue et signaler une langue manquante sans repli implicite.
+- [x] Intégrer les lots à la file Desktop avec résolution différée des sources, déduplication, retrait et annulation pendant la résolution ; continuer après un échec. Sur Android, traiter un épisode à la fois jusqu'au nettoyage, afficher la progression du lot et son bilan, annuler l'actif et les restants sans toucher aux téléchargements terminés.
+- [x] Préserver la récupération Android de l'épisode actif et sa qualité, en ajoutant la langue explicitement choisie. Les lots non commencés ne sont pas persistés entre sessions.
+- [x] Remplacer le champ de recherche Android par un clavier AZERTY intégré (accents, chiffres, symboles, majuscules, curseur, suppression et validation). Conserver la saisie Desktop/web.
+- [x] Supprimer le réaffichage explicite des boutons Android à la fermeture du lecteur ; remasquer la navigation au retour/focus, à la fermeture du clavier et aux transitions plein écran. Retirer les appels de style/comportement non pris en charge en edge-to-edge.
+- [x] Valider TypeScript Desktop/Remote, 66 tests Desktop, 6 tests de logique Android intégrés à la commande `test` du monorepo, la compilation Vite, l'export JavaScript Android (Metro/Hermes, sans build APK) et `git diff --check`.
+- [ ] Confirmer les lots réels, les annulations et la conservation des fichiers terminés sur les deux applications ; tester le clavier et l'absence de boutons superposés en lecture/plein écran sur téléphone Android. Aucun build natif ni essai sur appareil effectué par l'agent.
+
+Configuration manuelle du catalogue Remote, le 21 septembre 2026 :
+
+- [x] Ajouter « Catalogue HorusApi » aux paramètres de Remote : saisie via le clavier intégré Android, validation HTTP/HTTPS, enregistrement local et prise en compte des modifications par le fournisseur de recherche.
+- [x] Retirer le choix automatique du worker depuis les builds et le workflow Android. Sans adresse enregistrée, inviter à configurer le catalogue pour les recherches films/séries par titre ; conserver les animés, les médias hors ligne et l'accès direct par identifiant.
+- [x] Conserver le stockage existant, les favoris, l'historique et les téléchargements ; ignorer les réponses de recherche d'un catalogue remplacé pendant une requête.
+- [x] Valider les 8 tests de logique Remote (dont URL et persistance après réhydratation d'un ancien stockage), TypeScript Remote, les 19 tests ciblés preview/release, l’export JavaScript Android et `git diff --check`. Aucun APK compilé.
+- [ ] Confirmer sur téléphone la saisie de l'adresse, la recherche via le worker choisi et la conservation du réglage après redémarrage.
+
+Essais TV à réaliser :
+
 - [ ] Tester DLNA et Chromecast sur de vrais appareils : découverte, démarrage, pause/reprise, volume et arrêt.
 - [ ] Tester l'avance/recul sur les fichiers téléchargés ; conserver l'indication de la limite du relais MPEG-TS continu.
 - [ ] Tester une déconnexion du récepteur, un changement de réseau et une nouvelle tentative de connexion.
@@ -436,5 +502,4 @@ Correction Windows et préparation de Desktop 0.1.5 le 19 septembre 2026 :
 
 ## Évolutions ultérieures — à décider
 
-- [ ] Synchronisation des favoris et de l'historique entre Mobile et Desktop : définir le stockage et les règles de conflit avant implémentation.
-- [ ] Mises à jour JavaScript à distance auto-hébergées, uniquement si le besoin justifie un service compatible avec le protocole Expo Updates.
+- [ ] Synchronisation des favoris et de l'historique entre Mobile et Desktop : définir le stockage et les règles de conflit avant implémentation. ? (À expliquer)

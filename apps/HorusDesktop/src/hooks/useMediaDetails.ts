@@ -25,7 +25,7 @@ export function useMediaDetails() {
     setLanguage("VF");
     setSelectedStream(0);
     try {
-      const streams = await providerFor(current.media).getStreams(episode.id);
+      const streams = await providerFor(current.media).getStreams(episode.id, episode);
       if (generation !== detailsGeneration.current) return;
       setDetails({ ...current, episode, streams });
       if (!streams.length)

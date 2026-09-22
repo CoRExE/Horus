@@ -1,7 +1,7 @@
 import React, { useCallback, useState, useEffect, useRef } from 'react';
 import { View, TouchableOpacity, Text, StyleSheet, StatusBar, Platform, ScrollView } from 'react-native';
 import { useVideoPlayer, VideoView, type VideoSource } from 'expo-video';
-import * as NavigationBar from 'expo-navigation-bar';
+import { hideAndroidNavigation } from '../services/immersiveNavigation';
 import { Stream } from '@horus/core';
 import LocalVideoProxy from '../modules/local-video-proxy/src/LocalVideoProxyModule';
 
@@ -30,27 +30,10 @@ export default function VideoPlayer({
     onPlaybackStartedRef.current = onPlaybackStarted;
   }, [onPlaybackStarted]);
 
-  // Configuration de l'immersion
   useEffect(() => {
-    async function enterFullScreen() {
-      if (Platform.OS === 'android') {
-        // Masquer la barre de navigation (Immersive Mode)
-        await NavigationBar.setVisibilityAsync('hidden');
-        await NavigationBar.setBehaviorAsync('inset-touch');
-      }
-    }
-
-    async function exitFullScreen() {
-      if (Platform.OS === 'android') {
-        // Restaurer la barre de navigation
-        await NavigationBar.setVisibilityAsync('visible');
-      }
-    }
-
-    enterFullScreen();
-    return () => {
-      exitFullScreen();
-    };
+    hideAndroidNavigation();
+    // Horus stays immersive after closing a video; do not reveal Android buttons.
+    return hideAndroidNavigation;
   }, []);
 
   const videoSource: VideoSource = {
@@ -130,6 +113,8 @@ export default function VideoPlayer({
         player={player}
         style={styles.video}
         fullscreenOptions={{ enable: true }}
+        onFullscreenEnter={hideAndroidNavigation}
+        onFullscreenExit={hideAndroidNavigation}
         allowsPictureInPicture
         nativeControls
       />

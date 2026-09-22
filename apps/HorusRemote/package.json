@@ -1,14 +1,15 @@
 {
   "name": "horusremote",
-  "version": "1.4.2",
+  "version": "1.4.3",
   "main": "index.ts",
   "scripts": {
     "start": "expo start",
-    "android": "expo start --android",
+    "android": "expo run:android",
     "web": "expo start --web",
     "typecheck": "tsc --noEmit",
+    "test": "node --experimental-strip-types --test tests/*.test.ts",
     "build:dev": "pnpm prebuild:android && expo run:android --variant debug",
-    "build:preview": "pnpm build:prod:android",
+    "build:preview": "node ../../scripts/release/build-android.mjs --preview",
     "prebuild:android": "node ../../scripts/release/prebuild-android.mjs",
     "build:prod:android": "node ../../scripts/release/build-android.mjs",
     "release": "release-it"

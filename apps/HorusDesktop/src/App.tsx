@@ -1,4 +1,4 @@
-import { groupStreamsByLanguage, normalizeStreamLanguage } from "@horus/core";
+import { groupStreamsByLanguage, normalizeStreamLanguage, sortStreamLanguages } from "@horus/core";
 import { useState } from "react";
 import {
   Film,
@@ -83,6 +83,7 @@ export default function App() {
     isDownloading,
     refreshOffline,
     downloadMedia,
+    downloadEpisodes,
     cancelDownload,
     removeDownload,
   } = useDownloads({ setError, setNotice, setDetailError, setDeviceError });
@@ -95,6 +96,7 @@ export default function App() {
     playNext,
     retryPlayback,
     changeServer,
+    changeLanguage,
     progress,
     nextEpisode,
   } = usePlayback({
@@ -214,8 +216,14 @@ export default function App() {
           <Player
             ref={playerRef}
             playback={playing}
+            languageOptions={
+              !playing.offlineId
+                ? sortStreamLanguages(Object.keys(groupStreamsByLanguage(playing.alternatives)))
+                : undefined
+            }
+            onLanguageChange={(language) => void changeLanguage(language)}
             serverOptions={
-              playing.media.type === "anime" && !playing.offlineId
+              !playing.offlineId
                 ? playing.alternatives.filter(
                     (stream) => normalizeStreamLanguage(stream.language) === playing.language,
                   )
@@ -308,6 +316,7 @@ export default function App() {
             startPlayback,
             openCast,
             downloadMedia,
+            downloadEpisodes,
           }}
           downloading={
             !!details &&

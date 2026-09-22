@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
+import { createCatalogSettings } from '../services/catalogSettings';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Episode, ProviderId, SearchResult } from '@horus/core';
 
@@ -30,13 +31,14 @@ export interface OfflineMediaItem {
 }
 
 export interface PendingOfflineDownload {
+  language?: string;
   media: MediaItem;
   episode: Episode;
   quality: 720 | 1080;
   requestedAt: number;
 }
 
-interface UserStore {
+interface UserStore extends ReturnType<typeof createCatalogSettings> {
   history: HistoryItem[];
   wishlist: MediaItem[];
   offlineMedia: OfflineMediaItem[];
@@ -54,6 +56,7 @@ interface UserStore {
 export const useUserStore = create<UserStore>()(
   persist(
     (set, get) => ({
+      ...createCatalogSettings(set),
       history: [],
       wishlist: [],
       offlineMedia: [],

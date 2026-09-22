@@ -166,7 +166,7 @@ export function usePlayback({
     if (!next) return;
     setStarting(true);
     try {
-      const streams = await providerFor(current.media).getStreams(next.id);
+      const streams = await providerFor(current.media).getStreams(next.id, next);
       if (playingRef.current !== current) return;
       const sameLanguage = streams.filter(
         (item) => normalizeStreamLanguage(item.language) === current.language,
@@ -235,12 +235,11 @@ export function usePlayback({
     });
   };
 
-  const changeServer = async (stream: Stream) => {
+  const changeSource = async (stream: Stream) => {
     const current = playingRef.current;
     if (
       !current || current.offlineId || starting || changingServer.current ||
-      stream === current.stream || !current.alternatives.includes(stream) ||
-      normalizeStreamLanguage(stream.language) !== current.language
+      stream === current.stream || !current.alternatives.includes(stream)
     ) return;
     changingServer.current = true;
     try {
@@ -257,6 +256,26 @@ export function usePlayback({
     } finally {
       changingServer.current = false;
     }
+  };
+
+  const changeServer = async (stream: Stream) => {
+    if (normalizeStreamLanguage(stream.language) !== playingRef.current?.language) return;
+    await changeSource(stream);
+  };
+
+  const changeLanguage = async (language: string) => {
+    const current = playingRef.current;
+    const targetLanguage = normalizeStreamLanguage(language);
+    if (!current || current.offlineId || targetLanguage === current.language) return;
+    const candidates = current.alternatives.filter(
+      stream => normalizeStreamLanguage(stream.language) === targetLanguage,
+    );
+    const sameServer = candidates.filter(
+      stream => stream.server.trim().toLowerCase() === current.stream.server.trim().toLowerCase(),
+    );
+    const stream = sameServer.find(stream => stream.quality === current.stream.quality)
+      ?? sameServer[0] ?? candidates[0];
+    if (stream) await changeSource(stream);
   };
 
   const retryPlayback = async () => {
@@ -284,6 +303,7 @@ export function usePlayback({
     playNext,
     retryPlayback,
     changeServer,
+    changeLanguage,
     progress,
     nextEpisode,
   };

@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
-import { View, StyleSheet, TextInput, TextInputProps, TouchableOpacity } from 'react-native';
+import { View, StyleSheet, TextInput, TextInputProps, TouchableOpacity, Text, Platform } from 'react-native';
 import { MotiText, MotiView } from 'moti';
+import { HorusKeyboard } from './HorusKeyboard';
 import { Search, Cast, Power, Settings } from 'lucide-react-native';
 
 interface HorusHeaderProps extends TextInputProps {
@@ -10,6 +11,7 @@ interface HorusHeaderProps extends TextInputProps {
   onPressExit?: () => void;
   onPressSettings?: () => void;
   isCasting?: boolean;
+  onSearch?: () => void;
 }
 
 export const HorusHeader: React.FC<HorusHeaderProps> = ({
@@ -19,6 +21,7 @@ export const HorusHeader: React.FC<HorusHeaderProps> = ({
   onPressExit,
   onPressSettings,
   isCasting = false,
+  onSearch,
   ...inputProps
 }) => {
   const [isFocused, setIsFocused] = useState(false);
@@ -116,7 +119,18 @@ export const HorusHeader: React.FC<HorusHeaderProps> = ({
         >
           <Search color={currentBorderColor} size={20} style={styles.searchIcon} />
           
-          <TextInput
+          {Platform.OS === 'android' ? <>
+            <TouchableOpacity style={[styles.input, { justifyContent: 'center' }]} accessibilityRole="button"
+              accessibilityLabel={`Recherche${inputProps.value ? ` : ${inputProps.value}` : ''}`}
+              onPress={() => setIsFocused(true)}>
+              <Text style={{ color: inputProps.value ? COLOR_TEXT_MAIN : COLOR_TEXT_DIM, fontSize: 16 }} numberOfLines={1}>
+                {inputProps.value || 'Rechercher un titre…'}
+              </Text>
+            </TouchableOpacity>
+            <HorusKeyboard visible={isFocused && !hideSearch} value={inputProps.value || ''}
+              onChange={value => inputProps.onChangeText?.(value)} onClose={() => setIsFocused(false)}
+              onSubmit={() => onSearch?.()} />
+          </> : <TextInput
             style={styles.input}
             placeholder="Trace Media Stream..."
             placeholderTextColor={COLOR_TEXT_DIM}
@@ -130,7 +144,7 @@ export const HorusHeader: React.FC<HorusHeaderProps> = ({
                if (inputProps.onBlur) inputProps.onBlur(e);
             }}
             {...inputProps}
-          />
+          />}
 
           {/* Détails fragmentés : Les encoches Cyber aux extrémités non-bordées */}
           <View style={[styles.notchTopRight, { backgroundColor: currentBorderColor }]} />

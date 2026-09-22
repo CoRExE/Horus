@@ -1,11 +1,12 @@
 import { StatusBar } from 'expo-status-bar';
-import { StyleSheet, Text, View, TextInput, ScrollView, Image, TouchableOpacity, Platform, PermissionsAndroid, ActivityIndicator, Modal, Linking, Alert } from 'react-native';
+import { StyleSheet, Text, View, ScrollView, Image, TouchableOpacity, Platform, PermissionsAndroid, ActivityIndicator, Modal, Linking, Alert } from 'react-native';
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
-import * as NavigationBar from 'expo-navigation-bar';
+import { useImmersiveNavigation } from './services/immersiveNavigation';
+import { runDownloadBatch } from './services/downloadBatch';
 
 // Imports de notre librairie locale @horus/core
-import { AnimeSamaProvider, VidzyProvider, SearchResult, Episode, Stream, ProviderId, formatRemoteMediaTitle, groupStreamsByLanguage, inferStreamFormat, normalizeStreamLanguage, selectPlaybackDuration, sortStreamLanguages, sortStreamsForRemotePlayback } from '@horus/core';
+import { AnimeSamaProvider, VidzyProvider, SearchResult, Episode, Stream, ProviderId, HorusProvider, formatRemoteMediaTitle, groupStreamsByLanguage, inferStreamFormat, normalizeStreamLanguage, selectPlaybackDuration, sortStreamLanguages, sortStreamsForRemotePlayback } from '@horus/core';
 
 import VideoPlayer from './components/VideoPlayer';
 import { HorusBootSequence } from './components/HorusBootSequence';
@@ -33,9 +34,6 @@ import { CacheProgressEvent } from './modules/local-video-proxy/src/LocalVideoPr
 
 // Instanciation des providers de Scraping
 const animeSama = new AnimeSamaProvider();
-const vidzy = new VidzyProvider({
-  catalogApiUrl: process.env.EXPO_PUBLIC_HORUS_API_URL,
-});
 const REMOTE_CACHE_CANCELLED = 'REMOTE_CACHE_CANCELLED';
 const CAST_START_TIMEOUT_MS = 20_000;
 
@@ -166,6 +164,8 @@ interface RemotePlaybackSession extends PlaybackContext {
 
 export default function App() {
   const updates = useReleaseUpdates();
+  const apiUrl = useUserStore(state => state.apiUrl);
+  const vidzy = useMemo(() => new VidzyProvider({ catalogApiUrl: apiUrl }), [apiUrl]);
   const [settingsVisible, setSettingsVisible] = useState(false);
   const [isBooting, setIsBooting] = useState(true);
   const [mediaType, setMediaType] = useState<MediaSection>('anime');
@@ -215,6 +215,16 @@ export default function App() {
   const [cacheProgress, setCacheProgress] = useState<CacheProgressEvent>({
     bytesDownloaded: 0,
   });
+  const [offlineBatch, setOfflineBatch] = useState<{ title: string; index: number; total: number; language: string } | null>(null);
+  const offlineBatchRef = useRef<{ cancelled: boolean } | null>(null);
+  const offlineMountedRef = useRef(true);
+  useEffect(() => {
+    offlineMountedRef.current = true;
+    return () => {
+      offlineMountedRef.current = false;
+      if (offlineBatchRef.current) offlineBatchRef.current.cancelled = true;
+    };
+  }, []);
   const cacheCancelledRef = useRef(false);
   const lastCacheProgressAtRef = useRef(0);
   const notificationCommandInFlightRef = useRef(false);
@@ -448,14 +458,16 @@ export default function App() {
     return true;
   };
 
-  // Configuration de l'immersion Android au démarrage
+  useImmersiveNavigation();
+
   useEffect(() => {
-    if (Platform.OS === 'android') {
-      NavigationBar.setBackgroundColorAsync('transparent');
-      NavigationBar.setVisibilityAsync('hidden');
-      NavigationBar.setBehaviorAsync('inset-touch');
+    if (mediaType === 'film_series') {
+      // Ignore responses from a catalogue that was replaced while a request was running.
+      searchRequestIdRef.current++;
+      setIsSearching(false);
+      setResults([]);
     }
-  }, []);
+  }, [apiUrl]);
 
   const handleSearch = async () => {
     const query = search.trim();
@@ -474,12 +486,19 @@ export default function App() {
           result.status === 'fulfilled' ? result.value : []
         ));
       } else {
+        if (!apiUrl && !/^\d+$/.test(query)) {
+          setSettingsVisible(true);
+          return;
+        }
         const res = await vidzy.search(query);
         if (requestId !== searchRequestIdRef.current) return;
         setResults(res);
       }
     } catch (e) {
-      if (requestId === searchRequestIdRef.current) console.error(e);
+      if (requestId === searchRequestIdRef.current) {
+        console.error(e);
+        Alert.alert('Recherche impossible', e instanceof Error ? e.message : 'Le catalogue ne répond pas. Vérifiez son adresse dans les paramètres.');
+      }
     } finally {
       if (requestId === searchRequestIdRef.current) setIsSearching(false);
     }
@@ -497,7 +516,7 @@ export default function App() {
     setIsEpisodeListVisible(false);
   };
 
-  const getProviderForMedia = (media: SearchResult) => {
+  const getProviderForMedia = (media: SearchResult): HorusProvider => {
     switch (inferProviderId(media)) {
       case 'french-stream':
         throw new Error('Cette entrée utilise une source legacy indisponible');
@@ -551,12 +570,17 @@ export default function App() {
         !options.episodeQueue &&
         currentEpisodeQueue.length === 0 &&
         targetMedia.type !== 'movie';
-      const [streams, loadedQueue] = await Promise.all([
-        provider.getStreams(episode.id),
-        shouldLoadQueue
-          ? provider.getEpisodes(targetMedia.id).catch(() => [episode])
-          : Promise.resolve(options.episodeQueue || currentEpisodeQueue),
-      ]);
+      const queuePromise = shouldLoadQueue
+        ? provider.getEpisodes(targetMedia.id).catch(() => [episode])
+        : Promise.resolve(options.episodeQueue || currentEpisodeQueue);
+      const streamsPromise = inferProviderId(targetMedia) === 'anime-sama'
+        ? queuePromise.then(queue => {
+            // Enrich old history entries without changing their identity or saved position.
+            episode = queue.find(item => item.id === episode.id) || episode;
+            return provider.getStreams(episode.id, episode);
+          })
+        : provider.getStreams(episode.id, episode);
+      const [streams, loadedQueue] = await Promise.all([streamsPromise, queuePromise]);
 
       if (streams.length > 0) {
         const grouped = groupStreamsByLanguage(streams);
@@ -622,34 +646,36 @@ export default function App() {
     episode: Episode,
     overrideMedia?: SearchResult,
     isRecovery = false,
-    cacheQuality: RemoteCacheQuality = remoteCacheQuality
-  ) => {
+    cacheQuality: RemoteCacheQuality = remoteCacheQuality,
+    options: { language?: string; silent?: boolean } = {},
+  ): Promise<string | undefined> => {
     const targetMedia = overrideMedia || selectedMedia;
-    if (!targetMedia) return;
+    if (!targetMedia) return "Média indisponible.";
 
     if (Platform.OS !== 'android') {
-      Alert.alert(
+      if (!options.silent) Alert.alert(
         'Téléchargement indisponible',
         'La bibliothèque hors ligne est pour le moment disponible uniquement sur Android.'
       );
-      return;
+      return 'Téléchargement indisponible sur cette plateforme.';
     }
     if (cacheOperationRef.current || allStreams.length > 0 || remotePlayback) {
-      Alert.alert(
+      if (!options.silent) Alert.alert(
         'Lecture en cours',
         'Arrête la lecture ou la diffusion actuelle avant de télécharger un autre média.'
       );
-      return;
+      return 'Arrête la lecture ou la diffusion avant le téléchargement.';
     }
     if (useUserStore.getState().offlineMedia.some(item =>
-      item.media.id === targetMedia.id && item.episode.id === episode.id
+      inferProviderId(item.media) === inferProviderId(targetMedia) && item.media.id === targetMedia.id && item.episode.id === episode.id &&
+      (!options.language || normalizeStreamLanguage(item.language) === options.language)
     )) {
-      Alert.alert('Déjà téléchargé', 'Ce média est déjà présent dans la bibliothèque hors ligne.');
+      if (!options.silent) Alert.alert('Déjà téléchargé', 'Ce média est déjà présent dans la bibliothèque hors ligne.');
       return;
     }
 
     const operationId = claimCacheOperation('offline');
-    if (!operationId) return;
+    if (!operationId) return 'Une autre opération est en cours.';
 
     cacheCancelledRef.current = false;
     setDownloadingEpisodeId(episode.id);
@@ -668,6 +694,7 @@ export default function App() {
         },
         episode,
         quality: cacheQuality,
+        language: options.language,
         requestedAt: Date.now(),
       });
     }
@@ -675,18 +702,18 @@ export default function App() {
     try {
       await requestTvStreamingNotificationPermission();
       const provider = getProviderForMedia(targetMedia);
-      const streams = await provider.getStreams(episode.id);
+      const streams = await provider.getStreams(episode.id, episode);
       if (cacheCancelledRef.current) {
         throw new Error(REMOTE_CACHE_CANCELLED);
       }
       const grouped = groupStreamsByLanguage(streams);
       const languages = sortStreamLanguages(Object.keys(grouped));
-      const language = grouped.VF ? 'VF' : languages[0];
+      const language = options.language || (grouped.VF ? 'VF' : languages[0]);
       const candidates = language
         ? sortStreamsForRemotePlayback(grouped[language] || [])
         : [];
       if (candidates.length === 0) {
-        throw new Error('Aucun flux téléchargeable trouvé pour ce média.');
+        throw new Error(options.language ? `Aucun flux téléchargeable en ${options.language}.` : 'Aucun flux téléchargeable trouvé pour ce média.');
       }
 
       let downloadedItem: OfflineMediaItem | undefined;
@@ -703,8 +730,10 @@ export default function App() {
             }
           );
           cacheId = cached.cacheId;
+          if (cacheCancelledRef.current) throw new Error(REMOTE_CACHE_CANCELLED);
           await LocalVideoProxy.persistCachedMedia(cacheId);
           persistedId = cacheId;
+          if (cacheCancelledRef.current) throw new Error(REMOTE_CACHE_CANCELLED);
           downloadedItem = {
             id: cacheId,
             media: {
@@ -744,7 +773,7 @@ export default function App() {
 
       addOfflineMedia(downloadedItem);
       setPendingOfflineDownload(null);
-      Alert.alert(
+      if (!options.silent) Alert.alert(
         'Téléchargement terminé',
         `${downloadedItem.title} est disponible hors ligne (${formatByteCount(downloadedItem.sizeBytes)}).`
       );
@@ -755,11 +784,12 @@ export default function App() {
       }
       if (!isRemoteCacheCancellation(error)) {
         console.error('[Offline] Download failed', error);
-        Alert.alert(
+        if (!options.silent) Alert.alert(
           'Échec du téléchargement',
           error instanceof Error ? error.message : 'Impossible de télécharger ce média.'
         );
       }
+      return error instanceof Error ? error.message : 'Téléchargement impossible.';
     } finally {
       if (cacheOperationRef.current === operationId) {
         await stopProxyAndClearCache();
@@ -767,6 +797,41 @@ export default function App() {
         setIsCachingMedia(false);
         setDownloadingEpisodeId(null);
       }
+    }
+  };
+
+  const downloadSelectedEpisodes = async (selection: Episode[], language: string) => {
+    if (!selectedMedia || !selection.length || offlineBatchRef.current) return;
+    if (cacheOperationRef.current || allStreams.length || remotePlayback) {
+      Alert.alert('Lecture en cours', 'Arrête la lecture ou la diffusion avant de télécharger.');
+      return;
+    }
+    const media = selectedMedia;
+    const unique = selection.filter((episode, index) => selection.findIndex(item => item.id === episode.id) === index);
+    const remaining = unique.filter(episode => !useUserStore.getState().offlineMedia.some(item =>
+      inferProviderId(item.media) === inferProviderId(media) && item.media.id === media.id &&
+      item.episode.id === episode.id && normalizeStreamLanguage(item.language) === language));
+    if (!remaining.length) {
+      Alert.alert('Déjà téléchargés', 'Ces épisodes sont déjà disponibles dans cette langue.');
+      return;
+    }
+    const batch = { cancelled: false };
+    offlineBatchRef.current = batch;
+    setIsEpisodeListVisible(false);
+    try {
+      const result = await runDownloadBatch(remaining,
+        episode => downloadEpisodeForOffline(episode, media, false, remoteCacheQuality, { language, silent: true }),
+        () => batch.cancelled || !offlineMountedRef.current || isExitingRef.current,
+        (episode, index, total) => setOfflineBatch({ title: formatRemoteMediaTitle(media, episode), index, total, language }),
+      );
+      if (offlineMountedRef.current && !isExitingRef.current) {
+        const errors = result.failures.map(failure => `${failure.item.title || `Épisode ${failure.item.number}`} : ${failure.error}`);
+        Alert.alert(result.cancelled ? 'Téléchargements arrêtés' : 'Téléchargements terminés',
+          `${result.completed} épisode(s) terminé(s).${result.cancelled ? ' Les épisodes restants ont été retirés.' : ''}${errors.length ? `\n${errors.join('\n')}` : ''}`);
+      }
+    } finally {
+      offlineBatchRef.current = null;
+      if (offlineMountedRef.current) setOfflineBatch(null);
     }
   };
 
@@ -995,6 +1060,7 @@ export default function App() {
           onPress: () => {
             isExitingRef.current = true;
             cacheCancelledRef.current = true;
+            if (offlineBatchRef.current) offlineBatchRef.current.cancelled = true;
             setPendingOfflineDownload(null);
             void (async () => {
               await Promise.allSettled([
@@ -1111,7 +1177,8 @@ export default function App() {
         pending.episode,
         toSearchResult(pending.media),
         true,
-        pending.quality
+        pending.quality,
+        { language: pending.language },
       );
     };
 
@@ -1322,6 +1389,7 @@ export default function App() {
           value={search}
           onChangeText={setSearch}
           onSubmitEditing={handleSearch}
+          onSearch={handleSearch}
           returnKeyType="search"
           hideSearch={mediaType === 'wishlist' || mediaType === 'history' || mediaType === 'downloads'}
           onPressCast={() => {
@@ -1337,6 +1405,11 @@ export default function App() {
           onPressExit={Platform.OS === 'android' ? confirmExitApp : undefined}
           onPressSettings={() => setSettingsVisible(true)}
         />
+        {mediaType === 'film_series' && !apiUrl && (
+          <TouchableOpacity accessibilityRole="button" onPress={() => setSettingsVisible(true)} style={{ padding: 14, marginHorizontal: 20, backgroundColor: '#202338', borderRadius: 10 }}>
+            <Text style={{ color: '#F8FAFC' }}>Configure l’adresse de ton catalogue HorusApi dans les paramètres pour rechercher des films et séries.</Text>
+          </TouchableOpacity>
+        )}
         <ReleaseUpdateBanner updates={updates} onOpen={() => setSettingsVisible(true)} />
         <ReleaseSettings visible={settingsVisible} onClose={() => setSettingsVisible(false)} updates={updates} />
 
@@ -1504,7 +1577,9 @@ export default function App() {
         />
 
         {/* Phase 5 : Liste des épisodes Cyber UI */}
-        <HorusEpisodeList 
+        <HorusEpisodeList
+          key={selectedMedia ? `${selectedMedia.providerId}:${selectedMedia.id}` : 'empty'}
+          allEpisodes={episodes}
           visible={isEpisodeListVisible}
           onClose={() => setIsEpisodeListVisible(false)}
           seasonKeys={seasonKeys}
@@ -1521,6 +1596,8 @@ export default function App() {
                 .filter(item => item.media.id === selectedMedia.id)
                 .map(item => item.episode.id)
             : []}
+          onDownloadEpisodes={Platform.OS === 'android' && selectedMedia?.type !== 'movie'
+            ? (episodes, language) => void downloadSelectedEpisodes(episodes, language) : undefined}
           downloadingEpisodeId={downloadingEpisodeId}
           isLoading={isLoadingEpisodes}
         />
@@ -1611,12 +1688,13 @@ export default function App() {
         />
 
         <Modal
-          visible={isCachingMedia}
+          visible={isCachingMedia || !!offlineBatch}
           transparent={true}
           animationType="fade"
           onRequestClose={() => {
             cacheCancelledRef.current = true;
-            if (downloadingEpisodeId) setPendingOfflineDownload(null);
+            if (offlineBatchRef.current) offlineBatchRef.current.cancelled = true;
+            if (downloadingEpisodeId || offlineBatchRef.current) setPendingOfflineDownload(null);
             LocalVideoProxy.cancelCache().catch(console.error);
           }}
         >
@@ -1624,8 +1702,9 @@ export default function App() {
             <View style={styles.cacheModalContent}>
               <ActivityIndicator size="large" color="#00FFFF" />
               <Text style={styles.cacheModalTitle}>
-                {downloadingEpisodeId ? 'Téléchargement hors ligne' : 'Préparation pour la TV'}
+                {offlineBatch ? `Épisode ${offlineBatch.index} / ${offlineBatch.total} · ${offlineBatch.language}` : downloadingEpisodeId ? 'Téléchargement hors ligne' : 'Préparation pour la TV'}
               </Text>
+              {offlineBatch && <Text style={styles.cacheModalText}>{offlineBatch.title}</Text>}
               <Text style={styles.cacheModalText}>
                 {cacheProgress.phase === 'optimizing'
                   ? 'Optimisation du fichier MP4'
@@ -1668,11 +1747,12 @@ export default function App() {
                 style={styles.cacheCancelButton}
                 onPress={() => {
                   cacheCancelledRef.current = true;
-                  if (downloadingEpisodeId) setPendingOfflineDownload(null);
+                  if (offlineBatchRef.current) offlineBatchRef.current.cancelled = true;
+                  if (downloadingEpisodeId || offlineBatchRef.current) setPendingOfflineDownload(null);
                   LocalVideoProxy.cancelCache().catch(console.error);
                 }}
               >
-                <Text style={styles.cacheCancelText}>Annuler</Text>
+                <Text style={styles.cacheCancelText}>{offlineBatch ? "Annuler les téléchargements restants" : "Annuler"}</Text>
               </TouchableOpacity>
             </View>
           </View>

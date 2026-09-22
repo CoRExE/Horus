@@ -60,7 +60,6 @@ jobs:
       CI: '1'
       EXPO_NO_DOTENV: '1'
       HORUS_ANDROID_RELEASE: '1'
-      EXPO_PUBLIC_HORUS_API_URL: ${{ vars.HORUS_API_URL || 'https://horus-api.horus-remote.workers.dev' }}
     steps:
       - uses: actions/checkout@v4
         with:

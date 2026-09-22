@@ -74,7 +74,7 @@ test("l'épisode suivant conserve la langue et commence sans la position du pré
   video.currentTime = 150;
   fireEvent.click(screen.getByRole("button", { name: "Épisode suivant" }));
   await waitFor(() => expect(invoke).toHaveBeenCalledTimes(2));
-  expect(getStreams).toHaveBeenLastCalledWith("episode-2");
+  expect(getStreams).toHaveBeenLastCalledWith("episode-2", episodes[1]);
   expect(releaseStream).toHaveBeenCalledWith("stream-1");
   await waitFor(() =>
     expect(useLibrary.getState().history[0].episode.id).toBe("episode-2"),
@@ -229,7 +229,7 @@ test("l'historique sélectionne et reprend le bon épisode", async () => {
   expect((screen.getByLabelText("Épisode") as HTMLSelectElement).value).toBe(
     "episode-2",
   );
-  expect(getStreams).toHaveBeenCalledWith("episode-2");
+  expect(getStreams).toHaveBeenCalledWith("episode-2", episodes[1]);
   const video = await play();
   expect(video.currentTime).toBe(90);
   expect(useLibrary.getState().history[0].episode.id).toBe("episode-2");
@@ -241,7 +241,7 @@ test("un autre épisode ne récupère pas la position de l'épisode précédent"
   fireEvent.change(screen.getByLabelText("Épisode"), {
     target: { value: "episode-1" },
   });
-  await waitFor(() => expect(getStreams).toHaveBeenLastCalledWith("episode-1"));
+  await waitFor(() => expect(getStreams).toHaveBeenLastCalledWith("episode-1", episodes[0]));
   await waitFor(() =>
     expect(
       screen.getByRole("button", { name: "Lire ici" }).hasAttribute("disabled"),
@@ -430,4 +430,61 @@ test("un animé n’adopte pas une autre langue pour conserver le même serveur"
   await screen.findByText("La piste VOSTFR est indisponible. Choisissez une autre langue pour continuer.");
   expect(invoke).toHaveBeenCalledTimes(1);
   expect(screen.queryByRole("region", { name: "Lecteur" })).toBeNull();
+});
+
+
+test("la VF d’un animé reste disponible depuis un ancien historique et à l’épisode suivant", async () => {
+  const contextualEpisodes = episodes.map((episode, index) => ({
+    ...episode,
+    sourceContext: { seasonUrl: "https://anime-sama.to/catalogue/fixture/saison1/vostfr/", episodeIndex: index },
+  }));
+  vi.mocked(providerFor).mockReturnValue({
+    getEpisodes: vi.fn(async () => contextualEpisodes),
+    getStreams,
+  } as unknown as ReturnType<typeof providerFor>);
+  remember(episodes[0], anime);
+  getStreams.mockResolvedValue(animeStreams);
+  render(<App />);
+  fireEvent.click(screen.getByRole("button", { name: "Historique" }));
+  fireEvent.click(screen.getByRole("button", { name: /^ANIMÉ Animé de test/ }));
+  fireEvent.click(await screen.findByRole("button", { name: "VF" }));
+  await play();
+  expect(getStreams).toHaveBeenLastCalledWith(episodes[0].id, contextualEpisodes[0]);
+  expect(screen.getByText("VF · Serveur : Sendvid")).toBeTruthy();
+  expect(metadata().currentTime).toBe(90);
+  getStreams.mockResolvedValueOnce(animeStreams.map(stream => ({ ...stream, url: stream.url.replace("1.mp4", "2.mp4") })));
+  fireEvent.click(screen.getByRole("button", { name: "Épisode suivant" }));
+  await waitFor(() => expect(getStreams).toHaveBeenLastCalledWith(episodes[1].id, contextualEpisodes[1]));
+  await waitFor(() => expect(useLibrary.getState().history[0].episode.id).toBe(episodes[1].id));
+  expect(screen.getByText("VF · Serveur : Sendvid")).toBeTruthy();
+  expect(invoke).toHaveBeenLastCalledWith("prepare_stream", expect.objectContaining({ source: { url: "https://fixture.invalid/sendvid-vf-2.mp4", headers: {} } }));
+});
+
+test("changer de langue pendant la lecture reprend la position, filtre les serveurs et conserve la nouvelle langue au prochain épisode", async () => {
+  const video = await playAnime();
+  video.currentTime = 183;
+  const language = screen.getByRole("combobox", { name: "Langue de lecture" });
+  expect(within(language).getAllByRole("option").map(option => option.textContent)).toEqual(["VF", "VOSTFR"]);
+  fireEvent.change(language, { target: { value: "VF" } });
+  await screen.findByText("VF · Serveur : Sendvid");
+  expect(metadata().currentTime).toBe(183);
+  expect(useLibrary.getState().history[0].episode.id).toBe(episodes[0].id);
+  expect(invoke).toHaveBeenLastCalledWith("prepare_stream", expect.objectContaining({ source: { url: animeStreams[1].url, headers: {} } }));
+  const servers = screen.getByRole("combobox", { name: "Serveur de lecture" });
+  expect(within(servers).getAllByRole("option").map(option => option.textContent)).toEqual(["Sendvid"]);
+  // Returning to VOSTFR prefers Sendvid there, rather than the first source (Sibnet).
+  fireEvent.change(screen.getByRole("combobox", { name: "Langue de lecture" }), { target: { value: "VOSTFR" } });
+  await screen.findByText("VOSTFR · Serveur : Sendvid");
+  expect(metadata().currentTime).toBe(183);
+  expect(within(screen.getByRole("combobox", { name: "Serveur de lecture" })).getAllByRole("option")).toHaveLength(2);
+  fireEvent.change(screen.getByRole("combobox", { name: "Langue de lecture" }), { target: { value: "VF" } });
+  await screen.findByText("VF · Serveur : Sendvid");
+  metadata();
+  const nextStreams = animeStreams.map(stream => ({ ...stream, url: stream.url.replace("1.mp4", "2.mp4") }));
+  getStreams.mockResolvedValueOnce(nextStreams);
+  fireEvent.click(screen.getByRole("button", { name: "Épisode suivant" }));
+  await waitFor(() => expect(useLibrary.getState().history[0].episode.id).toBe(episodes[1].id));
+  expect(screen.getByText("VF · Serveur : Sendvid")).toBeTruthy();
+  expect(invoke).toHaveBeenLastCalledWith("prepare_stream", expect.objectContaining({ source: { url: nextStreams[1].url, headers: {} } }));
+  expect(metadata().currentTime).toBe(0);
 });

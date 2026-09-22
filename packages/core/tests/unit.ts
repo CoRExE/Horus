@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { testAnimeSamaLanguages } from './anime-sama';
 import {
   formatRemoteMediaTitle,
   formatDlnaTime,
@@ -186,4 +187,9 @@ assert.equal(
   null
 );
 
-console.log('Core unit tests passed.');
+testAnimeSamaLanguages().then(() => {
+  console.log('Core unit tests passed (including Anime-sama languages).');
+}).catch(error => {
+  console.error(error);
+  process.exitCode = 1;
+});

@@ -1,5 +1,6 @@
 import React from 'react';
 import { Modal, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { CatalogSettings } from './CatalogSettings';
 import type { useReleaseUpdates } from '../hooks/useReleaseUpdates';
 
 type Updates = ReturnType<typeof useReleaseUpdates>;
@@ -19,6 +20,7 @@ export function ReleaseSettings({ visible, onClose, updates }: { visible: boolea
     <View style={styles.overlay}><View style={styles.card}>
       <ScrollView>
         <Text accessibilityRole="header" style={styles.title}>Paramètres</Text>
+        <CatalogSettings visible={visible} />
         <Text style={styles.text}>HorusRemote · {updates.version}</Text>
         <TouchableOpacity accessibilityRole="button" disabled={!updates.enabled || updates.result.kind === 'checking'} onPress={() => void updates.check()} style={styles.button}>
           <Text style={styles.text}>{updates.result.kind === 'checking' ? 'Vérification…' : 'Vérifier les mises à jour'}</Text>

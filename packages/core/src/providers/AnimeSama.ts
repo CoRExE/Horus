@@ -73,41 +73,18 @@ export class AnimeSamaProvider implements HorusProvider {
 
           try {
               const { data: seasonHtml } = await axios.get(seasonUrl, { headers: this.headers, timeout: 15_000 });
-              const fileverMatch = /episodes\.js\?filever=(\d+)/.exec(seasonHtml);
-              
-              if (fileverMatch) {
-                  const episodesJsUrl = `${seasonUrl}episodes.js?filever=${fileverMatch[1]}`;
-                  const { data: jsData } = await axios.get(episodesJsUrl, { headers: this.headers, timeout: 15_000 });
-                  
-                  const arrayMatches = [...jsData.matchAll(/var\s+eps\d+\s*=\s*\[(.*?)\];/gs)];
-                  
-                  if (arrayMatches.length > 0) {
-                      // Collect ALL provider arrays (not just the "best" one)
-                      const allProviderArrays: string[][] = [];
-                      for (const arrMatch of arrayMatches) {
-                          const linksContent = arrMatch[1];
-                          const links = [...linksContent.matchAll(/https?:\/\/[^\s'",]+/g)].map(m => m[0]);
-                          if (links.length > 0) {
-                              allProviderArrays.push(links);
-                          }
-                      }
-                      
-                      // Determine episode count from the longest provider array
-                      const maxEps = Math.max(...allProviderArrays.map(a => a.length));
-                      
-                      for (let i = 0; i < maxEps; i++) {
-                          // Collect all provider URLs for this specific episode index
-                          const urlsForEp = allProviderArrays
-                              .filter(arr => arr[i])
-                              .map(arr => arr[i]);
-                          
-                          allEpisodes.push({
-                              id: `${season.name}::${urlsForEp.join('|||')}`,
-                              number: i + 1,
-                              title: `${season.name} - Épisode ${i + 1}`
-                          });
-                      }
-                  }
+              const allProviderArrays = await this.readEpisodeArrays(seasonUrl, seasonHtml);
+              const maxEps = Math.max(0, ...allProviderArrays.map(a => a.length));
+              for (let i = 0; i < maxEps; i++) {
+                  const urlsForEp = allProviderArrays.map(arr => arr[i]).filter(Boolean);
+                  if (!urlsForEp.length) continue;
+                  allEpisodes.push({
+                      // Preserve existing ids: adding VF must not reset playback history.
+                      id: `${season.name}::${urlsForEp.join('|||')}`,
+                      number: i + 1,
+                      title: `${season.name} - Épisode ${i + 1}`,
+                      sourceContext: { seasonUrl, episodeIndex: i },
+                  });
               }
           } catch (e) {
               console.error(`Error fetching season ${season.name}`);
@@ -117,11 +94,36 @@ export class AnimeSamaProvider implements HorusProvider {
       return allEpisodes;
   }
 
+  private async readEpisodeArrays(seasonUrl: string, html?: string): Promise<string[][]> {
+      if (html === undefined) {
+          const response = await axios.get(seasonUrl, { headers: this.headers, timeout: 8_000 });
+          html = response.data;
+      }
+      const $ = cheerio.load(html!);
+      const src = $('script[src]').toArray()
+          .map(el => $(el).attr('src')!)
+          .find(src => /^episodes\.js(?:\?|$)/.test(src));
+      if (!src) return [];
+      const { data } = await axios.get(new URL(src, seasonUrl).href, {
+          headers: this.headers, timeout: 8_000,
+      });
+      return [...String(data).matchAll(/var\s+eps\d+\s*=\s*\[(.*?)\];/gs)].map(match => {
+          // Preserve missing slots so a later episode never becomes the VF of an earlier one.
+          const values = [...match[1].replace(/\/\*.*?\*\//gs, '').matchAll(
+              /\s*(?:'((?:\\.|[^'\\])*)'|"((?:\\.|[^"\\])*)"|([^,]*))\s*(?:,|$)/g
+          )].filter(value => value[0].length > 0);
+          return values.map(value => {
+              const link = (value[1] ?? value[2] ?? '').replace(/\\\//g, '/');
+              return /^https?:\/\//.test(link) ? link : '';
+          });
+      });
+  }
+
   /**
    * Extract a direct stream URL from a single embed page URL.
    * Returns an array of streams (usually 0 or 1).
    */
-  private async extractFromUrl(providerUrl: string): Promise<Stream[]> {
+  private async extractFromUrl(providerUrl: string, language = 'VOSTFR'): Promise<Stream[]> {
       const TIMEOUT = 8000;
       
       try {
@@ -141,7 +143,7 @@ export class AnimeSamaProvider implements HorusProvider {
                     };
                     // Let the native player/proxy follow Sibnet's redirect. Probing
                     // it with an Axios GET can buffer the entire MP4 in React Native.
-                    return [{ url: initialUrl, language: 'VOSTFR', quality: 'auto', server: 'Sibnet', headers: sibnetHeaders }];
+                    return [{ url: initialUrl, language, quality: 'auto', server: 'Sibnet', headers: sibnetHeaders }];
                  }
               }
           }
@@ -151,7 +153,7 @@ export class AnimeSamaProvider implements HorusProvider {
              const { data } = await axios.get(providerUrl, { headers: { "user-agent": this.headers["user-agent"] }, timeout: TIMEOUT });
              const m3u8Match = /video_source\s*=\s*['"]([^'"]+\.m3u8)['"]/.exec(data);
              if (m3u8Match) {
-                 return [{ url: m3u8Match[1], language: 'VOSTFR', quality: 'auto', server: 'Sendvid' }];
+                 return [{ url: m3u8Match[1], language, quality: 'auto', server: 'Sendvid' }];
              }
           }
 
@@ -160,7 +162,7 @@ export class AnimeSamaProvider implements HorusProvider {
               const { data } = await axios.get(providerUrl, { headers: { "user-agent": this.headers["user-agent"] }, timeout: TIMEOUT });
               const m3u8Match = /file:\s*['"](https:\/\/[^'"]+\.m3u8[^'"]*)['"]/.exec(data);
               if (m3u8Match) {
-                  return [{ url: m3u8Match[1], language: 'VOSTFR', quality: 'auto', server: 'Vidmoly' }];
+                  return [{ url: m3u8Match[1], language, quality: 'auto', server: 'Vidmoly' }];
               }
           }
 
@@ -173,7 +175,7 @@ export class AnimeSamaProvider implements HorusProvider {
                   if (m3u8Match) {
                       let streamUrl = m3u8Match[1];
                       if (streamUrl.includes('.txt')) streamUrl = streamUrl.replace('.txt', '.m3u8');
-                      return [{ url: streamUrl, language: 'VOSTFR', quality: 'auto', server: 'Smoothpre' }];
+                      return [{ url: streamUrl, language, quality: 'auto', server: 'Smoothpre' }];
                   }
               }
           }
@@ -183,26 +185,37 @@ export class AnimeSamaProvider implements HorusProvider {
       return [];
   }
 
-  async getStreams(episodeId: string): Promise<Stream[]> {
+  async getStreams(episodeId: string, episode?: Episode): Promise<Stream[]> {
       const parts = episodeId.split('::');
       if (parts.length < 2) return [];
-      
-      const urlsPart = parts.slice(1).join('::');
-      const providerUrls = urlsPart.split('|||');
-      
-      const results = await Promise.allSettled(
-          providerUrls.map(url => this.extractFromUrl(url))
-      );
-      
-      const streams: Stream[] = [];
-      for (const result of results) {
-          if (result.status === 'fulfilled' && result.value.length > 0) {
-              streams.push(...result.value);
+      const context = episode?.id === episodeId ? episode.sourceContext : undefined;
+      const primaryLanguage = context && /\/vf[12]?\/$/.test(context.seasonUrl) ? 'VF' : 'VOSTFR';
+      const sources = parts.slice(1).join('::').split('|||')
+          .filter(Boolean).map(url => ({ url, language: primaryLanguage }));
+
+      // Fetch alternate lists only for the selected episode, not for every season in the catalogue.
+      if (context && Number.isInteger(context.episodeIndex) && context.episodeIndex >= 0) {
+          const seasonUrl = new URL(context.seasonUrl);
+          if (seasonUrl.origin === this.baseUrl && /\/(?:vostfr|vf[12]?)\/$/.test(seasonUrl.pathname)) {
+              const variants = ['vostfr', 'vf', 'vf1', 'vf2']
+                  .map(lang => ({ url: new URL(`../${lang}/`, seasonUrl).href, language: lang === 'vostfr' ? 'VOSTFR' : 'VF' }))
+                  .filter(variant => variant.url !== seasonUrl.href);
+              const results = await Promise.allSettled(variants.map(async variant => {
+                  const arrays = await this.readEpisodeArrays(variant.url);
+                  return arrays.map(array => array[context.episodeIndex]).filter(Boolean)
+                      .map(url => ({ url, language: variant.language }));
+              }));
+              for (const result of results) {
+                  if (result.status === 'fulfilled') sources.push(...result.value);
+              }
           }
       }
-      
-
-      
-      return streams;
+      const uniqueSources = sources.filter((source, index) => sources.findIndex(
+          other => other.url === source.url && other.language === source.language
+      ) === index);
+      const results = await Promise.allSettled(
+          uniqueSources.map(source => this.extractFromUrl(source.url, source.language))
+      );
+      return results.flatMap(result => result.status === 'fulfilled' ? result.value : []);
   }
 }

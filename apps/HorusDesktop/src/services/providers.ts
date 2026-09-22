@@ -2,10 +2,11 @@ import {
   AnimeSamaProvider,
   VidzyProvider,
   type SearchResult,
+  type HorusProvider,
 } from "@horus/core";
 import { useLibrary } from "../store/library";
 
-export function providerFor(media: Pick<SearchResult, "providerId">) {
+export function providerFor(media: Pick<SearchResult, "providerId">): HorusProvider {
   return media.providerId === "anime-sama"
     ? new AnimeSamaProvider()
     : new VidzyProvider({ catalogApiUrl: useLibrary.getState().apiUrl });
