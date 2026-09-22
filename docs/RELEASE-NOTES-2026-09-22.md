@@ -1,7 +1,9 @@
-# Mise à jour préparée : Desktop 0.1.6 et Remote 1.4.3
+# Mise à jour préparée : Desktop 0.1.6 et Remote 1.4.4
 
-Versions préparées localement le 22 septembre 2026. Android utilise le code 27.
-Les tags prévus sont `desktop-v0.1.6` et `mobile-v1.4.3`.
+Versions préparées le 22 septembre 2026. Android utilise le code 28.
+Les tags sont `desktop-v0.1.6` et `mobile-v1.4.4`. Le build de `mobile-v1.4.3`
+a échoué avant compilation lors de l'installation du SDK ; son tag est conservé.
+La version 1.4.4 reprend les mêmes fonctionnalités avec l'initialisation SDK corrigée.
 
 ## Desktop 0.1.6
 
@@ -14,7 +16,7 @@ Les tags prévus sont `desktop-v0.1.6` et `mobile-v1.4.3`.
 - Maintien éveillé de l'ordinateur pendant la diffusion DLNA/Chromecast,
   libéré à la pause, à l'arrêt ou à la fermeture, puis réactivé à la reprise.
 
-## Remote 1.4.3
+## Remote 1.4.4
 
 - Accès aux variantes VF disponibles sur Anime-sama.
 - Sélection de plusieurs épisodes à télécharger successivement, avec choix
