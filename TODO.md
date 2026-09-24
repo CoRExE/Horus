@@ -436,6 +436,15 @@ Correction Windows et préparation de Desktop 0.1.5 le 19 septembre 2026 :
 
 ## 7. Valider la diffusion TV — HorusDesktop
 
+Sous-titres Vidzy — ajouts prévus pour Desktop et Remote, le 22 septembre 2026 :
+
+- [x] Vérifier le cas The 8 Show, saison 1 épisode 1 : le lecteur Vidzy déclare deux fichiers WebVTT externes, français et anglais ; les deux répondent HTTP 200 et contiennent des repères temporels. La page de configuration de [Vidzy](https://api.vidzy.org/) prévoit également un bouton de sous-titres. Ce constat ne garantit pas leur disponibilité pour tous les médias.
+- [ ] Étendre le modèle `Stream` et l'extracteur Vidzy commun pour transmettre les pistes externes (URL, langue, libellé) aux applications, sans exécuter le JavaScript du site. Actuellement, seul le flux HLS est extrait.
+- [ ] Desktop : charger ces pistes dans le lecteur et les proposer dans le sélecteur Sous-titres existant, avec désactivation, en préservant les pistes déjà intégrées au flux et la lecture plein écran.
+- [ ] Remote : intégrer les pistes externes avec une méthode compatible avec la version installée d'Expo Video et permettre leur sélection/désactivation. Vérifier la prise en charge réelle des fichiers séparés ; la détection des pistes intégrées ne suffit pas.
+- [ ] Préserver les en-têtes nécessaires à l'accès, éviter les doublons et retirer les anciennes pistes au changement de média/source. Un sous-titre absent ou inaccessible ne doit pas bloquer la vidéo.
+- [ ] Ajouter les tests d'extraction et de transmission, puis valider affichage, synchronisation, changement de langue et désactivation sur Desktop et Android. Étudier séparément le transport DLNA/Chromecast et la conservation hors ligne avant d'annoncer ces deux usages comme pris en charge.
+
 Historique Remote, le 22 septembre 2026 :
 
 - [x] Ajouter Supprimer → sélection des cartes → Tout sélectionner/Tout désélectionner/Confirmer/Annuler. Ne pas ouvrir un média en mode sélection ; abandonner la sélection au changement d'onglet et préserver favoris, statuts Vu et téléchargements.
