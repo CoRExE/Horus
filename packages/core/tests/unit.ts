@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { testAnimeSamaLanguages } from './anime-sama';
+import { testVidzyMediaTypes } from './vidzy';
 import {
   formatRemoteMediaTitle,
   formatDlnaTime,
@@ -222,8 +223,8 @@ assert.equal(
   null
 );
 
-testAnimeSamaLanguages().then(() => {
-  console.log('Core unit tests passed (including Anime-sama languages).');
+testAnimeSamaLanguages().then(testVidzyMediaTypes).then(() => {
+  console.log('Core unit tests passed (including Anime-sama languages and Vidzy media types).');
 }).catch(error => {
   console.error(error);
   process.exitCode = 1;

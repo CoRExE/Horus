@@ -8,7 +8,7 @@ import { historyMediaKey, historyResumeAt, resumeHistoryOnRemote } from './servi
 import { HorusHistory } from './components/HorusHistory';
 
 // Imports de notre librairie locale @horus/core
-import { AnimeSamaProvider, VidzyProvider, SearchResult, Episode, Stream, ProviderId, HorusProvider, formatRemoteMediaTitle, groupLibraryMedia, watchedMediaKey, groupStreamsByLanguage, inferStreamFormat, normalizeStreamLanguage, selectPlaybackDuration, sortStreamLanguages, sortStreamsForRemotePlayback } from '@horus/core';
+import { AnimeSamaProvider, VidzyProvider, SearchResult, Episode, Stream, ProviderId, HorusProvider, formatRemoteMediaTitle, groupLibraryMedia, watchedMediaKey, groupStreamsByLanguage, inferStreamFormat, isVidzyEpisodeForMedia, normalizeStreamLanguage, selectPlaybackDuration, sortStreamLanguages, sortStreamsForRemotePlayback } from '@horus/core';
 
 import VideoPlayer from './components/VideoPlayer';
 import { HorusBootSequence } from './components/HorusBootSequence';
@@ -551,7 +551,7 @@ export default function App() {
     setSelectedSeason('');
     try {
       const provider = getProviderForMedia(media);
-      const eps = await provider.getEpisodes(media.id);
+      const eps = await provider.getEpisodes(media.id, media);
       if (requestId === mediaRequestIdRef.current) setEpisodes(eps);
     } catch (e) {
       if (requestId === mediaRequestIdRef.current) {
@@ -578,21 +578,21 @@ export default function App() {
     try {
       const provider = getProviderForMedia(targetMedia);
       const currentEpisodeQueue =
-        selectedMedia?.id === targetMedia.id ? episodes : [];
+        selectedMedia && historyMediaKey(selectedMedia) === historyMediaKey(targetMedia) ? episodes : [];
       const shouldLoadQueue =
         !options.episodeQueue &&
         currentEpisodeQueue.length === 0 &&
         targetMedia.type !== 'movie';
       const queuePromise = shouldLoadQueue
-        ? provider.getEpisodes(targetMedia.id).catch(() => [episode])
+        ? provider.getEpisodes(targetMedia.id, targetMedia).catch(() => [episode])
         : Promise.resolve(options.episodeQueue || currentEpisodeQueue);
       const streamsPromise = inferProviderId(targetMedia) === 'anime-sama'
         ? queuePromise.then(queue => {
             // Enrich old history entries without changing their identity or saved position.
             episode = queue.find(item => item.id === episode.id) || episode;
-            return provider.getStreams(episode.id, episode);
+            return provider.getStreams(episode.id, episode, targetMedia);
           })
-        : provider.getStreams(episode.id, episode);
+        : provider.getStreams(episode.id, episode, targetMedia);
       const [streams, loadedQueue] = await Promise.all([streamsPromise, queuePromise]);
 
       if (streams.length > 0) {
@@ -715,7 +715,7 @@ export default function App() {
     try {
       await requestTvStreamingNotificationPermission();
       const provider = getProviderForMedia(targetMedia);
-      const streams = await provider.getStreams(episode.id, episode);
+      const streams = await provider.getStreams(episode.id, episode, targetMedia);
       if (cacheCancelledRef.current) {
         throw new Error(REMOTE_CACHE_CANCELLED);
       }
@@ -1490,7 +1490,7 @@ export default function App() {
             <View style={{ paddingHorizontal: 15 }}>
               <HorusHistory history={history} remove={removeFromHistory} open={item => {
                 const media = toSearchResult(item);
-                if (item.lastEpisode) {
+                if (item.lastEpisode && (media.providerId !== 'vidzy' || isVidzyEpisodeForMedia(item.lastEpisode.id, media))) {
                   mediaRequestIdRef.current += 1;
                   setSelectedMedia(media);
                   void extractStreamsAndCast(item.lastEpisode, media);
@@ -1630,7 +1630,7 @@ export default function App() {
 
         {/* Phase 5 : Liste des épisodes Cyber UI */}
         <HorusEpisodeList
-          key={selectedMedia ? `${selectedMedia.providerId}:${selectedMedia.id}` : 'empty'}
+          key={selectedMedia ? historyMediaKey(selectedMedia) : 'empty'}
           allEpisodes={episodes}
           visible={isEpisodeListVisible}
           onClose={() => setIsEpisodeListVisible(false)}

@@ -166,7 +166,7 @@ export function usePlayback({
     if (!next) return;
     setStarting(true);
     try {
-      const streams = await providerFor(current.media).getStreams(next.id, next);
+      const streams = await providerFor(current.media).getStreams(next.id, next, current.media);
       if (playingRef.current !== current) return;
       const sameLanguage = streams.filter(
         (item) => normalizeStreamLanguage(item.language) === current.language,

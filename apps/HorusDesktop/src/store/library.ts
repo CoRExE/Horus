@@ -1,10 +1,10 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import type { Episode, SearchResult } from "@horus/core";
-import { createWatchStatus } from "@horus/core";
+import { createWatchStatus, watchedMediaKey } from "@horus/core";
 
 export const mediaKey = (media: SearchResult) =>
-  `${media.providerId}:${media.id}`;
+  watchedMediaKey(media);
 export interface HistoryEntry {
   media: SearchResult;
   episode: Episode;

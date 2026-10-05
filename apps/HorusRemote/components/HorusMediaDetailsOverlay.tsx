@@ -3,6 +3,7 @@ import { View, Text, Image, StyleSheet, Modal, Pressable, TouchableOpacity, Acti
 import { MotiView } from 'moti';
 import { Bookmark, Check, Download } from 'lucide-react-native';
 import { useUserStore, MediaItem } from '../store/useUserStore';
+import { watchedMediaKey } from '@horus/core';
 
 export interface HorusMediaDetailsOverlayProps {
   visible: boolean;
@@ -38,7 +39,7 @@ export const HorusMediaDetailsOverlay: React.FC<HorusMediaDetailsOverlayProps> =
   // Sécurité si media est indéfini
   if (!media) return null;
 
-  const isInWishlist = wishlist.some((item) => item.id === media.id);
+  const isInWishlist = wishlist.some((item) => watchedMediaKey(item) === watchedMediaKey(media));
 
   return (
     <Modal
