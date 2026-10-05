@@ -436,6 +436,46 @@ Correction Windows et préparation de Desktop 0.1.5 le 19 septembre 2026 :
 
 ## 7. Valider la diffusion TV — HorusDesktop
 
+Débit des téléchargements d'animés — audit du 25 septembre 2026 :
+
+- [x] Examiner les parcours Desktop/Remote, la sélection des serveurs, les transferts MP4/HLS, le remuxage et la progression. Aucun plafond explicite de débit trouvé ; constats et limites des essais dans `docs/DOWNLOADS.md`.
+- [x] Mesurer des échantillons bornés de Radiant S1E1/S1E2 VF sur Sibnet, en accès direct et, pour S1E1, avec FFmpeg derrière un relais Node temporaire : environ 1,77 à 12,19 Mio/s selon l'essai, 4,26 Mio/s pour le MP4 remuxé. Aucun épisode complet, APK ou build Tauri ; ce test ne valide pas le relais Rust ni Android. SNK S1E1/S1E2 non résolus lors des essais, donc aucun débit mesuré.
+- [ ] Reproduire le ralentissement sur l'épisode/version exacts dans Desktop et Remote ; comparer source directe, relais Rust et téléphone sur le même réseau avant d'attribuer la cause ou de promettre un gain.
+- [ ] Corriger l'extraction Sendvid : Radiant expose un MP4 avec paramètres, ignoré par l'extracteur HLS actuel. Préserver les paramètres signés ; ne pas supposer cette source plus rapide (paramètre `rate=250k` observé, effet non mesuré).
+- [ ] Proposer le choix et l'affichage du serveur de téléchargement sur Remote ; conserver langue, qualité et repli explicite. Desktop utilise déjà le serveur sélectionné dans la fiche lorsqu'il est disponible.
+- [ ] Mesurer puis réduire les coûts disque Android si nécessaire (espace libre vérifié à chaque lecture, synchronisation des segments temporaires) et évaluer l'attente des segments HLS dans l'ordre, sans affaiblir l'annulation, le contrôle d'espace ni l'intégrité des fichiers.
+
+Sous-titres Vidzy — ajouts prévus pour Desktop et Remote, le 22 septembre 2026 :
+
+- [x] Vérifier le cas The 8 Show, saison 1 épisode 1 : le lecteur Vidzy déclare deux fichiers WebVTT externes, français et anglais ; les deux répondent HTTP 200 et contiennent des repères temporels. La page de configuration de [Vidzy](https://api.vidzy.org/) prévoit également un bouton de sous-titres. Ce constat ne garantit pas leur disponibilité pour tous les médias.
+- [ ] Étendre le modèle `Stream` et l'extracteur Vidzy commun pour transmettre les pistes externes (URL, langue, libellé) aux applications, sans exécuter le JavaScript du site. Actuellement, seul le flux HLS est extrait.
+- [ ] Desktop : charger ces pistes dans le lecteur et les proposer dans le sélecteur Sous-titres existant, avec désactivation, en préservant les pistes déjà intégrées au flux et la lecture plein écran.
+- [ ] Remote : intégrer les pistes externes avec une méthode compatible avec la version installée d'Expo Video et permettre leur sélection/désactivation. Vérifier la prise en charge réelle des fichiers séparés ; la détection des pistes intégrées ne suffit pas.
+- [ ] Préserver les en-têtes nécessaires à l'accès, éviter les doublons et retirer les anciennes pistes au changement de média/source. Un sous-titre absent ou inaccessible ne doit pas bloquer la vidéo.
+- [ ] Ajouter les tests d'extraction et de transmission, puis valider affichage, synchronisation, changement de langue et désactivation sur Desktop et Android. Étudier séparément le transport DLNA/Chromecast et la conservation hors ligne avant d'annoncer ces deux usages comme pris en charge.
+
+Historique Remote, le 22 septembre 2026 :
+
+- [x] Ajouter Supprimer → sélection des cartes → Tout sélectionner/Tout désélectionner/Confirmer/Annuler. Ne pas ouvrir un média en mode sélection ; abandonner la sélection au changement d'onglet et préserver favoris, statuts Vu et téléchargements.
+- [x] Ajouter position/durée facultatives aux entrées existantes, sauvegarder la progression locale toutes les cinq secondes et à la pause, fermeture, passage en arrière-plan ou fin. Reprendre le même épisode après chargement des métadonnées ; repartir du début pour un épisode différent ou terminé. Afficher la position de reprise dans l'historique.
+- [x] Enregistrer aussi la progression DLNA/Chromecast et demander la reprise après démarrage lorsque le flux est seekable ; un refus du récepteur affiche une information sans arrêter la lecture. Les flux sans durée exploitable ou sans déplacement temporel restent limités. Les lectures hors ligne utilisent le même historique.
+- [x] Identifier les entrées par fournisseur/type/identifiant, en reconnaissant les fournisseurs des anciennes entrées. Ne pas recréer une entrée supprimée depuis un événement de progression tardif ni écraser le nouvel épisode avec la progression du précédent. Audit de parité mis à jour.
+- [x] Valider TypeScript Remote, les 17 tests de logique Remote et l'export JavaScript Android Metro/Hermes. Les sept nouveaux tests couvrent la suppression ciblée persistée, les anciennes entrées, la reprise du même épisode, les événements tardifs, la fin de lecture, la libération du lecteur et la demande de reprise TV avec récepteur simulé. `git diff --check` réussi.
+- [ ] Valider sur téléphone le parcours de sélection et la reprise après redémarrage, puis sur DLNA/Chromecast ; aucun APK ni build natif lancé pour cette modification.
+
+Ma Liste et audit de parité, le 22 septembre 2026 :
+
+- [x] Ajouter sur Desktop et Remote le bouton À voir/Vu, réversible et persistant, sans retirer les favoris ni modifier l'historique ou les téléchargements. Le statut concerne le titre entier, utilise fournisseur/type/identifiant et reste conservé après retrait/réajout à la liste ; les anciens stockages restent lisibles sans migration destructive.
+- [x] Regrouper Ma Liste de Remote par Films/Séries/Animés avec le même helper que Desktop, en conservant l'ordre des titres au sein de chaque groupe. Renommer « Wishlist » en « Ma liste ».
+- [x] Auditer les fonctions exposées dans les deux applications et documenter les écarts, les limites communes et les priorités proposées dans `docs/AUDIT-DESKTOP-REMOTE.md`. Les écarts supplémentaires ne sont pas implémentés dans ce changement.
+- [x] Valider TypeScript Core/Remote/Desktop, tests Core, 71 tests UI Desktop et 10 tests de logique Remote, compilation Vite et export JavaScript Android (Metro/Hermes, sans APK). Couverture ajoutée : statut réversible, persistance/réhydratation, liste et historique inchangés, retrait/réajout, distinction des fournisseurs/types et ordre des catégories. `git diff --check` réussi.
+- [ ] Confirmer sur téléphone le rendu des catégories et du bouton Vu, sa conservation après redémarrage et l'ouverture normale des cartes ; aucun build APK ni essai TV lancé pour ce changement.
+
+Outillage local Remote, le 22 septembre 2026 :
+
+- [x] Ajouter `pnpm mobile:clean` à la racine et `pnpm android:clean` dans Remote. Après l'échec utilisateur de `externalNativeBuildCleanPreview` (CMake relancé avec des dossiers JNI générés absents), remplacer `gradlew clean` par un script Node ciblant uniquement les sorties Android et les caches CMake du projet et du module local. Préserver sources, clés, configuration, dépendances et caches Gradle ; documenter la suppression des APK générés.
+- [x] Valider trois tests dans des dossiers temporaires : nettoyage des sorties avec préservation des fichiers locaux, absence de projet/idempotence et liens symboliques sans toucher aux cibles externes. Syntaxe Node, fichiers JSON et `git diff --check` réussis. Aucun nettoyage ni build réel lancé par l'agent ; modifications utilisateur de pnpm et de son lockfile préservées.
+
 Correction du build Android, le 22 septembre 2026 :
 
 - [x] Confirmer dans le run `35672429791` l'échec de `setup-android@v3` sur sa demande de `tools platform-tools`, avant compilation. Remplacer l'action par le SDK préinstallé, vérifier son exécutable et transmettre ses chemins aux étapes suivantes ; installer uniquement les composants nécessaires. Conserver les erreurs de licences/installation comme bloquantes.

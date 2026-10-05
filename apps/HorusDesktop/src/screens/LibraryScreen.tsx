@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Trash2 } from "lucide-react";
 import type { Episode, SearchResult } from "@horus/core";
+import { groupLibraryMedia } from "@horus/core";
 import type { LibraryState } from "../types/media";
 import { MediaCollection } from "../components/MediaCollection";
 import { mediaKey } from "../store/library";
@@ -14,17 +15,12 @@ interface Props {
 export function LibraryScreen({ section, library, openMedia }: Props) {
   if (section === "history")
     return <HistoryCollection library={library} openMedia={openMedia} />;
-  const categories = [
-    { type: "movie", title: "Films" },
-    { type: "series", title: "Séries" },
-    { type: "anime", title: "Animés" },
-  ] as const;
+  const categories = groupLibraryMedia(library.wishlist);
   if (library.wishlist.length)
     return (
       <>
-        {categories.map(({ type, title }) => {
-          const items = library.wishlist.filter((media) => media.type === type);
-          if (!items.length) return null;
+        <p className="muted">Marquez un titre comme vu sans le retirer de votre liste. Ce statut concerne le titre entier et reste indépendant de l’historique.</p>
+        {categories.map(({ type, title, items }) => {
           return (
             <section
               key={type}

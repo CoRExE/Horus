@@ -1,5 +1,6 @@
-import { Film, Heart, Play } from "lucide-react";
+import { Check, Film, Heart, Play } from "lucide-react";
 import type { Episode, SearchResult } from "@horus/core";
+import { watchedMediaKey } from "@horus/core";
 import { mediaKey } from "../store/library";
 import type { LibraryState } from "../types/media";
 
@@ -44,6 +45,7 @@ export function MediaCollection({
           </div>
           <div className="media-grid">
             {visibleMedia.map((media) => {
+              const watched = Boolean(library.watchedMedia[watchedMediaKey(media)]);
               const saved = library.wishlist.some(
                 (item) => mediaKey(item) === mediaKey(media),
               );
@@ -128,6 +130,16 @@ export function MediaCollection({
                       onClick={() => library.toggleWishlist(media)}
                     >
                       <Heart size={17} fill={saved ? "currentColor" : "none"} />
+                    </button>
+                  )}
+                  {section === "wishlist" && (
+                    <button
+                      className={`watch-status${watched ? " watched" : ""}`}
+                      aria-pressed={watched}
+                      aria-label={`Marquer ${media.title} comme ${watched ? "non vu" : "vu"}`}
+                      onClick={() => library.toggleWatched(media)}
+                    >
+                      {watched && <Check size={16} />} {watched ? "Vu" : "À voir"}
                     </button>
                   )}
                 </article>

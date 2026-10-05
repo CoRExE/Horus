@@ -1,6 +1,7 @@
 import { beforeEach, expect, test, vi } from "vitest";
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import type { SearchResult } from "@horus/core";
+import { watchedMediaKey } from "@horus/core";
 import { LibraryScreen } from "../src/screens/LibraryScreen";
 import { useLibrary } from "../src/store/library";
 
@@ -50,8 +51,33 @@ beforeEach(() => {
     apiUrl: "https://catalogue.invalid",
     wishlist: [series, movie, anime],
     history: [],
+    watchedMedia: {},
   });
   [movie, series, anime].forEach(remember);
+});
+
+test("marquer comme vu conserve la liste et l'historique, persiste et reste réversible", async () => {
+  render(<Library section="wishlist" />);
+  const initialHistory = useLibrary.getState().history;
+  fireEvent.click(screen.getByRole("button", { name: "Marquer Le film comme vu" }));
+  expect(openMedia).not.toHaveBeenCalled();
+  expect(useLibrary.getState().wishlist).toEqual([series, movie, anime]);
+  expect(useLibrary.getState().history).toEqual(initialHistory);
+  expect(screen.getByRole("button", { name: "Marquer Le film comme non vu" }).getAttribute("aria-pressed")).toBe("true");
+  expect(screen.getByRole("button", { name: "Marquer L’animé comme vu" }).getAttribute("aria-pressed")).toBe("false");
+  const saved = localStorage.getItem("horus-desktop-library")!;
+  await act(async () => {
+    useLibrary.setState({ watchedMedia: {} });
+    localStorage.setItem("horus-desktop-library", saved);
+    await useLibrary.persist.rehydrate();
+  });
+  expect(useLibrary.getState().watchedMedia[watchedMediaKey(movie)]).toBe(true);
+  fireEvent.click(screen.getByRole("button", { name: "Retirer Le film de ma liste" }));
+  act(() => useLibrary.getState().toggleWishlist(movie));
+  expect(screen.getByRole("button", { name: "Marquer Le film comme non vu" })).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "Marquer Le film comme non vu" }));
+  expect(useLibrary.getState().watchedMedia).toEqual({});
+  expect(useLibrary.getState().history).toEqual(initialHistory);
 });
 
 test("Ma liste sépare films, séries et animés tout en conservant l'ouverture et les favoris", () => {

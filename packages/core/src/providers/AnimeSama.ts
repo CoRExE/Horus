@@ -79,7 +79,7 @@ export class AnimeSamaProvider implements HorusProvider {
                   const urlsForEp = allProviderArrays.map(arr => arr[i]).filter(Boolean);
                   if (!urlsForEp.length) continue;
                   allEpisodes.push({
-                      // Preserve existing ids: adding VF must not reset playback history.
+                      // Keep all source URLs in ids, including retired hosts, to preserve playback history.
                       id: `${season.name}::${urlsForEp.join('|||')}`,
                       number: i + 1,
                       title: `${season.name} - Épisode ${i + 1}`,
@@ -127,27 +127,6 @@ export class AnimeSamaProvider implements HorusProvider {
       const TIMEOUT = 8000;
       
       try {
-          // Parse Sibnet without downloading the video body in JavaScript.
-          if (providerUrl.includes('sibnet.ru')) {
-              const idMatch = /videoid=(\d+)/.exec(providerUrl);
-              if (idMatch) {
-                 const videoId = idMatch[1];
-                 const shellUrl = `https://video.sibnet.ru/shell.php?videoid=${videoId}`;
-                 const { data } = await axios.get(shellUrl, { headers: { "user-agent": this.headers["user-agent"] }, timeout: TIMEOUT });
-                 const hashMatch = /player\.src\(\[\{src: "\/v\/([^/]+)\//.exec(data);
-                 if (hashMatch) {
-                    const initialUrl = `https://video.sibnet.ru/v/${hashMatch[1]}/${videoId}.mp4`;
-                    const sibnetHeaders = {
-                        'Referer': 'https://video.sibnet.ru/',
-                        'User-Agent': this.headers['user-agent']
-                    };
-                    // Let the native player/proxy follow Sibnet's redirect. Probing
-                    // it with an Axios GET can buffer the entire MP4 in React Native.
-                    return [{ url: initialUrl, language, quality: 'auto', server: 'Sibnet', headers: sibnetHeaders }];
-                 }
-              }
-          }
-          
           // Parse Sendvid
           if (providerUrl.includes('sendvid.com')) {
              const { data } = await axios.get(providerUrl, { headers: { "user-agent": this.headers["user-agent"] }, timeout: TIMEOUT });

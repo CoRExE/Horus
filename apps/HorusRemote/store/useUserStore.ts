@@ -1,8 +1,9 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import { createCatalogSettings } from '../services/catalogSettings';
+import { createHistory } from '../services/history';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Episode, ProviderId, SearchResult } from '@horus/core';
+import { createWatchStatus, Episode, ProviderId, SearchResult } from '@horus/core';
 
 export interface MediaItem {
   id: string | number;
@@ -15,6 +16,8 @@ export interface MediaItem {
 export interface HistoryItem extends MediaItem {
   timestamp: number;
   lastEpisode?: Episode;
+  position?: number;
+  duration?: number;
 }
 
 export interface OfflineMediaItem {
@@ -38,16 +41,13 @@ export interface PendingOfflineDownload {
   requestedAt: number;
 }
 
-interface UserStore extends ReturnType<typeof createCatalogSettings> {
-  history: HistoryItem[];
+interface UserStore extends ReturnType<typeof createCatalogSettings>, ReturnType<typeof createWatchStatus>, ReturnType<typeof createHistory> {
   wishlist: MediaItem[];
   offlineMedia: OfflineMediaItem[];
   pendingOfflineDownload: PendingOfflineDownload | null;
   addToWishlist: (media: MediaItem) => void;
   removeFromWishlist: (mediaId: string | number) => void;
   toggleWishlist: (media: MediaItem) => void;
-  addToHistory: (media: MediaItem, episodeDetails?: { lastEpisode?: Episode }) => void;
-  clearHistory: () => void;
   addOfflineMedia: (item: OfflineMediaItem) => void;
   removeOfflineMedia: (id: string) => void;
   setPendingOfflineDownload: (download: PendingOfflineDownload | null) => void;
@@ -56,8 +56,9 @@ interface UserStore extends ReturnType<typeof createCatalogSettings> {
 export const useUserStore = create<UserStore>()(
   persist(
     (set, get) => ({
+      ...createWatchStatus(set),
+      ...createHistory(set),
       ...createCatalogSettings(set),
-      history: [],
       wishlist: [],
       offlineMedia: [],
       pendingOfflineDownload: null,
@@ -83,28 +84,6 @@ export const useUserStore = create<UserStore>()(
         } else {
           addToWishlist(media);
         }
-      },
-
-      addToHistory: (media, episodeDetails) => {
-        set((state) => {
-          // Retire l'élément s'il existe déjà pour éviter les doublons
-          const filteredHistory = state.history.filter((item) => item.id !== media.id);
-          
-          const newHistoryItem: HistoryItem = {
-            ...media,
-            timestamp: Date.now(),
-            ...(episodeDetails && { lastEpisode: episodeDetails.lastEpisode }),
-          };
-
-          // On place l'élément le plus récent en premier
-          return {
-            history: [newHistoryItem, ...filteredHistory],
-          };
-        });
-      },
-
-      clearHistory: () => {
-        set({ history: [] });
       },
 
       addOfflineMedia: (item) => {

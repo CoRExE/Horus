@@ -1,9 +1,10 @@
 import React, { useCallback, useState, useEffect, useRef } from 'react';
-import { View, TouchableOpacity, Text, StyleSheet, StatusBar, Platform, ScrollView } from 'react-native';
+import { View, TouchableOpacity, Text, StyleSheet, StatusBar, Platform, ScrollView, AppState } from 'react-native';
 import { useVideoPlayer, VideoView, type VideoSource } from 'expo-video';
 import { hideAndroidNavigation } from '../services/immersiveNavigation';
 import { Stream } from '@horus/core';
 import LocalVideoProxy from '../modules/local-video-proxy/src/LocalVideoProxyModule';
+import { trackPlaybackHistory } from '../services/playbackHistory';
 
 interface VideoPlayerProps {
   stream: Stream;
@@ -11,6 +12,8 @@ interface VideoPlayerProps {
   onError?: () => void;
   errorActionLabel?: string;
   onPlaybackStarted?: () => void;
+  resumeAt?: number;
+  onPlaybackProgress?: (position: number, duration: number) => void;
 }
 
 export default function VideoPlayer({
@@ -19,16 +22,15 @@ export default function VideoPlayer({
   onError,
   errorActionLabel = 'Essayer un autre serveur',
   onPlaybackStarted,
+  resumeAt = 0,
+  onPlaybackProgress,
 }: VideoPlayerProps) {
   const [hasError, setHasError] = useState(false);
   const [errorDetails, setErrorDetails] = useState('');
   const [areErrorDetailsVisible, setAreErrorDetailsVisible] = useState(false);
-  const didNotifyPlaybackRef = useRef(false);
-  const onPlaybackStartedRef = useRef(onPlaybackStarted);
-
-  useEffect(() => {
-    onPlaybackStartedRef.current = onPlaybackStarted;
-  }, [onPlaybackStarted]);
+  const historyCallbacks = useRef({ onPlaybackStarted, onPlaybackProgress });
+  historyCallbacks.current = { onPlaybackStarted, onPlaybackProgress };
+  const resumeAtRef = useRef(resumeAt);
 
   useEffect(() => {
     hideAndroidNavigation();
@@ -45,6 +47,16 @@ export default function VideoPlayer({
   const player = useVideoPlayer(videoSource, (p) => {
     p.play();
   });
+
+  useEffect(() => {
+    const tracker = trackPlaybackHistory(player, {
+      resumeAt: stream.seekable === false ? 0 : resumeAtRef.current,
+      started: () => historyCallbacks.current.onPlaybackStarted?.(),
+      progress: (position, duration) => historyCallbacks.current.onPlaybackProgress?.(position, duration),
+    });
+    const appState = AppState.addEventListener('change', state => { if (state !== 'active') tracker.flush(); });
+    return () => { appState.remove(); tracker.dispose(); };
+  }, [player]);
 
   useEffect(() => {
     const statusSubscription = player.addListener('statusChange', (newStatus) => {
@@ -82,15 +94,8 @@ export default function VideoPlayer({
         })();
       }
     });
-    const playingSubscription = player.addListener('playingChange', ({ isPlaying }) => {
-      if (isPlaying && !didNotifyPlaybackRef.current) {
-        didNotifyPlaybackRef.current = true;
-        onPlaybackStartedRef.current?.();
-      }
-    });
     return () => {
       statusSubscription.remove();
-      playingSubscription.remove();
     };
   }, [player, stream.format, stream.language, stream.server]);
 

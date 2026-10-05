@@ -142,6 +142,41 @@ assert.equal(
 );
 assert.equal(extractFsvidHlsSource(rotatingFixture), null);
 
+// Vidzy now includes the width of a hidden 1in element in the rotating key.
+// Keep the old fixture above to cover embeds that have not switched yet.
+const browserHostname = 'vidzy.cc';
+const browserHostnameKey = Array.from(browserHostname).reduce(
+  (sum, character) => (sum + character.charCodeAt(0)) & 0xff,
+  0
+);
+const browserHlsUrl = 'https://v6.vidzy.cc/hls2/media/master.m3u8?token=valid';
+const browserPayload = Buffer.from(
+  Array.from(browserHlsUrl, (character, index) =>
+    character.charCodeAt(0) ^ ((0x3d + index * 89 + browserHostnameKey + 96) & 0xff)
+  ).reverse()
+).toString('base64');
+const browserFixture = rotatingFixture
+  .replace(rotatingPayload, browserPayload)
+  .replace('var b=atob(s)', [
+    'var BC=0;try{var _d=document.createElement("div");',
+    '_d.style.cssText="position:absolute;visibility:hidden;width:1in";',
+    '(document.body||document.documentElement).appendChild(_d);',
+    'BC=_d.offsetWidth|0;if(_d.parentNode)_d.parentNode.removeChild(_d);',
+    '}catch(e){}var b=atob(s)',
+  ].join(''))
+  .replace('0x3d+i*89+H', '0x3d+i*89+H+BC')
+  .replace('return r', 'return /^https?:/.test(r)?r:"https://v6.vidzy.cc/troll/master.m3u8"');
+assert.equal(extractFsvidHlsSource(browserFixture, browserHostname), browserHlsUrl);
+assert.equal(extractVidzyHlsSource(browserFixture, browserHostname), browserHlsUrl);
+assert.equal(extractFsvidHlsSource(browserFixture), null);
+assert.equal(extractFsvidHlsSource(browserFixture, 'another.vidzy.cc'), null);
+assert.equal(extractFsvidHlsSource(
+  browserFixture.replace('width:1in', 'width:2in'), browserHostname
+), null, 'Do not guess a key for an unknown DOM measurement');
+assert.equal(extractFsvidHlsSource(
+  browserFixture.replaceAll('BC', 'layoutWidth'), browserHostname
+), browserHlsUrl, 'The layout variable name is not part of the encoding');
+
 assert.equal(
   extractFsvidHlsSource(
     `videojs('vjsplayer',{sources:[{src:"${fsvidRealUrl}",type:"application/x-mpegURL"}]})`

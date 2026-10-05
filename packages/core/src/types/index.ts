@@ -20,7 +20,7 @@ export interface Stream {
   url: string; // Direct stream URL (.m3u8, .mp4, etc.)
   language: string; // "VF", "VOSTFR", etc.
   quality?: string; // "1080p", "720p", "auto"
-  server: string; // "Sibnet", "Sendvid", "Voe", etc.
+  server: string; // "Sendvid", "Vidmoly", "Smoothpre", etc.
   format?: 'hls' | 'file'; // Explicit hint when the URL does not expose its container
   contentType?: string; // MIME type when it cannot be inferred from the URL
   durationSeconds?: number; // Known duration for cached/seekable files

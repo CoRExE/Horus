@@ -470,6 +470,17 @@ main {
 .favorite.saved {
   color: var(--accent);
 }
+.watch-status {
+  margin: 8px 0 0;
+  min-height: 36px;
+  width: 100%;
+  justify-content: center;
+  font-size: 12px;
+}
+.watch-status.watched {
+  color: var(--accent);
+  border-color: var(--accent);
+}
 .empty-state {
   padding: 65px 25px;
   text-align: center;

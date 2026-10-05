@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import type { Episode, SearchResult } from "@horus/core";
+import { createWatchStatus } from "@horus/core";
 
 export const mediaKey = (media: SearchResult) =>
   `${media.providerId}:${media.id}`;
@@ -18,7 +19,7 @@ export function recordHistory(history: HistoryEntry[], entry: HistoryEntry) {
   ].slice(0, 200);
 }
 
-interface Library {
+interface Library extends ReturnType<typeof createWatchStatus> {
   apiUrl: string;
   wishlist: SearchResult[];
   history: HistoryEntry[];
@@ -32,6 +33,7 @@ interface Library {
 export const useLibrary = create<Library>()(
   persist(
     (set) => ({
+      ...createWatchStatus(set),
       apiUrl: import.meta.env?.VITE_HORUS_API_URL ?? "",
       wishlist: [],
       history: [],

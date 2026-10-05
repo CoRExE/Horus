@@ -52,6 +52,75 @@ JavaScript Android réussis. Les téléchargements et l’annulation sur apparei
 
 ## Progression
 
+### Audit du débit des animés — 25 septembre 2026
+
+Signalement utilisateur : SNK et Radiant en VF, environ 500 Ko/s à 1 Mo/s
+sur Desktop et un téléchargement encore plus lent sur Remote. Saison/épisode
+exacts, version installée et mode Remote (hors ligne ou préparation TV) non précisés.
+Les mesures ci-dessous portent sur les premiers épisodes de la saison 1 et ne
+constituent pas une reproduction complète du cas utilisateur.
+
+Constats dans le code :
+
+- Desktop ne passe ni `-re` ni `-readrate` à FFmpeg et utilise `-c copy` : pas de
+  cadence de lecture imposée ni de réencodage. Le relais Rust transmet le corps
+  HTTP en continu et conserve les requêtes Range. Le débit affiché mesure le
+  MP4 écrit, pas tout le trafic réseau.
+- Remote utilise une seule connexion pour un MP4. Le cache HLS utilise jusqu'à
+  quatre transferts de segments simultanés, assemblés dans l'ordre ; un segment
+  lent en tête peut laisser les autres travailleurs inactifs. L'audio HLS séparé
+  est téléchargé après la vidéo. Les événements de progression HLS comptent les
+  segments assemblés, pas les octets déjà reçus par tous les travailleurs.
+- Aucun plafond explicite en octets/seconde repéré dans ces parcours. Les pauses
+  trouvées concernent les nouvelles tentatives après erreur ou d'autres parcours
+  de lecture, pas la boucle normale de téléchargement.
+- Remote vérifie l'espace libre à chaque bloc de lecture MP4/HLS et synchronise
+  chaque segment HLS temporaire sur disque avant assemblage. Ce travail est une
+  piste d'optimisation, pas une cause mesurée de la lenteur sur téléphone.
+- Remote privilégie les sources MP4 et essaie les serveurs suivants seulement
+  après un échec, sans choix manuel ni bascule sur simple lenteur. Desktop utilise
+  le serveur choisi dans la fiche ; un lot préfère ce serveur s'il est disponible,
+  sinon le premier de la langue demandée. Aucun des deux ne compare les débits.
+
+Mesures effectuées sur le Mac, sans build ni téléchargement d'épisode complet :
+
+| Échantillon | Résultat |
+| --- | --- |
+| Radiant S1E1 VF, Sibnet, GET direct limité à 8 Mio | HTTP 200, 1,99 s, environ 4,03 Mio/s |
+| Même source, Range de 8 Mio | HTTP 206, 1,99 s, environ 4,02 Mio/s |
+| Même source, FFmpeg en copie, extrait de 120 s de vidéo | Succès en 4,54 s, MP4 de 20 257 582 octets, environ 4,26 Mio/s ; une requête Range amont |
+| Même source, GET direct limité à 64 Mio | HTTP 200, 5,25 s, environ 12,19 Mio/s |
+| Radiant S1E2 VF, Sibnet, GET direct limité à 15 s | HTTP 200, 27 901 952 octets, environ 1,77 Mio/s ; arrêt volontaire à la limite |
+
+Le test FFmpeg utilise les options de téléchargement de Desktop avec un relais
+Node temporaire préservant les en-têtes et Range. Il vérifie le remuxage et le
+transfert, **pas le relais Rust réel ni le binaire Desktop installé**. FFmpeg est
+le binaire local du Mac ; l'échantillon MP4 a été supprimé. Les essais réseau sont
+plafonnés en durée/volume, les corps des GET directs ne sont pas conservés. Les
+variations entre essais ne permettent pas de conclure à un bridage fixe de Horus
+ou du fournisseur. Aucun essai Android réel n'a été effectué.
+
+Autre problème identifié : les listes VF de ces deux séries annoncent notamment
+Sibnet, Sendvid et des lecteurs que Horus ne prend pas en charge. Pour Radiant
+S1E1, Sendvid expose un MP4 dans `video_source`/`source`, alors que l'extracteur
+actuel ne reconnaît qu'une URL `.m3u8` sans paramètres. Horus ignore donc cette
+source. Le lien Sendvid observé contient `rate=250k` : indice d'une limitation
+côté hébergeur, sans mesure du débit effectif de cette source. Restaurer son
+extraction ne garantit pas d'accélérer les téléchargements.
+
+Les sources Horus de SNK S1E1/S1E2 VF n'ont pas été résolues pendant ces essais ;
+une requête complémentaire à la page Sibnet S1E1 a renvoyé une page « 400 Bad
+request ». Aucun débit SNK n'a donc été mesuré ; cela ne prouve pas une
+indisponibilité générale des autres saisons ou appareils.
+
+Suite : reproduire avec l'épisode exact dans les applications installées,
+identifier le serveur réellement utilisé, comparer le débit direct et le débit
+du relais Rust, puis mesurer sur Android avec le même réseau et la même source.
+Corriger séparément l'extraction Sendvid et ajouter un choix explicite du serveur
+de téléchargement sur Remote. Évaluer les vérifications/synchronisations disque
+Android avant de les réduire. Ne pas multiplier aveuglément les connexions MP4
+ni changer automatiquement de langue/qualité pour afficher un meilleur débit.
+
 Les événements [FFmpeg `-progress`](https://ffmpeg.org/ffmpeg.html#Advanced-options)
 alimentent les octets du MP4 produit, le débit d’écriture mesuré entre deux
 échantillons et l’état préparation/téléchargement/finalisation/annulation.

@@ -1,4 +1,5 @@
 export * from './types';
+export * from './library';
 export * from './providers/AnimeSama';
 export * from './providers/Vidzy';
 export * from './providers/AllAnime';
