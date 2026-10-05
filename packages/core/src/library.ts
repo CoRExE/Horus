@@ -10,6 +10,23 @@ export function watchedMediaKey(media: LibraryMedia): string {
   return JSON.stringify([provider, media.type, String(media.id)]);
 }
 
+export function createWishlist<T extends LibraryMedia>(set: (update: (state: { wishlist: T[] }) => { wishlist: T[] }) => void) {
+  const same = (left: T, right: T) => watchedMediaKey(left) === watchedMediaKey(right);
+  return {
+    wishlist: [] as T[],
+    addToWishlist: (media: T) => set(state => ({
+      wishlist: state.wishlist.some(item => same(item, media)) ? state.wishlist : [...state.wishlist, media],
+    })),
+    removeFromWishlist: (media: T) => set(state => ({
+      wishlist: state.wishlist.filter(item => !same(item, media)),
+    })),
+    toggleWishlist: (media: T) => set(state => ({
+      wishlist: state.wishlist.some(item => same(item, media))
+        ? state.wishlist.filter(item => !same(item, media)) : [...state.wishlist, media],
+    })),
+  };
+}
+
 interface WatchStatus {
   watchedMedia: Record<string, boolean>;
 }

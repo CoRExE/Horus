@@ -227,7 +227,7 @@ export function useDownloads({
         metadata: { media: current.media, episode, title: formatRemoteMediaTitle(current.media, episode), language: targetLanguage },
         resolveStream: async () => {
           // Resolve at the head of the queue so expiring URLs are not cached for the entire season.
-          const streams = await providerFor(current.media).getStreams(episode.id, episode);
+          const streams = await providerFor(current.media).getStreams(episode.id, episode, current.media);
           const candidates = streams.filter(stream => normalizeStreamLanguage(stream.language) === targetLanguage);
           const stream = candidates.find(stream => stream.server.trim().toLowerCase() === preferredServer?.trim().toLowerCase()) ?? candidates[0];
           if (!stream) throw new Error(`Aucun serveur disponible en ${targetLanguage}.`);

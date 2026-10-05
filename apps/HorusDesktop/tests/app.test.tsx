@@ -74,7 +74,7 @@ test("l'épisode suivant conserve la langue et commence sans la position du pré
   video.currentTime = 150;
   fireEvent.click(screen.getByRole("button", { name: "Épisode suivant" }));
   await waitFor(() => expect(invoke).toHaveBeenCalledTimes(2));
-  expect(getStreams).toHaveBeenLastCalledWith("episode-2", episodes[1]);
+  expect(getStreams).toHaveBeenLastCalledWith("episode-2", episodes[1], media);
   expect(releaseStream).toHaveBeenCalledWith("stream-1");
   await waitFor(() =>
     expect(useLibrary.getState().history[0].episode.id).toBe("episode-2"),
@@ -229,10 +229,33 @@ test("l'historique sélectionne et reprend le bon épisode", async () => {
   expect((screen.getByLabelText("Épisode") as HTMLSelectElement).value).toBe(
     "episode-2",
   );
-  expect(getStreams).toHaveBeenCalledWith("episode-2", episodes[1]);
+  expect(getStreams).toHaveBeenCalledWith("episode-2", episodes[1], media);
   const video = await play();
   expect(video.currentTime).toBe(90);
   expect(useLibrary.getState().history[0].episode.id).toBe("episode-2");
+});
+
+test("une ancienne entrée film sous Breaking Bad ouvre les épisodes série sans relancer le film", async () => {
+  const breakingBad = { ...media, id: "vidzy::1396", title: "Breaking Bad", type: "series" as const };
+  const wrong = { id: "vidzy::movie::1396", number: 1, title: "Film" };
+  const correct = [
+    { id: "vidzy::tv::1396::1::1", number: 1, title: "Saison 1 - Épisode 1" },
+    { id: "vidzy::tv::1396::1::2", number: 2, title: "Saison 1 - Épisode 2" },
+  ];
+  const getEpisodes = vi.fn(async (_id: string, context?: Pick<SearchResult, "type">) =>
+    context?.type === "series" ? correct : [wrong]);
+  vi.mocked(providerFor).mockReturnValue({ getEpisodes, getStreams } as unknown as ReturnType<typeof providerFor>);
+  remember(wrong, breakingBad);
+  render(<App />);
+  fireEvent.click(screen.getByRole("button", { name: "Historique" }));
+  fireEvent.click(screen.getByRole("button", { name: /^SÉRIE Breaking Bad/ }));
+  await waitFor(() => expect(getEpisodes).toHaveBeenCalledWith("vidzy::1396", breakingBad));
+  await waitFor(() => expect(screen.getByLabelText("Épisode").querySelectorAll("option")).toHaveLength(3));
+  expect(getStreams).not.toHaveBeenCalled();
+  fireEvent.change(screen.getByLabelText("Épisode"), { target: { value: correct[0].id } });
+  await waitFor(() => expect(getStreams).toHaveBeenCalledWith(correct[0].id, correct[0], breakingBad));
+  const video = await play();
+  expect(video.currentTime).toBe(0);
 });
 
 test("un autre épisode ne récupère pas la position de l'épisode précédent", async () => {
@@ -241,7 +264,7 @@ test("un autre épisode ne récupère pas la position de l'épisode précédent"
   fireEvent.change(screen.getByLabelText("Épisode"), {
     target: { value: "episode-1" },
   });
-  await waitFor(() => expect(getStreams).toHaveBeenLastCalledWith("episode-1", episodes[0]));
+  await waitFor(() => expect(getStreams).toHaveBeenLastCalledWith("episode-1", episodes[0], media));
   await waitFor(() =>
     expect(
       screen.getByRole("button", { name: "Lire ici" }).hasAttribute("disabled"),
@@ -449,12 +472,12 @@ test("la VF d’un animé reste disponible depuis un ancien historique et à l�
   fireEvent.click(screen.getByRole("button", { name: /^ANIMÉ Animé de test/ }));
   fireEvent.click(await screen.findByRole("button", { name: "VF" }));
   await play();
-  expect(getStreams).toHaveBeenLastCalledWith(episodes[0].id, contextualEpisodes[0]);
+  expect(getStreams).toHaveBeenLastCalledWith(episodes[0].id, contextualEpisodes[0], anime);
   expect(screen.getByText("VF · Serveur : Sendvid")).toBeTruthy();
   expect(metadata().currentTime).toBe(90);
   getStreams.mockResolvedValueOnce(animeStreams.map(stream => ({ ...stream, url: stream.url.replace("1.mp4", "2.mp4") })));
   fireEvent.click(screen.getByRole("button", { name: "Épisode suivant" }));
-  await waitFor(() => expect(getStreams).toHaveBeenLastCalledWith(episodes[1].id, contextualEpisodes[1]));
+  await waitFor(() => expect(getStreams).toHaveBeenLastCalledWith(episodes[1].id, contextualEpisodes[1], anime));
   await waitFor(() => expect(useLibrary.getState().history[0].episode.id).toBe(episodes[1].id));
   expect(screen.getByText("VF · Serveur : Sendvid")).toBeTruthy();
   expect(invoke).toHaveBeenLastCalledWith("prepare_stream", expect.objectContaining({ source: { url: "https://fixture.invalid/sendvid-vf-2.mp4", headers: {} } }));

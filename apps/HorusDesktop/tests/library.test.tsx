@@ -71,3 +71,18 @@ test("le format version 1 existant reste lisible et les suppressions sont persis
     watchedMedia: {},
   });
 });
+
+test("un film et une série partageant un ID restent distincts dans les favoris et l’historique", async () => {
+  const movie = { ...media, type: "movie" as const, title: "Film homonyme" };
+  const library = useLibrary.getState();
+  library.toggleWishlist(media);
+  library.toggleWishlist(movie);
+  library.remember(entry);
+  library.remember({ ...entry, media: movie });
+  await useLibrary.persist.rehydrate();
+  expect(useLibrary.getState().wishlist).toHaveLength(2);
+  expect(useLibrary.getState().history).toHaveLength(2);
+  useLibrary.getState().toggleWishlist(movie);
+  expect(useLibrary.getState().wishlist).toEqual([media]);
+  expect(useLibrary.getState().wishlist[0].id).toBe("42");
+});

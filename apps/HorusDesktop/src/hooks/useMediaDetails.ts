@@ -25,7 +25,7 @@ export function useMediaDetails() {
     setLanguage("VF");
     setSelectedStream(0);
     try {
-      const streams = await providerFor(current.media).getStreams(episode.id, episode);
+      const streams = await providerFor(current.media).getStreams(episode.id, episode, current.media);
       if (generation !== detailsGeneration.current) return;
       setDetails({ ...current, episode, streams });
       if (!streams.length)
@@ -44,7 +44,7 @@ export function useMediaDetails() {
     setDetailsBusy(true);
     setDetailError("");
     try {
-      const episodes = await providerFor(media).getEpisodes(media.id);
+      const episodes = await providerFor(media).getEpisodes(media.id, media);
       if (generation !== detailsGeneration.current) return;
       const current = { media, episodes, streams: [] };
       setDetails(current);

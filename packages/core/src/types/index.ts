@@ -32,8 +32,8 @@ export interface Stream {
 export interface HorusProvider {
   name: string;
   search(query: string): Promise<SearchResult[]>;
-  getEpisodes(mediaId: string): Promise<Episode[]>;
-  getStreams(episodeId: string, episode?: Episode): Promise<Stream[]>;
+  getEpisodes(mediaId: string, media?: Pick<SearchResult, 'type'>): Promise<Episode[]>;
+  getStreams(episodeId: string, episode?: Episode, media?: Pick<SearchResult, 'type'>): Promise<Stream[]>;
 }
 
 export function normalizeStreamLanguage(language?: string): string {

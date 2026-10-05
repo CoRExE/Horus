@@ -1,4 +1,6 @@
 import { Episode, HorusProvider, SearchResult, Stream } from '../types';
+import axios from 'axios';
+import * as cheerio from 'cheerio';
 import { extractFsvidHlsSource, isPromotionalMediaUrl } from '../utils/FsvidExtractor';
 import { HttpClient } from '../utils/HttpClient';
 import { Unpacker } from '../utils/Unpacker';
@@ -28,6 +30,8 @@ const VIDZY_EMBED_ORIGIN = 'https://vidzy.cc';
 const BROWSER_USER_AGENT =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) ' +
   'AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36';
+const WRAPPER_HEADERS = { 'User-Agent': BROWSER_USER_AGENT, Referer: 'https://api.vidzy.org/' };
+const MAX_FALLBACK_SEASONS = 100;
 
 const encodeMediaId = (tmdbId: string) => `vidzy::${tmdbId}`;
 
@@ -35,6 +39,33 @@ const parseMediaId = (mediaId: string) => {
   const match = mediaId.match(/^vidzy::(\d+)$/);
   if (!match) throw new Error('Identifiant Vidzy invalide');
   return match[1];
+};
+
+const readPlayerConfig = (html: string): Record<string, unknown> | null => {
+  const json = html.match(/\b(?:var|let|const)\s+CFG\s*=\s*(\{[\s\S]{1,12000}?\})\s*;/)?.[1];
+  if (!json) return null;
+  try {
+    const config = JSON.parse(json);
+    return config && typeof config === 'object' && !Array.isArray(config) ? config : null;
+  } catch {
+    return null;
+  }
+};
+
+export const extractVidzySeriesSeason = (html: string, tmdbId: string, season: number): VidzySeason | null => {
+  const config = readPlayerConfig(html);
+  if (config?.type !== 'tv' || config.season !== season || !Array.isArray(config.episodes)) return null;
+  if (config.baseSerie !== `${VIDZY_ORIGIN}/serie/${tmdbId}/${season}`) return null;
+  const episodes = [...new Set(config.episodes.filter((value): value is number =>
+    Number.isSafeInteger(value) && value > 0
+  ))].sort((a, b) => a - b);
+  return episodes.length ? { season, episodes } : null;
+};
+
+/** Old history may contain a film episode under a series catalogue entry. */
+export const isVidzyEpisodeForMedia = (episodeId: string, media: Pick<SearchResult, 'type'>): boolean => {
+  return media.type === 'series' ? /^vidzy::tv::\d+::\d+::\d+$/.test(episodeId)
+    : media.type === 'movie' && /^vidzy::movie::\d+$/.test(episodeId);
 };
 
 const isVidzyHost = (hostname: string) =>
@@ -109,27 +140,25 @@ export class VidzyProvider implements HorusProvider {
     return availability as VidzyAvailability;
   }
 
-  private toSearchResult(availability: VidzyAvailability): SearchResult {
-    const title = [availability.title, availability.year ? `(${availability.year})` : '']
-      .filter(Boolean)
-      .join(' ');
-    return {
-      id: encodeMediaId(String(availability.tmdb_id)),
-      title,
-      coverUrl: availability.poster,
-      type: availability.detectedType === 'tv' ? 'series' : 'movie',
-      providerId: 'vidzy',
-    };
-  }
-
   async search(query: string): Promise<SearchResult[]> {
     const normalizedQuery = query.trim();
     if (/^\d+$/.test(normalizedQuery)) {
-      try {
-        return [this.toSearchResult(await this.getAvailability(normalizedQuery))];
-      } catch {
-        return [];
-      }
+      // A numeric TMDB id can identify both a film and a series. Inspect both
+      // typed routes; the untyped API can even attach the series title to a film.
+      const results = await Promise.allSettled((['movie', 'series'] as const).map(async type => {
+        const path = type === 'movie' ? `/movie/${normalizedQuery}` : `/serie/${normalizedQuery}/1/1`;
+        const { data } = await this.vidzyHttp.get(path, { headers: WRAPPER_HEADERS });
+        const html = String(data);
+        const valid = type === 'movie' ? readPlayerConfig(html)?.type === 'movie'
+          : extractVidzySeriesSeason(html, normalizedQuery, 1);
+        if (!valid || !extractVidzyIframeUrl(html)) return [];
+        const title = cheerio.load(html)('title').text().trim();
+        if (!title) return [];
+        return [{ id: encodeMediaId(normalizedQuery), title: type === 'series'
+          ? title.replace(/\s*-\s*Saison\s+\d+\b.*$/i, '').trim() : title,
+          type, providerId: 'vidzy' as const }];
+      }));
+      return results.flatMap(result => result.status === 'fulfilled' ? result.value : []);
     }
     if (!this.catalogApiUrl) {
       throw new Error('Le catalogue TMDB Horus n’est pas configuré');
@@ -145,15 +174,48 @@ export class VidzyProvider implements HorusProvider {
     }));
   }
 
-  async getEpisodes(mediaId: string): Promise<Episode[]> {
-    const tmdbId = parseMediaId(mediaId);
-    const availability = await this.getAvailability(tmdbId);
+  private async readSeriesSeasons(tmdbId: string): Promise<VidzySeason[]> {
+    const seasons: VidzySeason[] = [];
+    // The series wrappers expose each season's actual episode list. They return
+    // 404 after the last season; network errors must not look like an end marker.
+    for (let season = 1; season <= MAX_FALLBACK_SEASONS; season++) {
+      let html: string;
+      try {
+        const { data } = await this.vidzyHttp.get(`/serie/${tmdbId}/${season}/1`, {
+          headers: WRAPPER_HEADERS,
+        });
+        html = String(data);
+      } catch (error) {
+        if (axios.isAxiosError(error) && error.response?.status === 404) return seasons;
+        throw error;
+      }
+      const entry = extractVidzySeriesSeason(html, tmdbId, season);
+      if (!entry) throw new Error('Liste des épisodes de la série Vidzy introuvable');
+      seasons.push(entry);
+    }
+    throw new Error('La liste des saisons Vidzy dépasse la limite de récupération');
+  }
 
-    if (availability.detectedType === 'movie') {
+  async getEpisodes(mediaId: string, media?: Pick<SearchResult, 'type'>): Promise<Episode[]> {
+    const tmdbId = parseMediaId(mediaId);
+    if (media?.type === 'anime') throw new Error('Type de média Vidzy invalide');
+    // Keep legacy ids stable for favourites/history. The catalogue type travels
+    // alongside the id instead of being guessed again by Vidzy's untyped API.
+    if (media?.type === 'movie') {
+      return [{ id: `vidzy::movie::${tmdbId}`, number: 1, title: 'Film' }];
+    }
+    const availability = await this.getAvailability(tmdbId).catch(error => {
+      if (media?.type === 'series') return undefined;
+      throw error;
+    });
+
+    if (!media && availability?.detectedType === 'movie') {
       return [{ id: `vidzy::movie::${tmdbId}`, number: 1, title: 'Film' }];
     }
 
-    return (availability.seasons || []).flatMap(item =>
+    const seasons = availability?.detectedType === 'tv' && availability.seasons?.length
+      ? availability.seasons : await this.readSeriesSeasons(tmdbId);
+    return seasons.flatMap(item =>
       item.episodes.map(episode => ({
         id: `vidzy::tv::${tmdbId}::${item.season}::${episode}`,
         number: episode,
@@ -172,14 +234,18 @@ export class VidzyProvider implements HorusProvider {
       ? `/serie/${tmdbId}/${season}/${episode}/${language}`
       : `/movie/${tmdbId}/${language}`;
     const wrapperUrl = `${VIDZY_ORIGIN}${path}`;
-    const requestHeaders = {
-      'User-Agent': BROWSER_USER_AGENT,
-      Referer: 'https://api.vidzy.org/',
-    };
+    const requestHeaders = WRAPPER_HEADERS;
     const { data: wrapperHtml } = await this.vidzyHttp.get(path, {
       headers: requestHeaders,
     });
-    const iframeUrl = extractVidzyIframeUrl(String(wrapperHtml));
+    const html = String(wrapperHtml);
+    if (season && episode) {
+      const config = extractVidzySeriesSeason(html, tmdbId, Number(season));
+      if (!config?.episodes.includes(Number(episode))) throw new Error('Épisode Vidzy indisponible');
+    } else if (readPlayerConfig(html)?.type !== 'movie') {
+      throw new Error('Lecteur film Vidzy introuvable');
+    }
+    const iframeUrl = extractVidzyIframeUrl(html);
     if (!iframeUrl) throw new Error('Lecteur Vidzy introuvable');
 
     const { data: embedHtml } = await HttpClient.create().get(iframeUrl, {
@@ -211,16 +277,18 @@ export class VidzyProvider implements HorusProvider {
     };
   }
 
-  async getStreams(episodeId: string): Promise<Stream[]> {
+  async getStreams(episodeId: string, _episode?: Episode, media?: Pick<SearchResult, 'type'>): Promise<Stream[]> {
     const movieMatch = episodeId.match(/^vidzy::movie::(\d+)$/);
     const tvMatch = episodeId.match(/^vidzy::tv::(\d+)::(\d+)::(\d+)$/);
     if (!movieMatch && !tvMatch) throw new Error('Épisode Vidzy invalide');
+    if (media && !isVidzyEpisodeForMedia(episodeId, media)) {
+      throw new Error('Cet ancien épisode ne correspond pas au type du média. Sélectionnez un épisode dans sa fiche.');
+    }
 
     const tmdbId = (movieMatch || tvMatch)?.[1] as string;
-    const availability = await this.getAvailability(tmdbId);
-    const languages = availability.languages?.length
-      ? availability.languages
-      : ['vf'];
+    // Probe the languages on the requested typed route, not on a colliding film
+    // or series returned by /api/id. Only successfully extracted sources survive.
+    const languages = ['vf', 'vostfr'];
     const resolved = await Promise.allSettled(
       languages.map(language => this.resolveDirectStream(
         tmdbId,
