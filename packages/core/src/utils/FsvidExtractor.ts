@@ -87,11 +87,28 @@ export const extractFsvidHlsSource = (
   const encryptedBytes = decodeBase64Bytes(payloadMatch[1]);
   if (!encryptedBytes) return null;
 
+  const rotatingKey = sourceExpression.match(
+    /0x3d\s*\+\s*[A-Za-z_$][\w$]*\s*\*\s*89\s*\+\s*[A-Za-z_$][\w$]*(?:\s*\+\s*([A-Za-z_$][\w$]*))?\s*\)\s*&\s*255/
+  );
+
   if (
     sourceHostname &&
     /\.reverse\s*\(\s*\)\s*\.join\s*\(\s*['"]{2}\s*\)/.test(sourceExpression) &&
-    /0x3d\s*\+\s*[A-Za-z_$][\w$]*\s*\*\s*89\s*\+/.test(sourceExpression)
+    rotatingKey
   ) {
+    let browserWidth = 0;
+    if (rotatingKey[1]) {
+      const measuredWidth = sourceExpression.match(
+        /\b([A-Za-z_$][\w$]*)\s*=\s*[A-Za-z_$][\w$]*\.offsetWidth\s*\|\s*0\b/
+      );
+      if (
+        measuredWidth?.[1] !== rotatingKey[1] ||
+        !/\bwidth\s*:\s*1in\b/.test(sourceExpression)
+      ) return null;
+      // CSS defines one inch as 96 CSS pixels, independent of screen density.
+      // Vidzy adds this DOM measurement to the hostname-based XOR key.
+      browserWidth = 96;
+    }
     const hostnameKey = Array.from(sourceHostname.toLowerCase()).reduce(
       (sum, character) => (sum + character.charCodeAt(0)) & 0xff,
       0
@@ -99,7 +116,7 @@ export const extractFsvidHlsSource = (
     const decoded = [...encryptedBytes]
       .reverse()
       .map((value, index) =>
-        String.fromCharCode(value ^ ((0x3d + index * 89 + hostnameKey) & 0xff))
+        String.fromCharCode(value ^ ((0x3d + index * 89 + hostnameKey + browserWidth) & 0xff))
       )
       .join('');
     if (isUsableHlsUrl(decoded)) return decoded;

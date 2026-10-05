@@ -436,6 +436,15 @@ Correction Windows et préparation de Desktop 0.1.5 le 19 septembre 2026 :
 
 ## 7. Valider la diffusion TV — HorusDesktop
 
+Débit des téléchargements d'animés — audit du 25 septembre 2026 :
+
+- [x] Examiner les parcours Desktop/Remote, la sélection des serveurs, les transferts MP4/HLS, le remuxage et la progression. Aucun plafond explicite de débit trouvé ; constats et limites des essais dans `docs/DOWNLOADS.md`.
+- [x] Mesurer des échantillons bornés de Radiant S1E1/S1E2 VF sur Sibnet, en accès direct et, pour S1E1, avec FFmpeg derrière un relais Node temporaire : environ 1,77 à 12,19 Mio/s selon l'essai, 4,26 Mio/s pour le MP4 remuxé. Aucun épisode complet, APK ou build Tauri ; ce test ne valide pas le relais Rust ni Android. SNK S1E1/S1E2 non résolus lors des essais, donc aucun débit mesuré.
+- [ ] Reproduire le ralentissement sur l'épisode/version exacts dans Desktop et Remote ; comparer source directe, relais Rust et téléphone sur le même réseau avant d'attribuer la cause ou de promettre un gain.
+- [ ] Corriger l'extraction Sendvid : Radiant expose un MP4 avec paramètres, ignoré par l'extracteur HLS actuel. Préserver les paramètres signés ; ne pas supposer cette source plus rapide (paramètre `rate=250k` observé, effet non mesuré).
+- [ ] Proposer le choix et l'affichage du serveur de téléchargement sur Remote ; conserver langue, qualité et repli explicite. Desktop utilise déjà le serveur sélectionné dans la fiche lorsqu'il est disponible.
+- [ ] Mesurer puis réduire les coûts disque Android si nécessaire (espace libre vérifié à chaque lecture, synchronisation des segments temporaires) et évaluer l'attente des segments HLS dans l'ordre, sans affaiblir l'annulation, le contrôle d'espace ni l'intégrité des fichiers.
+
 Sous-titres Vidzy — ajouts prévus pour Desktop et Remote, le 22 septembre 2026 :
 
 - [x] Vérifier le cas The 8 Show, saison 1 épisode 1 : le lecteur Vidzy déclare deux fichiers WebVTT externes, français et anglais ; les deux répondent HTTP 200 et contiennent des repères temporels. La page de configuration de [Vidzy](https://api.vidzy.org/) prévoit également un bouton de sous-titres. Ce constat ne garantit pas leur disponibilité pour tous les médias.
