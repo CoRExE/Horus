@@ -54,6 +54,25 @@ const isUsableHlsUrl = (candidate: string): boolean => {
   }
 };
 
+const readMeasuredWidth = (expression: string, widthVariable: string): number | null => {
+  const measurement = expression.match(
+    /\b([A-Za-z_$][\w$]*)\s*=\s*([A-Za-z_$][\w$]*)\.offsetWidth\s*\|\s*0\b/
+  );
+  if (measurement?.[1] !== widthVariable) return null;
+  const element = measurement[2].replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const style = expression.match(new RegExp(
+    `${element}\\.style\\.cssText\\s*=\\s*(['"])([^'"\\r\\n]{1,1000})\\1`
+  ))?.[2];
+  const width = style?.match(/(?:^|;)\s*width\s*:\s*([^;]+)\s*(?:;|$)/i)?.[1].trim();
+  // CSS defines one inch as 96 pixels. The new player adds a pixel offset
+  // through calc(); read that offset rather than fixing it to today's value.
+  if (width === '1in') return 96;
+  const calc = width?.match(/^calc\(\s*1in\s+([+-])\s+(\d{1,4})px\s*\)$/i);
+  if (!calc) return null;
+  const measured = 96 + (calc[1] === '+' ? 1 : -1) * Number(calc[2]);
+  return measured > 0 && measured <= 10_000 ? measured : null;
+};
+
 /**
  * Extracts the source owned by the VideoJS `sources` entry. Fsvid currently
  * places a short `/troll/` HLS URL earlier in the unpacked script, while the
@@ -98,16 +117,9 @@ export const extractFsvidHlsSource = (
   ) {
     let browserWidth = 0;
     if (rotatingKey[1]) {
-      const measuredWidth = sourceExpression.match(
-        /\b([A-Za-z_$][\w$]*)\s*=\s*[A-Za-z_$][\w$]*\.offsetWidth\s*\|\s*0\b/
-      );
-      if (
-        measuredWidth?.[1] !== rotatingKey[1] ||
-        !/\bwidth\s*:\s*1in\b/.test(sourceExpression)
-      ) return null;
-      // CSS defines one inch as 96 CSS pixels, independent of screen density.
-      // Vidzy adds this DOM measurement to the hostname-based XOR key.
-      browserWidth = 96;
+      const measuredWidth = readMeasuredWidth(sourceExpression, rotatingKey[1]);
+      if (measuredWidth === null) return null;
+      browserWidth = measuredWidth;
     }
     const hostnameKey = Array.from(sourceHostname.toLowerCase()).reduce(
       (sum, character) => (sum + character.charCodeAt(0)) & 0xff,
