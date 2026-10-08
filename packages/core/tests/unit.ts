@@ -178,6 +178,23 @@ assert.equal(extractFsvidHlsSource(
   browserFixture.replaceAll('BC', 'layoutWidth'), browserHostname
 ), browserHlsUrl, 'The layout variable name is not part of the encoding');
 
+// Regression: the live player observed on October 8 uses calc(1in + 43px).
+// Encode independent payloads to check that offsets are read, not guessed.
+for (const offset of [43, 17, -5]) {
+  const payload = Buffer.from(Array.from(browserHlsUrl, (character, index) =>
+    character.charCodeAt(0) ^ ((0x3d + index * 89 + browserHostnameKey + 96 + offset) & 0xff)
+  ).reverse()).toString('base64');
+  const fixture = browserFixture.replace(browserPayload, payload)
+    .replace('width:1in', `width:calc(1in ${offset < 0 ? '-' : '+'} ${Math.abs(offset)}px)`);
+  assert.equal(extractFsvidHlsSource(fixture, browserHostname), browserHlsUrl);
+  assert.equal(extractVidzyHlsSource(fixture, browserHostname), browserHlsUrl);
+  assert.equal(extractFsvidHlsSource(fixture, 'another.vidzy.cc'), null);
+}
+for (const width of ['calc(1in + 43%)', 'calc(1in + var(--offset))', 'calc(1in - 100px)', 'calc(1in + 99999px)']) {
+  assert.equal(extractFsvidHlsSource(browserFixture.replace('width:1in', `width:${width}`), browserHostname), null);
+}
+assert.equal(extractFsvidHlsSource(browserFixture.replace('_d.offsetWidth', '_other.offsetWidth'), browserHostname), null);
+
 assert.equal(
   extractFsvidHlsSource(
     `videojs('vjsplayer',{sources:[{src:"${fsvidRealUrl}",type:"application/x-mpegURL"}]})`
