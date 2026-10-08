@@ -195,6 +195,45 @@ for (const width of ['calc(1in + 43%)', 'calc(1in + var(--offset))', 'calc(1in -
 }
 assert.equal(extractFsvidHlsSource(browserFixture.replace('_d.offsetWidth', '_other.offsetWidth'), browserHostname), null);
 
+// October 9: a percentage-sized child is measured, with a changing parent offset.
+const childLayout = (offset: number, percent = 50) => [
+  'var BC=0;try{var _p=document.createElement("div");',
+  `_p.style.cssText="position:absolute;visibility:hidden;left:-9999px;padding:0;border:0;margin:0;width:calc(1in + ${offset}px)";`,
+  'var _ch=document.createElement("div");',
+  `_ch.style.cssText="padding:0;border:0;margin:0;height:1px;width:${percent}%";`,
+  '_p.appendChild(_ch);(document.body||document.documentElement).appendChild(_p);',
+  'BC=_ch.offsetWidth|0;if(_p.parentNode)_p.parentNode.removeChild(_p);',
+  '}catch(e){}',
+].join('');
+const withLayout = (layout: string, measuredWidth: number) => {
+  const payload = Buffer.from(Array.from(browserHlsUrl, (character, index) =>
+    character.charCodeAt(0) ^ ((0x3d + index * 89 + browserHostnameKey + measuredWidth) & 0xff)
+  ).reverse()).toString('base64');
+  return browserFixture.replace(browserPayload, payload)
+    .replace(/var BC=0;try\{[\s\S]*?\}catch\(e\)\{\}/, layout);
+};
+for (const [offset, percent] of [[80, 50], [56, 50], [174, 50], [104, 35], [104, 12.5]]) {
+  const fixture = withLayout(childLayout(offset, percent), (96 + offset) * percent / 100);
+  assert.equal(extractFsvidHlsSource(fixture, browserHostname), browserHlsUrl);
+  assert.equal(extractVidzyHlsSource(fixture, browserHostname), browserHlsUrl);
+  assert.equal(extractFsvidHlsSource(fixture.replaceAll('_p', 'container').replaceAll('_ch', 'child'), browserHostname), browserHlsUrl);
+}
+const nestedLayout = childLayout(104).replace('_p.appendChild(_ch);', [
+  'var _middle=document.createElement("div");',
+  '_middle.style.cssText="padding:0;border:0;margin:0;width:50%";',
+  '_p.appendChild(_middle);_middle.appendChild(_ch);',
+].join(''));
+assert.equal(extractFsvidHlsSource(withLayout(nestedLayout, 50), browserHostname), browserHlsUrl);
+for (const layout of [
+  childLayout(43), // Fractional widths require browser layout/rounding; fail closed.
+  childLayout(80).replace('_p.appendChild(_ch);', ''),
+  childLayout(80).replace('_p.appendChild(_ch);', '_p.appendChild(_ch);_other.appendChild(_ch);'),
+  childLayout(80).replace('border:0', 'border:1px solid black'),
+  childLayout(80).replace('padding:0', 'padding:2px'),
+  childLayout(80).replace('width:50%', 'width:50%;min-width:200px'),
+  childLayout(80).replace('_p.appendChild(_ch);', '_ch.appendChild(_p);_p.appendChild(_ch);').replace('calc(1in + 80px)', '50%'),
+]) assert.equal(extractFsvidHlsSource(withLayout(layout, 88), browserHostname), null);
+
 assert.equal(
   extractFsvidHlsSource(
     `videojs('vjsplayer',{sources:[{src:"${fsvidRealUrl}",type:"application/x-mpegURL"}]})`
