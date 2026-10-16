@@ -224,6 +224,42 @@ const nestedLayout = childLayout(104).replace('_p.appendChild(_ch);', [
   '_p.appendChild(_middle);_middle.appendChild(_ch);',
 ].join(''));
 assert.equal(extractFsvidHlsSource(withLayout(nestedLayout, 50), browserHostname), browserHlsUrl);
+
+// October 16: the measured child uses calc(100% - Npx), not a plain percentage.
+// Independently encode the expected integer width for changing parent/child offsets.
+for (const [offset, width, measured] of [
+  [50, 'calc(100% - 57px)', 89],
+  [104, 'calc(100% - 32px)', 168],
+  [80, 'calc(50% + 7px)', 95],
+  [104, 'calc(12.5% - 5px)', 20],
+] as const) {
+  const fixture = withLayout(childLayout(offset).replace('width:50%', `width:${width}`), measured);
+  assert.equal(extractFsvidHlsSource(fixture, browserHostname), browserHlsUrl);
+  assert.equal(extractVidzyHlsSource(fixture, browserHostname), browserHlsUrl);
+  assert.equal(extractFsvidHlsSource(fixture.replaceAll('_p', 'container').replaceAll('_ch', 'child'), browserHostname), browserHlsUrl);
+  assert.equal(extractFsvidHlsSource(fixture, 'another.vidzy.cc'), null);
+}
+assert.equal(extractFsvidHlsSource(withLayout(
+  nestedLayout.replace('_middle.style.cssText="padding:0;border:0;margin:0;width:50%"',
+    '_middle.style.cssText="padding:0;border:0;margin:0;width:calc(100% - 30px)"'), 85
+), browserHostname), browserHlsUrl);
+for (const [width, measured] of [
+  ['calc(100% - var(--offset))', 89], ['calc(100% - 57%)', 89], ['calc(100% - 99999px)', -99853],
+  ['calc(150% - 57px)', 162], ['calc(0% + 89px)', 89], ['calc(100% - 146px)', 0],
+  ['calc(100% - 147px)', -1], ['calc(100% + 9999px)', 10145], ['calc(12.5% - 5px)', 13.25],
+] as const) {
+  const layout = childLayout(50).replace('width:50%', `width:${width}`);
+  assert.equal(extractFsvidHlsSource(withLayout(layout, measured), browserHostname), null);
+}
+for (const layout of [
+  childLayout(50).replace('_p.appendChild(_ch);', ''),
+  childLayout(50).replace('_p.appendChild(_ch);', '_p.appendChild(_ch);_other.appendChild(_ch);'),
+  childLayout(50).replace('border:0', 'border:1px solid black'),
+  childLayout(50).replace('padding:0', 'padding:2px'),
+  childLayout(50).replace('width:50%', 'width:50%;min-width:200px'),
+]) {
+  assert.equal(extractFsvidHlsSource(withLayout(layout.replace('width:50%', 'width:calc(100% - 57px)'), 89), browserHostname), null);
+}
 for (const layout of [
   childLayout(43), // Fractional widths require browser layout/rounding; fail closed.
   childLayout(80).replace('_p.appendChild(_ch);', ''),
