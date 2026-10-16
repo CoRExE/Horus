@@ -88,15 +88,19 @@ const readMeasuredWidth = (expression: string, widthVariable: string): number | 
     if (width === '1in') return 96;
     const calc = width?.match(/^calc\(\s*1in\s+([+-])\s+(\d{1,4})px\s*\)$/i);
     if (calc) return 96 + (calc[1] === '+' ? 1 : -1) * Number(calc[2]);
-    const percent = width?.match(/^(\d{1,3}(?:\.\d{1,2})?)%$/);
+    // The player also measures children such as calc(100% - 57px).
+    // Resolve only this bounded arithmetic, without executing remote scripts.
+    const percent = width?.match(/^(\d{1,3}(?:\.\d{1,2})?)%$/) ||
+      width?.match(/^calc\(\s*(\d{1,3}(?:\.\d{1,2})?)%\s+([+-])\s+(\d{1,4})px\s*\)$/i);
     if (!percent || Number(percent[1]) <= 0 || Number(percent[1]) > 100 || !plainBox(style)) return null;
     const parents = Array.from(expression.matchAll(new RegExp(
       `([A-Za-z_$][\\w$]*)\\.appendChild\\(\\s*${escaped(name)}\\s*\\)`, 'g'
     )), match => match[1]);
     if (parents.length !== 1) return null;
     const parentWidth = resolve(parents[0], visited, true);
-    return parentWidth !== null && parentWidth > 0 && parentWidth <= 10_000
-      ? parentWidth * Number(percent[1]) / 100 : null;
+    if (parentWidth === null || parentWidth <= 0 || parentWidth > 10_000) return null;
+    const pixelOffset = percent[2] ? (percent[2] === '+' ? 1 : -1) * Number(percent[3]) : 0;
+    return parentWidth * Number(percent[1]) / 100 + pixelOffset;
   };
   const measured = resolve(measurement[2], new Set(), false);
   // The observed percentage layouts yield exact integer pixels. Reject other
