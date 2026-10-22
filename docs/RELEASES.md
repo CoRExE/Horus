@@ -121,6 +121,15 @@ les dépendances installées. `setup-gradle` gère son cache ; pnpm installe ave
 les modules existants : ce pipeline ne garantit pas une reproduction octet pour
 octet des APK.
 
+Google Cast est fixé à **22.3.1** via l'option Expo
+`androidPlayServicesCastFrameworkVersion` dans `app.json`. Le choix dynamique
+`+` avait sélectionné Cast 23.0.0, qui apporte MediaRouter 1.9.0-beta01 : cette
+dépendance exige SDK 37 et AGP 9.1.0, incompatibles avec SDK 36 / AGP 8.11.0.
+Le pin est appliqué par le plugin officiel lors de chaque prebuild, y compris
+aux projets déjà générés. Tester les métadonnées AAR et compiler le module Cast
+avant de modifier cette version ; ne pas forcer uniquement une ancienne version
+de MediaRouter sous Cast 23.
+
 Pour un build local de production, définir `ANDROID_HOME` et les quatre variables
 `HORUS_ANDROID_KEYSTORE` (chemin absolu), `HORUS_ANDROID_STORE_PASSWORD`,
 `HORUS_ANDROID_KEY_ALIAS`, `HORUS_ANDROID_KEY_PASSWORD` dans l'environnement :
