@@ -96,6 +96,30 @@ export async function testVidzyMediaTypes() {
     assert.ok((await provider.getStreams(movie[0].id, movie[0], { type: 'movie' })).every(stream => stream.url.includes('film-1399')));
 
     const searched = await new VidzyProvider({ catalogApiUrl: 'https://catalogue.test' }).search('Lucifer');
+    let validations = 0;
+    const sessionProvider = new VidzyProvider({ resolveSession: async (embed, referer) => {
+      validations++;
+      assert.ok(embed.startsWith('https://vidzy.cc/embed-film-1399-'));
+      assert.ok(referer.startsWith(`${origin}/movie/1399/`));
+      return { key: 'signed+token/value=', userAgent: 'Mozilla/5.0 (Linux; Android 15)' };
+    } });
+    await sessionProvider.getStreams('vidzy::movie::1399');
+    assert.equal(validations, 0, 'Do not open a browser session for legacy embeds');
+    for (const language of ['vf', 'vostfr']) {
+      const embed = `https://vidzy.cc/embed-film-1399-${language}.html`;
+      pages.set(embed, pages.get(embed) + '<script>fetch("https://v6.vidzy.cc/gate.php?v=p1")</script>');
+    }
+    const authorized = await sessionProvider.getStreams('vidzy::movie::1399');
+    assert.equal(validations, 2);
+    assert.equal(authorized.length, 2);
+    for (const stream of authorized) {
+      assert.equal(new URL(stream.url).searchParams.get('gk'), 'signed+token/value=');
+      assert.equal(stream.headers?.['Sec-CH-UA-Platform'], '"Android"');
+      assert.ok(stream.headers?.['User-Agent'].includes('Android'));
+    }
+    await assert.rejects(new VidzyProvider({ resolveSession: async () => {
+      throw new Error('Validation failed');
+    } }).getStreams('vidzy::movie::1399'), /Aucun flux/);
     assert.equal(searched[0].id, 'vidzy::63174', 'Preserve existing library identities');
     assert.equal(searched[0].type, 'series');
 

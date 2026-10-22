@@ -180,6 +180,20 @@ fn failure(status: StatusCode, text: &str) -> Response {
 
 // Relative paths keep every nested playlist, key and segment behind the same
 // authenticated (unguessable UUID) relay URL, on loopback or the selected LAN IP.
+fn playlist_target(base: &url::Url, value: &str) -> Result<url::Url, String> {
+    let mut target = base.join(value).map_err(|e| e.to_string())?;
+    let vidzy = |url: &url::Url| url.scheme() == "https" && url.host_str()
+        .is_some_and(|host| host == "vidzy.cc" || host.ends_with(".vidzy.cc"));
+    if vidzy(base) && vidzy(&target) &&
+        (target.path().starts_with("/hls2/") || target.path().starts_with("/v/")) &&
+        !target.query_pairs().any(|(name, _)| name == "gk") {
+        if let Some((_, key)) = base.query_pairs().find(|(name, _)| name == "gk") {
+            target.query_pairs_mut().append_pair("gk", &key);
+        }
+    }
+    Ok(target)
+}
+
 pub async fn rewrite_playlist(
     state: &Relay,
     text: &str,
@@ -190,7 +204,7 @@ pub async fn rewrite_playlist(
     let mut resources = state.resources.write().await;
     let resource = resources.get(resource_id).cloned().ok_or("Flux fermé")?;
     let mut register = |value: &str| -> Result<String, String> {
-        let target = base.join(value).map_err(|e| e.to_string())?;
+        let target = playlist_target(base, value)?;
         http_url(target.as_str())?;
         let existing = resources
             .iter()
@@ -627,6 +641,24 @@ mod tests {
         state.release(&id).await;
         assert!(state.resources.read().await.is_empty());
     }
+    #[test]
+    fn vidzy_session_reaches_relative_absolute_and_signed_segments_only() {
+        let base = http_url("https://u14.vidzy.cc/hls2/media/master.m3u8?gk=a%2Bb%2F%3D").unwrap();
+        for value in ["video/index.m3u8", "seg-10.ts?sig=keep", "https://v6.vidzy.cc/v/media/seg-10.ts?sig=keep"] {
+            let target = playlist_target(&base, value).unwrap();
+            assert_eq!(target.query_pairs().find(|(k, _)| k == "gk").unwrap().1, "a+b/=");
+            if value.contains("sig=keep") {
+                assert!(target.query_pairs().any(|(k, v)| k == "sig" && v == "keep"));
+            }
+        }
+        let existing = playlist_target(&base, "seg.ts?gk=child").unwrap();
+        assert_eq!(existing.query_pairs().filter(|(k, _)| k == "gk").count(), 1);
+        assert_eq!(existing.query_pairs().find(|(k, _)| k == "gk").unwrap().1, "child");
+        for value in ["https://evil.test/hls2/seg.ts", "//evil.test/hls2/seg.ts", "https://vidzy.cc.evil.test/hls2/seg.ts", "http://u14.vidzy.cc/hls2/seg.ts", "https://u14.vidzy.cc/other/asset"] {
+            assert!(!playlist_target(&base, value).unwrap().query_pairs().any(|(k, _)| k == "gk"));
+        }
+    }
+
     #[test]
     fn rejects_non_http_sources() {
         assert!(http_url("file:///etc/passwd").is_err());

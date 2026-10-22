@@ -167,7 +167,10 @@ interface RemotePlaybackSession extends PlaybackContext {
 export default function App() {
   const updates = useReleaseUpdates();
   const apiUrl = useUserStore(state => state.apiUrl);
-  const vidzy = useMemo(() => new VidzyProvider({ catalogApiUrl: apiUrl }), [apiUrl]);
+  const vidzy = useMemo(() => new VidzyProvider({ catalogApiUrl: apiUrl,
+    resolveSession: Platform.OS === 'android'
+      ? (embed, referer) => LocalVideoProxy.resolveVidzySession(embed, referer) : undefined,
+  }), [apiUrl]);
   const [settingsVisible, setSettingsVisible] = useState(false);
   const [isBooting, setIsBooting] = useState(true);
   const [mediaType, setMediaType] = useState<MediaSection>('anime');

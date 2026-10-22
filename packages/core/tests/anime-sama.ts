@@ -11,6 +11,13 @@ export async function testAnimeSamaLanguages() {
   const sendvid = (id: number) => `https://sendvid.com/episode-${id}`;
   const script = '<script src="episodes.js?filever=123" defer></script>';
   const pages = new Map<string, string>([
+    ['https://anime-sama.to/catalogue/', `
+      <a href="/catalogue/">Catalogue</a>
+      <div class="as-carte"><a href="https://anime-sama.to/catalogue/naruto/">
+        <img src="/images/naruto.webp"><h3 class="as-carte-titre"> Naruto </h3>
+      </a></div>
+      <a href="/catalogue/legacy/"><img src="https://cdn.test/legacy.jpg"><h2 class="card-title">Legacy</h2></a>
+      <a href="/catalogue/naruto/"><h3 class="as-carte-titre">Naruto</h3></a>`],
     [base, 'panneauAnime("Saison 1", "saison1/vostfr");'],
     [`${season}vostfr/`, script],
     [`${season}vostfr/episodes.js?filever=123`, `var eps1 = ['${sibnet(10)}', '${sibnet(11)}', '${sibnet(12)}'];
@@ -38,6 +45,11 @@ export async function testAnimeSamaLanguages() {
     return { data: pages.get(url), status: 200, statusText: 'OK', headers: {}, config };
   }) as AxiosAdapter;
   try {
+    const results = await new AnimeSamaProvider().search('naruto');
+    assert.deepEqual(results.map(({ id, title, coverUrl }) => ({ id, title, coverUrl })), [
+      { id: '/catalogue/naruto/', title: 'Naruto', coverUrl: 'https://anime-sama.to/images/naruto.webp' },
+      { id: '/catalogue/legacy/', title: 'Legacy', coverUrl: 'https://cdn.test/legacy.jpg' },
+    ]);
     const episodes = await new AnimeSamaProvider().getEpisodes('/catalogue/fixture/');
     assert.equal(episodes.length, 3);
     assert.equal(episodes[0].id, `Saison 1::${sibnet(10)}|||${sendvid(10)}`, 'Preserve the legacy history key, including retired sources');

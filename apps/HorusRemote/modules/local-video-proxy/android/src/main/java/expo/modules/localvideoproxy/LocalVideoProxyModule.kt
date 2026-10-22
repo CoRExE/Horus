@@ -669,7 +669,8 @@ class LocalVideoProxyServer(
 
         // Certains CDN signent toute une playlist via la query du manifeste et
         // fournissent ensuite des segments relatifs sans répéter cette signature.
-        if (!URI(raw).isAbsolute && !raw.contains("?") && resolved.query == null && base.query != null) {
+        if (!URI(raw).isAbsolute && resolved.host == base.host &&
+            !raw.contains("?") && resolved.query == null && base.query != null) {
             return URI(
                 resolved.protocol,
                 resolved.userInfo,
@@ -681,6 +682,16 @@ class LocalVideoProxyServer(
             ).toASCIIString()
         }
 
+        // Vidzy's session token is needed on absolute/signed child URLs too.
+        // Never forward it to an unrelated host or a non-media resource.
+        if (isVidzyUrl(base) && isVidzyUrl(resolved) &&
+            (resolved.path.startsWith("/hls2/") || resolved.path.startsWith("/v/"))) {
+            val key = Uri.parse(base.toString()).getQueryParameter("gk")
+            val child = Uri.parse(resolved.toString())
+            if (!key.isNullOrBlank() && child.getQueryParameter("gk") == null) {
+                return child.buildUpon().appendQueryParameter("gk", key).build().toString()
+            }
+        }
         return resolved.toString()
     }
 
@@ -1259,6 +1270,7 @@ class LocalVideoProxyServer(
 }
 
 class LocalVideoProxyModule : Module() {
+    private val vidzySessions = Collections.synchronizedSet(mutableSetOf<VidzySession>())
     @Volatile private var server: LocalVideoProxyServer? = null
     @Volatile private var accessToken: String? = null
     @Volatile private var localServerIp: String? = null
@@ -2082,6 +2094,7 @@ class LocalVideoProxyModule : Module() {
         }
 
         OnDestroy {
+            synchronized(vidzySessions) { vidzySessions.toList() }.forEach { it.cancel() }
             StreamingForegroundService.setMediaControlHandler(null)
             cancelCacheResources()
             synchronized(this@LocalVideoProxyModule) {
@@ -2094,6 +2107,21 @@ class LocalVideoProxyModule : Module() {
                 Log.w("LocalVideoProxy", "Unable to shut down Cronet", error)
             }
             cronetEngine = null
+        }
+
+        AsyncFunction("resolveVidzySession") { embed: String, referer: String, promise: Promise ->
+            val activity = appContext.currentActivity
+            if (activity == null) {
+                promise.reject("VIDZY_SESSION", "No Android activity available", null)
+            } else {
+                val session = VidzySession()
+                vidzySessions.add(session)
+                session.resolve(activity, embed, referer) { key, agent, error ->
+                    vidzySessions.remove(session)
+                    if (key != null && agent != null) promise.resolve(mapOf("key" to key, "userAgent" to agent))
+                    else promise.reject("VIDZY_SESSION", error ?: "Vidzy session failed", null)
+                }
+            }
         }
 
         AsyncFunction("setTvNotificationMode") {

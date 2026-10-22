@@ -25,7 +25,8 @@ export class AnimeSamaProvider implements HorusProvider {
     
     $('a[href*="catalogue/"]').each((_, el) => {
       const $card = $(el);
-      let title = $card.find('h2.card-title').text().trim() || $card.find('h1').text().trim();
+      let title = $card.find('h3.as-carte-titre').text().trim() ||
+        $card.find('h2.card-title').text().trim() || $card.find('h1').text().trim();
       const href = $card.attr('href');
       let coverUrl = $card.find('img').attr('src');
       
