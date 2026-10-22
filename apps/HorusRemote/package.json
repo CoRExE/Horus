@@ -1,6 +1,6 @@
 {
   "name": "horusremote",
-  "version": "1.4.9",
+  "version": "1.4.10",
   "main": "index.ts",
   "scripts": {
     "start": "expo start",

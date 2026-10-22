@@ -120,9 +120,11 @@ export class VidzyProvider implements HorusProvider {
   name = 'Vidzy';
   private vidzyHttp = HttpClient.create(VIDZY_ORIGIN, 'https://api.vidzy.org/');
   private catalogApiUrl?: string;
+  private resolveSession?: (embed: string, referer: string) => Promise<{ key: string; userAgent: string }>;
 
-  constructor(options: { catalogApiUrl?: string } = {}) {
+  constructor(options: { catalogApiUrl?: string; resolveSession?: (embed: string, referer: string) => Promise<{ key: string; userAgent: string }> } = {}) {
     this.catalogApiUrl = options.catalogApiUrl?.replace(/\/+$/, '');
+    this.resolveSession = options.resolveSession;
   }
 
   private async getAvailability(tmdbId: string): Promise<VidzyAvailability> {
@@ -258,8 +260,18 @@ export class VidzyProvider implements HorusProvider {
     const hlsUrl = extractVidzyHlsSource(String(embedHtml), embedHostname);
     if (!hlsUrl) throw new Error('Flux HLS Vidzy introuvable');
 
+    const session = this.resolveSession && /\bgate\.php\b/.test(String(embedHtml))
+      ? await this.resolveSession(iframeUrl, wrapperUrl) : undefined;
+    const playbackUrl = new URL(hlsUrl);
+    if (session) {
+      if (!session.key || session.key.length > 4096 || /[\r\n]/.test(session.key + session.userAgent)) {
+        throw new Error('Session Vidzy invalide');
+      }
+      playbackUrl.searchParams.set('gk', session.key);
+    }
+
     return {
-      url: hlsUrl,
+      url: playbackUrl.href,
       language: language.toUpperCase(),
       quality: 'auto',
       server: 'Vidzy',
@@ -269,10 +281,12 @@ export class VidzyProvider implements HorusProvider {
         Referer: iframeUrl,
         Origin: VIDZY_EMBED_ORIGIN,
         Accept: '*/*',
-        'User-Agent': BROWSER_USER_AGENT,
-        // Vidzy rejects hotlinked HLS requests that omit Chromium's platform
-        // client hint, even when the URL signature and Referer are valid.
-        'Sec-CH-UA-Platform': '"Windows"',
+        'User-Agent': session?.userAgent || BROWSER_USER_AGENT,
+        // Keep the platform hint consistent with the browser that validated
+        // the session; legacy extraction uses the Windows browser headers.
+        'Sec-CH-UA-Platform': session?.userAgent.includes('Android') ? '"Android"'
+          : session?.userAgent.includes('Macintosh') ? '"macOS"'
+          : session?.userAgent.includes('Linux') ? '"Linux"' : '"Windows"',
       },
     };
   }

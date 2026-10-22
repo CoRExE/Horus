@@ -7,6 +7,7 @@ import {
 } from './LocalVideoProxy.types';
 
 declare class LocalVideoProxyModule extends NativeModule<LocalVideoProxyEvents> {
+  resolveVidzySession(embed: string, referer: string): Promise<{ key: string; userAgent: string }>;
   startServer(port: number, keepAlive: boolean): Promise<LocalVideoProxyServerInfo>;
   stopServer(): Promise<void>;
   getLastError(): Promise<string | null>;

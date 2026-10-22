@@ -5,6 +5,7 @@ mod download_support;
 mod downloads;
 mod power;
 mod relay;
+mod vidzy;
 
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, time::Duration};
@@ -138,8 +139,15 @@ pub fn run() {
             app.manage(power::PlaybackPower::new()?);
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![
+        .invoke_handler(|invoke: tauri::ipc::Invoke| {
+            // Provider webviews must never receive access to native commands.
+            if invoke.message.webview_ref().label() != "main" {
+                invoke.resolver.reject("Commandes natives réservées à Horus");
+                return true;
+            }
+            let handler: fn(tauri::ipc::Invoke) -> bool = tauri::generate_handler![
             http_text,
+            vidzy::resolve_vidzy_session,
             runtime_info,
             open_release_url,
             power::set_playback_awake,
@@ -156,7 +164,9 @@ pub fn run() {
             downloads::list_downloads,
             downloads::remove_download,
             downloads::offline_stream
-        ])
+            ];
+            handler(invoke)
+        })
         .build(tauri::generate_context!())
         .expect("Impossible de démarrer Horus Desktop")
         .run(|app, event| {
@@ -166,8 +176,10 @@ pub fn run() {
                 &event,
                 tauri::RunEvent::WindowEvent {
                     event: tauri::WindowEvent::Destroyed,
+                    label,
                     ..
                 }
+                if label == "main"
             ) {
                 app.state::<power::PlaybackPower>().shutdown();
             }
