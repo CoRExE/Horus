@@ -26,13 +26,19 @@ export async function testAnimeSamaLanguages() {
     [`${season}vf/episodes.js?filever=123`, `var eps1 = ['${sibnet(20)}', '', '${sibnet(22)}'];
       var eps2 = ['https://sendvid.com/vf-1', null, 'https://sendvid.com/vf-3'];
       var eps3 = ['https://vidmoly.test/vf-1',, 'https://sendvid.com/vf-3'];
-      var eps4 = ['https://smoothpre.test/vf-1',, ''];`],
+      var eps4 = ['https://smoothpre.test/vf-1',, ''];
+      var eps5 = ['https://smoothpre.test/links-1', 'https://uqload.test/vf-2', 'https://ansembed.test/vf-3'];`],
     // A generic page (HTTP 200) does not prove that a language is available.
     [`${season}vf2/`, '<html>Indisponible</html>'],
     ['https://sendvid.com/vf-1', 'video_source = "https://cdn.test/vf-1.m3u8"'],
     ['https://sendvid.com/vf-3', 'video_source = "https://cdn.test/vf-3.m3u8"'],
     ['https://vidmoly.test/vf-1', 'file: "https://cdn.test/vf-1.m3u8?token=a,b"'],
     ['https://smoothpre.test/vf-1', `eval(function(p,a,c,k,e,d){return p}('"https://cdn.test/vf-1.txt"',2,0,''.split('|'),0,{}))`],
+    // Current Smoothpre pages list mirrors; hls4 is relative to the embed host.
+    ['https://smoothpre.test/links-1', `eval(function(p,a,c,k,e,d){return p}('var links={"hls3":"https://mirror.test/master.txt","hls2":"https://cdn.test/hls2.m3u8?t=1","hls4":"/stream/abc/master.m3u8"};',2,0,''.split('|'),0,{}))`],
+    ['https://uqload.test/vf-2', `eval(function(p,a,c,k,e,d){return p}('jwplayer("vplayer").setup({sources:[{file:"https://cdn.test/uqload.m3u8?t=2"}]})',2,0,''.split('|'),0,{}))`],
+    ['https://ansembed.test/vf-3', `<script>eval(function(p,a,c,k,e,d){return p}('isSandboxed()',2,0,''.split('|'),0,{}))</script>
+      <script>jwplayer("vplayer").setup({ sources: [{ file: 'https://cdn.test/ansembed.m3u8?t=3' }] });</script>`],
   ]);
   for (const id of [10, 11, 12, 20, 22]) {
     pages.set(sendvid(id), `video_source = "https://cdn.test/episode-${id}.m3u8"`);
@@ -59,14 +65,19 @@ export async function testAnimeSamaLanguages() {
     const grouped = groupStreamsByLanguage(first);
     assert.equal(grouped.VOSTFR.length, 1);
     assert.equal(grouped.VOSTFR[0].server, 'Sendvid');
-    assert.deepEqual(grouped.VF.map(stream => stream.server), ['Sendvid', 'Vidmoly', 'Smoothpre']);
+    assert.deepEqual(grouped.VF.map(stream => stream.server), ['Sendvid', 'Vidmoly', 'Smoothpre', 'Smoothpre']);
     assert.equal(grouped.VF[1].url, 'https://cdn.test/vf-1.m3u8?token=a,b');
     assert.equal(grouped.VF[2].url, 'https://cdn.test/vf-1.m3u8');
+    assert.equal(grouped.VF[3].url, 'https://smoothpre.test/stream/abc/master.m3u8', 'Prefer the relative hls4 Smoothpre mirror');
     const second = await new AnimeSamaProvider().getStreams(episodes[1].id, episodes[1]);
-    assert.deepEqual(second.map(stream => stream.language), ['VOSTFR'], 'Missing VF slots must not shift episode 3 to episode 2');
+    assert.deepEqual(second.map(stream => `${stream.language}:${stream.server}:${stream.url}`), [
+      'VOSTFR:Sendvid:https://cdn.test/episode-11.m3u8',
+      'VF:Uqload:https://cdn.test/uqload.m3u8?t=2',
+    ], 'Missing VF slots must not shift episode 3 to episode 2');
     const third = await new AnimeSamaProvider().getStreams(episodes[2].id, episodes[2]);
     assert.deepEqual(third.filter(stream => stream.language === 'VF').map(stream => stream.url), [
       'https://cdn.test/vf-3.m3u8',
+      'https://cdn.test/ansembed.m3u8?t=3',
     ], 'Keep episode indices and deduplicate identical sources');
     const beforeLegacy = requests.length;
     const legacy = await new AnimeSamaProvider().getStreams(episodes[0].id);

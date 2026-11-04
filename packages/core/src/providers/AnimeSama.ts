@@ -120,6 +120,38 @@ export class AnimeSamaProvider implements HorusProvider {
       });
   }
 
+  private jwPlayerHosts = [
+      { match: 'vidmoly', server: 'Vidmoly' },
+      { match: 'smoothpre', server: 'Smoothpre' },
+      { match: 'uqload', server: 'Uqload' },
+      { match: 'ansembed', server: 'Ansembed' },
+  ];
+
+  /** Read the HLS source of a JW Player embed page without running its scripts. */
+  private readJwPlayerSource(html: string, embedUrl: string): string | undefined {
+      const script = html.includes('eval(function') ? `${html}\n${Unpacker.unpack(html)}` : html;
+
+      // Smoothpre lists several mirrors: `var links={"hls4":"/stream/…","hls2":"https://…"}`.
+      // hls4 (relative to the embed host) is the player's first choice; hls3 mirrors may be unreachable.
+      const linksMatch = /var\s+links\s*=\s*(\{.*?\})\s*;/s.exec(script);
+      if (linksMatch) {
+          try {
+              const links: Record<string, unknown> = JSON.parse(linksMatch[1]);
+              for (const key of ['hls4', 'hls2', 'hls3']) {
+                  const link = links[key];
+                  if (typeof link === 'string' && link) {
+                      return new URL(link, embedUrl).href.replace(/\.txt(?=$|\?)/, '.m3u8');
+                  }
+              }
+          } catch {
+          }
+      }
+
+      const fileMatch = /file:\s*['"](https?:\/\/[^'"]+\.m3u8[^'"]*)['"]/.exec(script)
+          ?? /['"](https?:\/\/[^'"]+\.(?:m3u8|txt)[^'"]*)['"]/.exec(script);
+      return fileMatch?.[1].replace(/\.txt(?=$|\?)/, '.m3u8');
+  }
+
   /**
    * Extract a direct stream URL from a single embed page URL.
    * Returns an array of streams (usually 0 or 1).
@@ -137,26 +169,13 @@ export class AnimeSamaProvider implements HorusProvider {
              }
           }
 
-          // Parse Vidmoly — extract m3u8 from file:"url" pattern
-          if (providerUrl.includes('vidmoly')) {
+          // JW Player embeds (Vidmoly, Smoothpre, Uqload, Ansembed), optionally packed with Dean Edwards' packer
+          const playerHost = this.jwPlayerHosts.find(host => providerUrl.toLowerCase().includes(host.match));
+          if (playerHost) {
               const { data } = await axios.get(providerUrl, { headers: { "user-agent": this.headers["user-agent"] }, timeout: TIMEOUT });
-              const m3u8Match = /file:\s*['"](https:\/\/[^'"]+\.m3u8[^'"]*)['"]/.exec(data);
-              if (m3u8Match) {
-                  return [{ url: m3u8Match[1], language, quality: 'auto', server: 'Vidmoly' }];
-              }
-          }
-
-          // Parse Smoothpre — Dean Edwards JS packer decryption
-          if (providerUrl.toLowerCase().includes('smoothpre')) {
-              const { data } = await axios.get(providerUrl, { headers: { "user-agent": this.headers["user-agent"] }, timeout: TIMEOUT });
-              if (data.includes('eval(function')) {
-                  const decrypted = Unpacker.unpack(data);
-                  const m3u8Match = /['"](https?:\/\/[^'"]+\.(?:m3u8|txt)[^'"]*)['"]/.exec(decrypted);
-                  if (m3u8Match) {
-                      let streamUrl = m3u8Match[1];
-                      if (streamUrl.includes('.txt')) streamUrl = streamUrl.replace('.txt', '.m3u8');
-                      return [{ url: streamUrl, language, quality: 'auto', server: 'Smoothpre' }];
-                  }
+              const streamUrl = this.readJwPlayerSource(String(data), providerUrl);
+              if (streamUrl) {
+                  return [{ url: streamUrl, language, quality: 'auto', server: playerHost.server }];
               }
           }
       } catch {
