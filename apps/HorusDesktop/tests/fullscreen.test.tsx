@@ -47,13 +47,14 @@ test("Échap et la fermeture restaurent le mode fenêtre et le défilement", asy
     expect(screen.getByTestId("player").dataset.fullscreen).toBe("true"),
   );
   expect(native.setFullscreen).toHaveBeenCalledWith(true);
-  expect(document.body.style.overflow).toBe("hidden");
+  // The scroll lock is applied by an effect after the render: wait for it too.
+  await waitFor(() => expect(document.body.style.overflow).toBe("hidden"));
   fireEvent.keyDown(document, { key: "Escape" });
   await waitFor(() =>
     expect(screen.getByTestId("player").dataset.fullscreen).toBe("false"),
   );
   expect(native.setFullscreen).toHaveBeenLastCalledWith(false);
-  expect(document.body.style.overflow).toBe("auto");
+  await waitFor(() => expect(document.body.style.overflow).toBe("auto"));
   fireEvent.click(screen.getByText("Basculer"));
   await waitFor(() =>
     expect(screen.getByTestId("player").dataset.fullscreen).toBe("true"),
@@ -62,7 +63,7 @@ test("Échap et la fermeture restaurent le mode fenêtre et le défilement", asy
   await waitFor(() =>
     expect(native.setFullscreen).toHaveBeenLastCalledWith(false),
   );
-  expect(native.unlisten).toHaveBeenCalled();
+  await waitFor(() => expect(native.unlisten).toHaveBeenCalled());
 });
 
 test("un changement de source sans démontage conserve le plein écran initial de la fenêtre", async () => {
