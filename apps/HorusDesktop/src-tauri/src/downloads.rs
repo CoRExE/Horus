@@ -203,7 +203,11 @@ async fn run_download(
         };
         let _ = progress.await;
         let _ = errors.await;
-        if !status?.success() { return Err(diagnostics.lock().unwrap().message().into()); }
+        if !status?.success() {
+            // FFmpeg only sees a 502; the relay knows when the cause was a decoy master.
+            if state.served_decoy(&relay_id).await { return Err(relay::DECOY_PLAYLIST_ERROR.into()); }
+            return Err(diagnostics.lock().unwrap().message().into());
+        }
         download.size_bytes = tokio::fs::metadata(&partial).await.map_err(write_error)?.len();
         if download.size_bytes == 0 { return Err("Le fichier téléchargé est vide".into()); }
         download.downloaded_at = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_millis() as u64;

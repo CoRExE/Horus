@@ -445,6 +445,33 @@ class LocalVideoProxyServer(
     private val cronetEngine: CronetEngine?
 ) : NanoHTTPD(host, port) {
 
+    companion object {
+        /** Same text as DECOY_PLAYLIST_ERROR in the Desktop relay. */
+        const val DECOY_PLAYLIST_ERROR =
+            "La source a envoyé un faux flux : son manifeste HLS renvoie à lui-même au lieu de mener à la vidéo. Essayez l’autre langue, ou réessayez plus tard."
+    }
+
+    // A variant that points back to its own playlist can never reach media
+    // segments. Vidzy serves such a decoy master to clients it rejects; fail with
+    // an explicit message instead of letting the player loop or retry.
+    private fun isSamePlaylist(first: String, second: String): Boolean {
+        val a = URL(first)
+        val b = URL(second)
+        val port = { url: URL -> if (url.port == -1) url.defaultPort else url.port }
+        return a.protocol.equals(b.protocol, ignoreCase = true) &&
+            a.host.equals(b.host, ignoreCase = true) && port(a) == port(b) && a.path == b.path
+    }
+
+    private fun rejectDecoy(): Nothing {
+        Log.w("LocalVideoProxy", "Faux manifeste HLS détecté (variante qui renvoie à elle-même)")
+        throw IllegalStateException(DECOY_PLAYLIST_ERROR)
+    }
+
+    // Log only counts: playlist URLs carry signatures and the session token.
+    private fun logValidMediaPlaylist(segments: Int) {
+        if (segments > 0) Log.i("LocalVideoProxy", "Flux HLS valide ($segments segments)")
+    }
+
     // HTTPS only, like Desktop: the gk session token must never travel in clear text.
     private fun isVidzyUrl(url: URL): Boolean =
         url.protocol.equals("https", ignoreCase = true) && isVidzyHost(url.host)
@@ -624,16 +651,16 @@ class LocalVideoProxyServer(
         userAgent: String
     ): String {
         val uriAttribute = Regex("""URI="([^"]+)"""")
-        return playlist.lineSequence().joinToString("\n") { line ->
+        var variantFollows = false
+        val rewritten = playlist.lineSequence().joinToString("\n") { line ->
             val trimmed = line.trim()
+            if (trimmed.startsWith("#EXT-X-STREAM-INF:")) variantFollows = true
             when {
                 trimmed.isNotEmpty() && !trimmed.startsWith("#") -> {
-                    localHlsPath(
-                        resolvePlaylistUri(playlistUrl, trimmed),
-                        referer,
-                        origin,
-                        userAgent
-                    )
+                    val resolved = resolvePlaylistUri(playlistUrl, trimmed)
+                    if (variantFollows && isSamePlaylist(resolved, playlistUrl)) rejectDecoy()
+                    variantFollows = false
+                    localHlsPath(resolved, referer, origin, userAgent)
                 }
                 trimmed.startsWith("#") && uriAttribute.containsMatchIn(line) -> {
                     uriAttribute.replace(line) { match ->
@@ -644,6 +671,8 @@ class LocalVideoProxyServer(
                 else -> line
             }
         }
+        logValidMediaPlaylist(playlist.lineSequence().count { it.trim().startsWith("#EXTINF:") })
+        return rewritten
     }
 
     private fun rememberProxyError(targetUrl: String?, error: String): String {
@@ -998,6 +1027,7 @@ class LocalVideoProxyServer(
                 val absoluteUrl = resolvePlaylistUri(playlistUrl, trimmed)
                 val variant = pendingVariant
                 if (variant != null) {
+                    if (isSamePlaylist(absoluteUrl, playlistUrl)) rejectDecoy()
                     variants.add(variant.copy(url = absoluteUrl))
                     pendingVariant = null
                 } else {
@@ -1054,6 +1084,7 @@ class LocalVideoProxyServer(
             "Fragmented MP4 HLS playlists cannot be exposed as an MPEG-TS DLNA stream"
         }
 
+        logValidMediaPlaylist(segments.size)
         return HlsPlaylistSnapshot(
             mediaPlaylistUrl = playlistUrl,
             segments = segments,
