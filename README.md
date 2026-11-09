@@ -110,6 +110,9 @@ la diffusion.
    ```bash
    pnpm --dir apps/HorusRemote start
    ```
+   Pour un simple aperçu de l'interface dans Expo Go (SDK 58), `pnpm mobile`
+   remplace Google Cast, la découverte DLNA et le relais vidéo local par des
+   substituts inactifs ; ces fonctions exigent un build de développement.
 5. **Vérifier le code :**
    ```bash
    pnpm check

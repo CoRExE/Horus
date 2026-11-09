@@ -9,7 +9,7 @@ const apk = resolve(process.argv[3]);
 const sdk = process.env.ANDROID_HOME || process.env.ANDROID_SDK_ROOT;
 if (!sdk) throw new Error('ANDROID_HOME requis.');
 const baseline = JSON.parse(readFileSync('scripts/release/android-baseline.json', 'utf8'));
-const run = (tool, args) => execFileSync(`${sdk}/build-tools/36.0.0/${tool}`, args, { encoding: 'utf8' });
+const run = (tool, args) => execFileSync(`${sdk}/build-tools/37.0.0/${tool}`, args, { encoding: 'utf8' });
 const badging = run('aapt', ['dump', 'badging', apk]);
 const identity = badging.match(/^package: name='([^']+)' versionCode='(\d+)' versionName='([^']+)'/);
 if (!identity || identity[1] !== baseline.applicationId || Number(identity[2]) !== release.versionCode || identity[3] !== release.version) throw new Error('Identité/version de l’APK différente de la configuration.');

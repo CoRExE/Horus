@@ -13,7 +13,7 @@ prochain lancement manuel ou build de release.
 
 Le build Android utilise le SDK préinstallé du runner Ubuntu 24.04 : il vérifie
 `cmdline-tools/latest/bin/sdkmanager`, accepte les licences puis installe
-explicitement `platform-tools`, Android 36, Build Tools 36.0.0, NDK 27.1.12297006
+explicitement `platform-tools`, Android 37.0, Build Tools 37.0.0, NDK 27.1.12297006
 et CMake 3.22.1. Le chemin du SDK est transmis aux étapes suivantes. L'action
 `android-actions/setup-android@v3` a été retirée après l'échec du 22 septembre 2026
 sur sa demande implicite du paquet legacy `tools`. Toute erreur de `sdkmanager`
@@ -114,9 +114,12 @@ l'entrée standard, et conserve les secrets déjà présents. Aucun secret n'est
 écrit dans le projet Android généré ni dans les journaux. Le workflow place le
 keystore dans le dossier temporaire du runner et efface cette copie en fin de job.
 
-Le build utilise Java 17, le SDK Android 36, les build-tools 36.0.0, le NDK
-27.1.12297006 et CMake 3.22.1. Expo 54 génère le wrapper Gradle 8.14.3 depuis
-les dépendances installées. `setup-gradle` gère son cache ; pnpm installe avec
+Le build utilise Java 17, le SDK Android 37 (`compileSdk` 37, `targetSdk` 36),
+les build-tools 37.0.0, le NDK 27.1.12297006 et CMake 3.22.1. Expo 58
+(React Native 0.88, AGP 9.2.1) génère le wrapper Gradle 9.4.1 depuis les
+dépendances installées. R8 est actif par défaut depuis Expo 58 : il reste
+désactivé par `expo-build-properties` (`enableMinifyInReleaseBuilds: false`)
+pour conserver le comportement des APK précédents. `setup-gradle` gère son cache ; pnpm installe avec
 `--frozen-lockfile`. Certaines dépendances Maven natives restent dynamiques dans
 les modules existants : ce pipeline ne garantit pas une reproduction octet pour
 octet des APK.
@@ -124,7 +127,9 @@ octet des APK.
 Google Cast est fixé à **22.3.1** via l'option Expo
 `androidPlayServicesCastFrameworkVersion` dans `app.json`. Le choix dynamique
 `+` avait sélectionné Cast 23.0.0, qui apporte MediaRouter 1.9.0-beta01 : cette
-dépendance exige SDK 37 et AGP 9.1.0, incompatibles avec SDK 36 / AGP 8.11.0.
+dépendance exige SDK 37 et AGP 9.1.0, incompatibles avec SDK 36 / AGP 8.11.0
+utilisés jusqu'à Expo 54. Le pin est conservé après le passage à Expo 58, en
+attendant de valider Cast 23 sur appareil.
 Le pin est appliqué par le plugin officiel lors de chaque prebuild, y compris
 aux projets déjà générés. Tester les métadonnées AAR et compiler le module Cast
 avant de modifier cette version ; ne pas forcer uniquement une ancienne version

@@ -1,0 +1,23 @@
+diff --git a/build/core/types.d.ts b/build/core/types.d.ts
+index 0ee18284ee86af30a97b86cb84ba15e713dfb463..19173f7bc6472eca768536caee5b8a67f2b5041d 100644
+--- a/build/core/types.d.ts
++++ b/build/core/types.d.ts	
+@@ -1,4 +1,17 @@
+-import type { PerspectiveTransform, RotateTransform, RotateXTransform, RotateYTransform, RotateZTransform, ScaleTransform, ScaleXTransform, ScaleYTransform, TranslateXTransform, TranslateYTransform, SkewXTransform, SkewYTransform, ImageStyle, TextStyle, ViewStyle } from 'react-native';
++import type { ImageStyle, TextStyle, ViewStyle } from 'react-native';
++// React Native 0.88's strict TypeScript API no longer exports the individual transform types.
++type PerspectiveTransform = { perspective: number };
++type RotateTransform = { rotate: string };
++type RotateXTransform = { rotateX: string };
++type RotateYTransform = { rotateY: string };
++type RotateZTransform = { rotateZ: string };
++type ScaleTransform = { scale: number };
++type ScaleXTransform = { scaleX: number };
++type ScaleYTransform = { scaleY: number };
++type TranslateXTransform = { translateX: number | `${number}%` };
++type TranslateYTransform = { translateY: number | `${number}%` };
++type SkewXTransform = { skewX: string };
++type SkewYTransform = { skewY: string };
+ import type { SharedValue, WithDecayConfig, WithSpringConfig, WithTimingConfig, DerivedValue } from 'react-native-reanimated';
+ export type Transforms = PerspectiveTransform & RotateTransform & RotateXTransform & RotateYTransform & RotateZTransform & ScaleTransform & ScaleXTransform & ScaleYTransform & TranslateXTransform & TranslateYTransform & SkewXTransform & SkewYTransform;
+ export type MotiTranformProps = Partial<Transforms> & Pick<ViewStyle, 'transform'>;

@@ -171,7 +171,7 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
   },
   screenOverlay: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     backgroundColor: 'rgba(0, 255, 255, 0.03)', // Teinte bleutée très subtile omniprésente
   },
   scannerLine: {

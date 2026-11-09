@@ -467,7 +467,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#0B0F19',
   },
   glowBg: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     backgroundColor: 'rgba(139, 92, 246, 0.1)',
   },
   scroll: {
