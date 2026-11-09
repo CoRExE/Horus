@@ -61,7 +61,7 @@ graph LR
 ```
 
 1.  **Recherche :** le Worker interroge TMDB sans divulguer son jeton au client mobile. La recherche AnimeSama reste directe.
-2.  **Résolution :** le téléphone récupère et analyse la page Vidzy comme du texte pour en extraire le manifeste HLS ; aucun lecteur web ni script publicitaire n'est exécuté.
+2.  **Résolution :** l'appareil récupère les pages Vidzy comme du texte pour en extraire le manifeste HLS. Vidzy exige en plus un jeton de session (`gk`) calculé par son lecteur : une WebView invisible et isolée charge uniquement ce lecteur (sans pont natif, fenêtres surgissantes ni domaines tiers), lit le jeton puis se ferme. Le relais Desktop et le proxy Android refusent les faux manifestes que Vidzy sert parfois aux clients qu'il rejette.
 3.  **Lecture :** le téléphone lit le flux ou l'envoie à un appareil Cast/DLNA.
 4.  **Passerelle locale :** le téléphone expose un proxy authentifié lorsqu'un flux exige des en-têtes HTTP spécifiques ou lorsqu'un manifeste HLS doit être présenté au renderer DLNA comme un flux MPEG-TS continu.
 
@@ -121,12 +121,14 @@ la diffusion.
 ## Vérifications automatiques
 
 Le workflow [Vérifications](.github/workflows/checks.yml) s'exécute sur les pull
-requests, les pushes sur `main`/`master` et à la demande. Il vérifie TypeScript
-dans les quatre packages, les tests existants et dix-neuf tests de parcours Desktop,
-puis compile l'interface et le code Rust sur macOS et exécute les tests Rust et
-média FFmpeg. Aucun secret ni service externe n'est nécessaire aux tests.
+requests, à la demande et lorsqu'un workflow de release l'appelle. Un push ou une
+fusion sur `main` ne le relance pas. Il vérifie TypeScript dans les quatre
+packages, les tests de chaque package (dont les tests d'interface Desktop) et les
+garde-fous des scripts de release, puis compile l'interface et le code Rust sur
+macOS et exécute les tests Rust et média FFmpeg. Aucun secret ni service externe
+n'est nécessaire aux tests.
 
-La CI fixe **Node 26.8.1** (depuis `.nvmrc`), **pnpm 12.3.4** (depuis `package.json`) et **Rust
+La CI fixe **Node 26.8.1** (depuis `.nvmrc`), **pnpm 12.5.1** (depuis `package.json`) et **Rust
 1.88.0**. Utiliser également Node 26.8.1 pour reproduire ces vérifications :
 Node 20.19.4 échoue sur le chargement CommonJS/ESM des tests Desktop existants
 avec la version verrouillée de `tsx`.
@@ -157,19 +159,19 @@ serveurs HTTP locaux. Ces vérifications ne remplacent pas les essais de la
 WebView Tauri et des téléviseurs physiques.
 
 Les workflows de release appellent ces vérifications sur le commit exact du tag,
-avant leurs builds. Le pipeline Desktop 0.1.1 prévoit deux DMG macOS, un installateur
-Windows x64 et un paquet Ubuntu 24.04 x64 avec FFmpeg embarqué ; leurs builds et
-contrôles ont réussi. Les tags `mobile-vX.Y.Z` produisent un APK signé avec Gradle,
+avant leurs builds. Les tags `desktop-vX.Y.Z` produisent deux DMG macOS (Apple
+Silicon et Intel), un installateur Windows x64 et un paquet Ubuntu 24.04 x64, avec
+FFmpeg embarqué. Les tags `mobile-vX.Y.Z` produisent un APK signé avec Gradle,
 sans EAS Build. Les fichiers sont déposés dans un brouillon GitHub Release.
 Un workflow manuel vérifie le brouillon avant de le publier, sans modifier le
 `latest` global. Voir [le guide des releases](docs/RELEASES.md) pour les versions,
 la signature, les builds locaux et la première validation des installateurs.
 
-La détection des mises à jour est préparée sur Desktop et Android : vérification
-quotidienne, bouton dans les paramètres et téléchargement manuel du bon
-installateur. Les manifestes publics sont générés depuis les releases stables
-avec GitHub Pages. Le premier déploiement et les essais des nouveaux binaires
-restent à effectuer ; voir [le guide des mises à jour](docs/UPDATES.md).
+Desktop et Android détectent les mises à jour : vérification quotidienne, bouton
+dans les paramètres et téléchargement manuel du bon installateur. Les manifestes
+publics sont générés depuis les releases stables et publiés sur
+[GitHub Pages](https://corexe.github.io/Horus/) ; voir
+[le guide des mises à jour](docs/UPDATES.md).
 
 ## ⚖️ Disclaimer
 
