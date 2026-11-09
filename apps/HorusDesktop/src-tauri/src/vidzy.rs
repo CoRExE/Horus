@@ -8,14 +8,21 @@ pub struct BrowserSession {
     user_agent: String,
 }
 
+fn is_vidzy_host(host: &str) -> bool {
+    host == "vidzy.cc" || host.ends_with(".vidzy.cc")
+        || host == "vidzy.org" || host.ends_with(".vidzy.org")
+}
+
 fn validate(embed: &str, referer: &str) -> Result<url::Url, String> {
     let url = url::Url::parse(embed).map_err(|_| "Lecteur Vidzy invalide")?;
     let parent = url::Url::parse(referer).map_err(|_| "Référent Vidzy invalide")?;
-    if url.scheme() != "https" || url.host_str() != Some("vidzy.cc") ||
+    let embed_host = url.host_str().unwrap_or("");
+    let parent_host = parent.host_str().unwrap_or("");
+    if url.scheme() != "https" || !is_vidzy_host(embed_host) ||
         url.port().is_some() || !url.username().is_empty() || url.password().is_some() ||
         !regex::Regex::new(r"^/embed-[A-Za-z0-9]+\.html$").unwrap().is_match(url.path()) ||
         url.query().is_some() || url.fragment().is_some() ||
-        parent.scheme() != "https" || parent.host_str() != Some("vidzy.org") {
+        parent.scheme() != "https" || !is_vidzy_host(parent_host) {
         return Err("Seuls les lecteurs HTTPS Vidzy sont autorisés".into());
     }
     Ok(url)
@@ -71,7 +78,11 @@ mod tests {
     #[test]
     fn only_vidzy_embeds_can_open_a_session() {
         assert!(validate("https://vidzy.cc/embed-abc123.html", "https://vidzy.org/movie/550/vf").is_ok());
-        for embed in ["http://vidzy.cc/embed-abc.html", "https://evil.test/embed-abc.html", "https://vidzy.cc@evil.test/embed-abc.html", "https://vidzy.cc:8443/embed-abc.html", "https://vidzy.cc/embed-abc.html?redirect=x", "https://vidzy.cc/other"] {
+        // Subdomains of both vidzy.cc and vidzy.org are accepted.
+        assert!(validate("https://v6.vidzy.cc/embed-abc123.html", "https://vidzy.org/movie/550/vf").is_ok());
+        assert!(validate("https://vidzy.cc/embed-abc123.html", "https://u14.vidzy.org/movie/550/vf").is_ok());
+        assert!(validate("https://v6.vidzy.org/embed-abc123.html", "https://vidzy.org/movie/550/vf").is_ok());
+        for embed in ["http://vidzy.cc/embed-abc.html", "https://evil.test/embed-abc.html", "https://vidzy.cc@evil.test/embed-abc.html", "https://vidzy.cc:8443/embed-abc.html", "https://vidzy.cc/embed-abc.html?redirect=x", "https://vidzy.cc/other", "https://vidzy.cc.evil.test/embed-abc.html", "https://vidzy.org.evil.test/embed-abc.html", "https://evilvidzy.cc/embed-abc.html", "https://evilvidzy.org/embed-abc.html"] {
             assert!(validate(embed, "https://vidzy.org/movie/550/vf").is_err());
         }
     }

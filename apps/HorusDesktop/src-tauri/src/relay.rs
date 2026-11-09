@@ -183,7 +183,8 @@ fn failure(status: StatusCode, text: &str) -> Response {
 fn playlist_target(base: &url::Url, value: &str) -> Result<url::Url, String> {
     let mut target = base.join(value).map_err(|e| e.to_string())?;
     let vidzy = |url: &url::Url| url.scheme() == "https" && url.host_str()
-        .is_some_and(|host| host == "vidzy.cc" || host.ends_with(".vidzy.cc"));
+        .is_some_and(|host| host == "vidzy.cc" || host.ends_with(".vidzy.cc")
+            || host == "vidzy.org" || host.ends_with(".vidzy.org"));
     if vidzy(base) && vidzy(&target) &&
         (target.path().starts_with("/hls2/") || target.path().starts_with("/v/")) &&
         !target.query_pairs().any(|(name, _)| name == "gk") {
@@ -651,10 +652,16 @@ mod tests {
                 assert!(target.query_pairs().any(|(k, v)| k == "sig" && v == "keep"));
             }
         }
+        // vidzy.org hosts are also accepted for gk propagation.
+        let org_base = http_url("https://u14.vidzy.org/hls2/media/master.m3u8?gk=org_token").unwrap();
+        for value in ["video/index.m3u8", "seg-10.ts?sig=keep", "https://v6.vidzy.org/v/media/seg-10.ts?sig=keep"] {
+            let target = playlist_target(&org_base, value).unwrap();
+            assert_eq!(target.query_pairs().find(|(k, _)| k == "gk").unwrap().1, "org_token");
+        }
         let existing = playlist_target(&base, "seg.ts?gk=child").unwrap();
         assert_eq!(existing.query_pairs().filter(|(k, _)| k == "gk").count(), 1);
         assert_eq!(existing.query_pairs().find(|(k, _)| k == "gk").unwrap().1, "child");
-        for value in ["https://evil.test/hls2/seg.ts", "//evil.test/hls2/seg.ts", "https://vidzy.cc.evil.test/hls2/seg.ts", "http://u14.vidzy.cc/hls2/seg.ts", "https://u14.vidzy.cc/other/asset"] {
+        for value in ["https://evil.test/hls2/seg.ts", "//evil.test/hls2/seg.ts", "https://vidzy.cc.evil.test/hls2/seg.ts", "https://vidzy.org.evil.test/hls2/seg.ts", "https://evilvidzy.org/hls2/seg.ts", "http://u14.vidzy.cc/hls2/seg.ts", "http://u14.vidzy.org/hls2/seg.ts", "https://u14.vidzy.cc/other/asset"] {
             assert!(!playlist_target(&base, value).unwrap().query_pairs().any(|(k, _)| k == "gk"));
         }
     }

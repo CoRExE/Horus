@@ -445,10 +445,9 @@ class LocalVideoProxyServer(
     private val cronetEngine: CronetEngine?
 ) : NanoHTTPD(host, port) {
 
-    private fun isVidzyUrl(url: URL): Boolean {
-        val hostname = url.host.lowercase()
-        return hostname == "vidzy.cc" || hostname.endsWith(".vidzy.cc")
-    }
+    // HTTPS only, like Desktop: the gk session token must never travel in clear text.
+    private fun isVidzyUrl(url: URL): Boolean =
+        url.protocol.equals("https", ignoreCase = true) && isVidzyHost(url.host)
 
     private fun browserPlatformHint(userAgent: String): String {
         return when {

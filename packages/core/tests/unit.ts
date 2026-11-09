@@ -293,8 +293,30 @@ assert.equal(
 );
 assert.equal(
   extractVidzyIframeUrl(
+    '<iframe src="https://v6.vidzy.cc/embed-safe.html"></iframe>'
+  ),
+  'https://v6.vidzy.cc/embed-safe.html'
+);
+assert.equal(
+  extractVidzyIframeUrl(
+    '<iframe src="https://v6.vidzy.org/embed-safe.html"></iframe>'
+  ),
+  'https://v6.vidzy.org/embed-safe.html'
+);
+assert.equal(
+  extractVidzyIframeUrl(
     '<iframe src="https://vidzy.cc.attacker.example/embed.html"></iframe>'
   ),
+  null
+);
+assert.equal(
+  extractVidzyIframeUrl(
+    '<iframe src="https://vidzy.org.attacker.example/embed.html"></iframe>'
+  ),
+  null
+);
+assert.equal(
+  extractVidzyIframeUrl('<iframe src="https://evilvidzy.org/embed.html"></iframe>'),
   null
 );
 
@@ -306,6 +328,16 @@ assert.equal(
     'vidzy.cc'
   ),
   vidzyHlsUrl
+);
+// HLS URLs on vidzy.org subdomains are accepted too.
+const vidzyOrgHlsUrl =
+  'https://u14.vidzy.org/hls2/08/00019/video/master.m3u8?token=valid';
+assert.equal(
+  extractVidzyHlsSource(
+    `videojs('vjsplayer',{sources:[{src:"${vidzyOrgHlsUrl}",type:"application/x-mpegURL"}]})`,
+    'vidzy.cc'
+  ),
+  vidzyOrgHlsUrl
 );
 assert.equal(
   extractVidzyHlsSource(
