@@ -27,6 +27,14 @@ Vidzy sert désormais ses manifestes HLS depuis des sous-domaines numérotés de
   téléphone. L'état est rafraîchi dès le retour de l'appli au premier plan.
 - La dernière phase d'un téléchargement s'intitule « Conversion en MP4 ».
 
+## Socle technique
+
+- Remote passe à Expo SDK 58 (React Native 0.88, React 19.3) ; Desktop est aligné
+  sur React 19.3. La CI de release Android utilise la plateforme 37.0 et les
+  build-tools 37.0.0.
+- `pnpm mobile` lance un aperçu de l'interface dans Expo Go, avec des substituts
+  inactifs pour Google Cast, la découverte DLNA et le relais vidéo local.
+
 ## Constaté le 9 novembre 2026
 
 - Lecture locale, diffusion DLNA et téléchargement de films Vidzy réussis sur
