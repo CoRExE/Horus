@@ -1,7 +1,8 @@
 /**
  * Service pour contrôler un appareil DLNA / UPnP via SOAP
  */
-import { formatDlnaTime, inferStreamFormat, parseDlnaTime, Stream } from '@horus/core';
+import { formatDlnaTime, inferStreamFormat, Stream } from '@horus/core';
+import { readDlnaTime } from './dlnaPosition';
 import { XMLParser } from 'fast-xml-parser';
 import LocalVideoProxy from '../modules/local-video-proxy/src/LocalVideoProxyModule';
 
@@ -17,8 +18,9 @@ export type DlnaTransportState =
 
 export interface DlnaPlaybackStatus {
   transportState: DlnaTransportState;
-  positionSeconds: number;
-  durationSeconds: number;
+  /** Undefined when the TV gave no usable position: keep the last known one. */
+  positionSeconds?: number;
+  durationSeconds?: number;
   volume?: number;
   muted?: boolean;
 }
@@ -405,8 +407,8 @@ export const dlnaController = {
     const xml = await sendSoapCommand(controlUrl, 'AVTransport', 'GetPositionInfo');
     const response = readSoapActionResponse(xml, 'GetPositionInfo');
     return {
-      positionSeconds: parseDlnaTime(response.RelTime || response.AbsTime),
-      durationSeconds: parseDlnaTime(response.TrackDuration),
+      positionSeconds: readDlnaTime(response.RelTime) ?? readDlnaTime(response.AbsTime),
+      durationSeconds: readDlnaTime(response.TrackDuration),
     };
   },
 
@@ -466,9 +468,11 @@ export const dlnaController = {
       throw new Error('DLNA renderer is unreachable');
     }
 
+    // A failed query is "unknown", not zero: zero made the progress bar jump to
+    // the start and could be saved as the resume position.
     const position = positionResult.status === 'fulfilled'
       ? positionResult.value
-      : { positionSeconds: 0, durationSeconds: 0 };
+      : { positionSeconds: undefined, durationSeconds: undefined };
 
     return {
       transportState: transportResult.status === 'fulfilled'
