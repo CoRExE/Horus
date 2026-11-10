@@ -25,7 +25,8 @@ for (const value of ['com.reactnative.googlecast.GoogleCastOptionsProvider', 'CC
 const entries = new Set(execFileSync('unzip', ['-Z1', apk], { encoding: 'utf8' }).trim().split('\n'));
 if (!entries.has('assets/index.android.bundle')) throw new Error('Bundle JavaScript absent de l’APK.');
 for (const abi of ['armeabi-v7a', 'arm64-v8a', 'x86', 'x86_64']) {
-  for (const library of ['libhermes.so', 'libreactnative.so']) {
+  // React Native 0.88 ships Hermes V1 as libhermesvm.so (libhermes.so before).
+  for (const library of ['libhermesvm.so', 'libreactnative.so']) {
     if (!entries.has(`lib/${abi}/${library}`)) throw new Error(`Bibliothèque Android absente : ${abi}/${library}`);
   }
 }

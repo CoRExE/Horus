@@ -1,4 +1,10 @@
-# Desktop 0.1.14 et Remote 1.4.13 — code 37
+# Desktop 0.1.14 et Remote 1.4.14 — code 38
+
+Remote 1.4.13 (code 37) n'a pas été publiée : son build du 10 novembre 2026 a
+échoué au contrôle de l'APK, qui cherchait encore `libhermes.so`. Depuis React
+Native 0.88, Hermes V1 est livré sous le nom `libhermesvm.so` ; le contrôle est
+corrigé et Remote 1.4.14 reprend le même contenu. Le tag `mobile-v1.4.13` reste
+sans release.
 
 Vidzy sert désormais ses manifestes HLS depuis des sous-domaines numérotés de
 `vidzy.org` (`u14`), alors que le jeton de session `gk` est toujours délivré par
