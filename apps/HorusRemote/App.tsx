@@ -1,5 +1,5 @@
 import { StatusBar } from 'expo-status-bar';
-import { StyleSheet, Text, View, ScrollView, Image, TouchableOpacity, Platform, PermissionsAndroid, ActivityIndicator, Modal, Linking, Alert } from 'react-native';
+import { StyleSheet, Text, View, ScrollView, Image, TouchableOpacity, Platform, PermissionsAndroid, ActivityIndicator, Modal, Linking, Alert, AppState } from 'react-native';
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { useImmersiveNavigation } from './services/immersiveNavigation';
@@ -31,6 +31,7 @@ import { useReleaseUpdates } from './hooks/useReleaseUpdates';
 import { ReleaseSettings, ReleaseUpdateBanner } from './components/ReleaseUpdates';
 import { DlnaDevice } from './hooks/useDlnaDiscovery';
 import { dlnaController } from './services/dlnaController';
+import { createDlnaPositionFilter } from './services/dlnaPosition';
 import LocalVideoProxy from './modules/local-video-proxy/src/LocalVideoProxyModule';
 import { CacheProgressEvent } from './modules/local-video-proxy/src/LocalVideoProxy.types';
 
@@ -1325,15 +1326,20 @@ export default function App() {
             void finishRemotePlayback();
             return;
           }
-          updateNotification(
-            status.transportState === 'PLAYING' || status.transportState === 'TRANSITIONING',
-            status.positionSeconds,
-            selectPlaybackDuration(
-              remotePlayback.durationSeconds,
-              status.durationSeconds,
-              remotePlayback.canSeek
-            )
-          );
+          // An unknown or glitched position must not reach the notification or
+          // the saved resume point; the next poll brings the real one.
+          const position = positionFilter.accept(status.positionSeconds, status.transportState);
+          if (position !== undefined) {
+            updateNotification(
+              status.transportState === 'PLAYING' || status.transportState === 'TRANSITIONING',
+              position,
+              selectPlaybackDuration(
+                remotePlayback.durationSeconds,
+                status.durationSeconds ?? 0,
+                remotePlayback.canSeek
+              )
+            );
+          }
         } catch (error) {
           if (!cancelled) {
             console.warn('[Notification] TV status temporarily unavailable', error);
@@ -1342,12 +1348,18 @@ export default function App() {
           refreshInProgress = false;
         }
       };
+      const positionFilter = createDlnaPositionFilter();
       void refreshDlnaStatus();
       const interval = setInterval(() => void refreshDlnaStatus(), 2_000);
+      // Timers stop while the phone is locked; resync as soon as it is back.
+      const appState = AppState.addEventListener('change', state => {
+        if (state === 'active') void refreshDlnaStatus();
+      });
       return () => {
         flushProgress();
         cancelled = true;
         clearInterval(interval);
+        appState.remove();
       };
     }
 
@@ -1373,13 +1385,27 @@ export default function App() {
           if (castClient) await castClient.pause();
           else if (activeDlnaDevice) await dlnaController.pause(activeDlnaDevice.controlUrl);
         } else if (
-          event.action === 'seek' &&
+          (event.action === 'seek' || event.action === 'rewind' || event.action === 'forward') &&
           remotePlayback.canSeek &&
           event.positionSeconds !== undefined
         ) {
-          if (castClient) await castClient.seek({ position: event.positionSeconds });
+          let target = event.positionSeconds;
+          if (event.action !== 'seek') {
+            // The notification only estimates the position; ±10 s must start
+            // from where the TV really is, or a stale estimate jumps far away.
+            const fresh = castClient
+              ? await castClient.getStreamPosition().catch(() => null)
+              : activeDlnaDevice
+                ? (await dlnaController.getPositionInfo(activeDlnaDevice.controlUrl).catch(() => undefined))
+                  ?.positionSeconds
+                : undefined;
+            if (typeof fresh === 'number') {
+              target = Math.max(0, fresh + (event.action === 'rewind' ? -10 : 10));
+            }
+          }
+          if (castClient) await castClient.seek({ position: target });
           else if (activeDlnaDevice) {
-            await dlnaController.seek(activeDlnaDevice.controlUrl, event.positionSeconds);
+            await dlnaController.seek(activeDlnaDevice.controlUrl, target);
           }
         } else if (event.action === 'stop') {
           try {
@@ -1766,7 +1792,7 @@ export default function App() {
               {offlineBatch && <Text style={styles.cacheModalText}>{offlineBatch.title}</Text>}
               <Text style={styles.cacheModalText}>
                 {cacheProgress.phase === 'optimizing'
-                  ? 'Optimisation du fichier MP4'
+                  ? 'Conversion en MP4'
                   : `Téléchargement complet du média en ${remoteCacheQuality}p`}
               </Text>
               {cacheProgress.phase === 'optimizing' ? (

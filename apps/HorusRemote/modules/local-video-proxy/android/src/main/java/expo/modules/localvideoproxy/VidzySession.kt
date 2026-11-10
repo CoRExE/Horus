@@ -13,6 +13,13 @@ import android.webkit.WebViewClient
 import org.json.JSONTokener
 import java.io.ByteArrayInputStream
 
+/** Vidzy serves pages and streams from vidzy.cc, vidzy.org and their numbered subdomains. */
+internal fun isVidzyHost(host: String?): Boolean {
+    val name = host?.lowercase() ?: return false
+    return name == "vidzy.cc" || name.endsWith(".vidzy.cc") ||
+        name == "vidzy.org" || name.endsWith(".vidzy.org")
+}
+
 /** Isolated browser session: no native JS bridge, file access, popups or media transfer. */
 class VidzySession {
     private val handler = Handler(Looper.getMainLooper())
@@ -27,9 +34,10 @@ class VidzySession {
             close?.invoke()
             val uri = Uri.parse(embed)
             val parent = Uri.parse(referer)
-            if (uri.scheme != "https" || uri.host != "vidzy.cc" ||
+            if (uri.scheme != "https" || !isVidzyHost(uri.host) ||
+                uri.port != -1 || uri.userInfo != null || uri.query != null || uri.fragment != null ||
                 !uri.path.orEmpty().matches(Regex("/embed-[A-Za-z0-9]+\\.html")) ||
-                parent.scheme != "https" || parent.host != "vidzy.org") {
+                parent.scheme != "https" || !isVidzyHost(parent.host)) {
                 complete(null, null, "Invalid Vidzy session URL")
                 return@post
             }

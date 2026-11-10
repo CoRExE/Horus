@@ -73,7 +73,10 @@ export default function VideoPlayer({
           } catch {
             // The native error remains useful even if the source URI is malformed.
           }
+          // Same prefix as DECOY_PLAYLIST_ERROR in the native proxy: say it first, plainly.
+          const decoy = proxyError?.match(/La source a envoyé un faux flux[^(]*/)?.[0].trim();
           const details = [
+            decoy || null,
             `Erreur native : ${message}`,
             proxyError ? `Erreur du proxy : ${proxyError}` : null,
             `Serveur : ${stream.server}`,
@@ -240,7 +243,7 @@ const styles = StyleSheet.create({
   },
   // Error overlay
   errorOverlay: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     backgroundColor: 'rgba(0, 0, 0, 0.85)',
     justifyContent: 'center',
     alignItems: 'center',

@@ -10,3 +10,19 @@ export function resumePosition(position: number, duration: number): number {
   const ending = Math.min(5, duration * 0.05);
   return position < duration - ending ? position : 0;
 }
+
+// Must match DECOY_PLAYLIST_ERROR in src-tauri/src/relay.rs.
+const DECOY_PLAYLIST_PREFIX = "La source a envoyé un faux flux";
+
+/** The relay's explanation when the source served a self-referencing decoy master. */
+export function decoyPlaylistMessage(networkDetails: unknown): string | undefined {
+  try {
+    const body =
+      typeof XMLHttpRequest !== "undefined" && networkDetails instanceof XMLHttpRequest
+        ? networkDetails.responseText
+        : "";
+    return body.startsWith(DECOY_PLAYLIST_PREFIX) ? body : undefined;
+  } catch {
+    return undefined;
+  }
+}

@@ -123,6 +123,18 @@ export async function testVidzyMediaTypes() {
     assert.equal(searched[0].id, 'vidzy::63174', 'Preserve existing library identities');
     assert.equal(searched[0].type, 'series');
 
+    // Verify that HLS URLs on vidzy.org subdomains are accepted too.
+    for (const language of ['vf', 'vostfr']) {
+      const key = `film-1399-${language}`;
+      pages.set(`https://vidzy.cc/embed-${key}.html`,
+        `videojs('v',{sources:[{src:"https://u14.vidzy.org/hls2/${key}/master.m3u8?token=org",type:"application/x-mpegURL"}]})` +
+        '<script>fetch("https://v6.vidzy.cc/gate.php?v=p1")</script>');
+    }
+    validations = 0;
+    const orgStreams = await sessionProvider.getStreams('vidzy::movie::1399');
+    assert.equal(validations, 2, 'Session resolves for vidzy.org HLS hosts');
+    assert.ok(orgStreams.every(stream => stream.url.includes('u14.vidzy.org')), 'HLS URL uses vidzy.org host');
+
     failures.set(`${origin}/serie/1396/2/1`, 503);
     await assert.rejects(provider.getEpisodes('vidzy::1396', { type: 'series' }), /Fixture HTTP error/,
       'Do not silently truncate the season list on network or server errors');

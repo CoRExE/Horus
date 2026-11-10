@@ -550,3 +550,4 @@ Essais TV à réaliser :
 ## Évolutions ultérieures — à décider
 
 - [ ] Synchronisation des favoris et de l'historique entre Mobile et Desktop : définir le stockage et les règles de conflit avant implémentation. ? (À expliquer)
+- [ ] Réduire la dépendance à Vidzy pour les films et séries : rechercher d'autres fournisseurs exploitables depuis l'appareil, sans serveur Horus. Pour chaque candidat, évaluer la couverture française (VF/VOSTFR), la stabilité observée, les protections contre l'extraction, le format des flux (HLS MPEG-TS, fMP4, MP4) et la compatibilité avec la diffusion TV et le téléchargement. Conclure par une étude datée dans `docs/` avant toute implémentation ; un second fournisseur servirait de repli quand Vidzy change de protection ou n'a pas le fichier (cas d'Elysium en VF, 404 du serveur le 9 novembre 2026).

@@ -11,7 +11,7 @@ import { usePlayerFullscreen } from "./usePlayerFullscreen";
 import { usePlayerShortcuts } from "./usePlayerShortcuts";
 import { usePlayerTracks } from "./usePlayerTracks";
 import { usePlaybackAwake } from "./usePlaybackAwake";
-import { resumePosition } from "../services/playback";
+import { decoyPlaylistMessage, resumePosition } from "../services/playback";
 import {
   Cast,
   Maximize,
@@ -155,7 +155,8 @@ export function Player({
           hls.on(Hls.Events.ERROR, (_event, data) => {
             if (data.fatal) {
               setError(
-                "Le flux HLS est indisponible ou incompatible. Essayez un autre serveur.",
+                decoyPlaylistMessage(data.networkDetails) ??
+                  "Le flux HLS est indisponible ou incompatible. Essayez un autre serveur.",
               );
               element.pause();
               unbindTracks?.();

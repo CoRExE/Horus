@@ -99,10 +99,11 @@ test("l'absence de la langue choisie à l'épisode suivant exige un choix explic
   );
   expect(screen.queryByRole("region", { name: "Lecteur" })).toBeNull();
   expect(invoke).toHaveBeenCalledTimes(1);
+  // The language dialog renders after the message: wait for its buttons.
   expect(
-    screen.getByRole("button", { name: "Lire ici" }).hasAttribute("disabled"),
+    (await screen.findByRole("button", { name: "Lire ici" })).hasAttribute("disabled"),
   ).toBe(true);
-  fireEvent.click(screen.getByRole("button", { name: "VOSTFR" }));
+  fireEvent.click(await screen.findByRole("button", { name: "VOSTFR" }));
   await play();
   expect(invoke).toHaveBeenLastCalledWith(
     "prepare_stream",

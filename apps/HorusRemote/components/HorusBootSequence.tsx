@@ -137,11 +137,11 @@ export const HorusBootSequence = ({ onBootComplete }: HorusBootSequenceProps) =>
         >
           {/* Lueur Pulsante de l'œil */}
           <MotiView
-            style={StyleSheet.absoluteFillObject}
+            style={StyleSheet.absoluteFill}
             animate={{ scale: [1, 1.05, 1], opacity: [0.6, 1, 0.6] }}
             transition={{ loop: true, type: 'timing', duration: 1500 }}
           >
-            <Svg viewBox="0 0 200 200" style={StyleSheet.absoluteFillObject}>
+            <Svg viewBox="0 0 200 200" style={StyleSheet.absoluteFill}>
               <Defs>
                 <RadialGradient id="eyeGlow" cx="50%" cy="50%" r="50%">
                   <Stop offset="0%" stopColor={COLOR_PURPLE} stopOpacity="0.5" />
@@ -197,7 +197,7 @@ const styles = StyleSheet.create({
   },
   // --- TERMINAL ---
   terminalContainer: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     padding: 30,
     paddingTop: 80,
   },

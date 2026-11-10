@@ -28,6 +28,8 @@ struct Resource {
     source: MediaSource,
     group: String,
     closed: tokio::sync::watch::Sender<bool>,
+    // Shared by every playlist and segment of one stream (same group).
+    decoy: Arc<std::sync::atomic::AtomicBool>,
 }
 
 #[derive(Clone)]
@@ -90,9 +92,16 @@ impl Relay {
                 source,
                 group: id.clone(),
                 closed: tokio::sync::watch::channel(false).0,
+                decoy: Default::default(),
             },
         );
         Ok(id)
+    }
+
+    /// True once any playlist of this stream turned out to be a decoy master.
+    pub async fn served_decoy(&self, id: &str) -> bool {
+        self.resources.read().await.get(id)
+            .is_some_and(|resource| resource.decoy.load(std::sync::atomic::Ordering::SeqCst))
     }
 
     pub async fn release(&self, id: &str) {
@@ -178,12 +187,26 @@ fn failure(status: StatusCode, text: &str) -> Response {
         .unwrap()
 }
 
+/// Shown to the user; the Desktop player recognises this text by its prefix
+/// (DECOY_PLAYLIST_PREFIX in src/services/playback.ts).
+pub const DECOY_PLAYLIST_ERROR: &str = "La source a envoyé un faux flux : son manifeste HLS renvoie à lui-même au lieu de mener à la vidéo. Essayez l’autre langue, ou réessayez plus tard.";
+
+// A variant that points back to its own playlist can never reach media
+// segments. Vidzy serves such a decoy master to clients it rejects; fail with
+// an explicit message instead of letting the player loop or retry.
+fn is_same_playlist(first: &url::Url, second: &url::Url) -> bool {
+    first.scheme() == second.scheme() && first.host_str() == second.host_str()
+        && first.port_or_known_default() == second.port_or_known_default()
+        && first.path() == second.path()
+}
+
 // Relative paths keep every nested playlist, key and segment behind the same
 // authenticated (unguessable UUID) relay URL, on loopback or the selected LAN IP.
 fn playlist_target(base: &url::Url, value: &str) -> Result<url::Url, String> {
     let mut target = base.join(value).map_err(|e| e.to_string())?;
     let vidzy = |url: &url::Url| url.scheme() == "https" && url.host_str()
-        .is_some_and(|host| host == "vidzy.cc" || host.ends_with(".vidzy.cc"));
+        .is_some_and(|host| host == "vidzy.cc" || host.ends_with(".vidzy.cc")
+            || host == "vidzy.org" || host.ends_with(".vidzy.org"));
     if vidzy(base) && vidzy(&target) &&
         (target.path().starts_with("/hls2/") || target.path().starts_with("/v/")) &&
         !target.query_pairs().any(|(name, _)| name == "gk") {
@@ -221,6 +244,7 @@ pub async fn rewrite_playlist(
             },
             group: resource.group.clone(),
             closed: resource.closed.clone(),
+            decoy: resource.decoy.clone(),
         });
         // FFmpeg validates HLS segment extensions. Keep the source extension on
         // an opaque URL while keeping signed URLs and original filenames private.
@@ -233,7 +257,11 @@ pub async fn rewrite_playlist(
         Ok(format!("/media/{id}/resource{extension}"))
     };
     let mut lines = Vec::new();
+    let mut variant_follows = false;
     for line in text.lines() {
+        if line.starts_with("#EXT-X-STREAM-INF:") {
+            variant_follows = true;
+        }
         if line.trim().is_empty() {
             lines.push(String::new());
         } else if line.starts_with('#') {
@@ -246,8 +274,20 @@ pub async fn rewrite_playlist(
             }
             lines.push(rewritten);
         } else {
+            if variant_follows && is_same_playlist(&playlist_target(base, line.trim())?, base) {
+                resource.decoy.store(true, std::sync::atomic::Ordering::SeqCst);
+                eprintln!("Horus relay: faux manifeste HLS détecté (variante qui renvoie à elle-même)");
+                return Err(DECOY_PLAYLIST_ERROR.into());
+            }
+            variant_follows = false;
             lines.push(register(line.trim())?);
         }
+    }
+    // Reaching a media playlist proves the master led to real segments. Log only
+    // counts: playlist URLs carry signatures and the session token.
+    let segments = text.lines().filter(|line| line.starts_with("#EXTINF:")).count();
+    if segments > 0 {
+        eprintln!("Horus relay: flux HLS valide ({segments} segments)");
     }
     Ok(lines.join("\n") + "\n")
 }
@@ -301,6 +341,7 @@ async fn media(
                 .header("cache-control", "no-store")
                 .body(Body::from(body))
                 .unwrap(),
+            Err(error) if error == DECOY_PLAYLIST_ERROR => failure(StatusCode::BAD_GATEWAY, &error),
             Err(_) => failure(StatusCode::BAD_GATEWAY, "Manifeste invalide"),
         };
     }
@@ -480,6 +521,7 @@ pub async fn register_offline(
             },
             group: id.clone(),
             closed: tokio::sync::watch::channel(false).0,
+            decoy: Default::default(),
         },
     );
     Ok(PreparedStream {
@@ -599,6 +641,35 @@ mod tests {
         tokio::fs::remove_dir(directory).await.unwrap();
     }
     #[tokio::test]
+    async fn rejects_a_variant_that_points_back_to_its_own_playlist() {
+        let state = Relay {
+            client: reqwest::Client::new(),
+            port: 1234,
+            downloads: PathBuf::new(),
+            resources: Default::default(),
+            shutdown: tokio::sync::watch::channel(false).0,
+        };
+        let id = state
+            .register(MediaSource { url: "https://u14.vidzy.org/hls2/m/master.m3u8?t=s&gk=k".into(), headers: HashMap::new() })
+            .await
+            .unwrap();
+        let decoy = "#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=2000000,RESOLUTION=1280x720\nindex.m3u8\n";
+        // The first master is legitimate in form: its variant is another file.
+        let master = http_url("https://u14.vidzy.org/hls2/m/master.m3u8?t=s&gk=k").unwrap();
+        assert!(rewrite_playlist(&state, decoy, &master, &id).await.is_ok());
+        assert!(!state.served_decoy(&id).await);
+        // The variant answers with the same master: it references itself.
+        let variant = http_url("https://u14.vidzy.org/hls2/m/index.m3u8?gk=k").unwrap();
+        assert_eq!(rewrite_playlist(&state, decoy, &variant, &id).await.unwrap_err(), DECOY_PLAYLIST_ERROR);
+        // Downloads read this flag to explain FFmpeg's failure.
+        assert!(state.served_decoy(&id).await);
+        // A real master with separate audio and a distinct variant still works.
+        let real = "#EXTM3U\n#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID=\"a\",NAME=\"Français\",URI=\"index-a1.m3u8\"\n#EXT-X-STREAM-INF:BANDWIDTH=900000,RESOLUTION=864x360,AUDIO=\"a\"\nindex-v1-a1.m3u8\n";
+        assert!(rewrite_playlist(&state, real, &master, &id).await.is_ok());
+        // Media playlists whose segments share the playlist path are unaffected.
+        assert!(rewrite_playlist(&state, "#EXTM3U\n#EXTINF:4,\nindex.m3u8\n", &variant, &id).await.is_ok());
+    }
+    #[tokio::test]
     async fn rewrites_nested_signed_playlists_and_keys_and_releases_group() {
         let state = Relay {
             client: reqwest::Client::new(),
@@ -651,10 +722,16 @@ mod tests {
                 assert!(target.query_pairs().any(|(k, v)| k == "sig" && v == "keep"));
             }
         }
+        // vidzy.org hosts are also accepted for gk propagation.
+        let org_base = http_url("https://u14.vidzy.org/hls2/media/master.m3u8?gk=org_token").unwrap();
+        for value in ["video/index.m3u8", "seg-10.ts?sig=keep", "https://v6.vidzy.org/v/media/seg-10.ts?sig=keep"] {
+            let target = playlist_target(&org_base, value).unwrap();
+            assert_eq!(target.query_pairs().find(|(k, _)| k == "gk").unwrap().1, "org_token");
+        }
         let existing = playlist_target(&base, "seg.ts?gk=child").unwrap();
         assert_eq!(existing.query_pairs().filter(|(k, _)| k == "gk").count(), 1);
         assert_eq!(existing.query_pairs().find(|(k, _)| k == "gk").unwrap().1, "child");
-        for value in ["https://evil.test/hls2/seg.ts", "//evil.test/hls2/seg.ts", "https://vidzy.cc.evil.test/hls2/seg.ts", "http://u14.vidzy.cc/hls2/seg.ts", "https://u14.vidzy.cc/other/asset"] {
+        for value in ["https://evil.test/hls2/seg.ts", "//evil.test/hls2/seg.ts", "https://vidzy.cc.evil.test/hls2/seg.ts", "https://vidzy.org.evil.test/hls2/seg.ts", "https://evilvidzy.org/hls2/seg.ts", "http://u14.vidzy.cc/hls2/seg.ts", "http://u14.vidzy.org/hls2/seg.ts", "https://u14.vidzy.cc/other/asset"] {
             assert!(!playlist_target(&base, value).unwrap().query_pairs().any(|(k, _)| k == "gk"));
         }
     }

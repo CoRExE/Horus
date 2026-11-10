@@ -1,6 +1,7 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  AppState,
   GestureResponderEvent,
   LayoutChangeEvent,
   ScrollView,
@@ -28,6 +29,7 @@ import { MotiView } from 'moti';
 import { formatPlaybackTime, selectPlaybackDuration } from '@horus/core';
 import { DlnaDevice } from '../hooks/useDlnaDiscovery';
 import { dlnaController, DlnaTransportState } from '../services/dlnaController';
+import { createDlnaPositionFilter } from '../services/dlnaPosition';
 
 interface CastControllerProps {
   onClose: () => void;
@@ -78,6 +80,7 @@ export const CastController: React.FC<CastControllerProps> = ({
   const [isCommandPending, setIsCommandPending] = useState(false);
   const [commandError, setCommandError] = useState<string | null>(null);
   const [transportState, setTransportState] = useState<DlnaTransportState>('UNKNOWN');
+  const positionFilter = useRef(createDlnaPositionFilter()).current;
 
   useEffect(() => {
     setMediaTitle(dlnaDevice ? (dlnaTitle || 'Lecture DLNA en cours...') : 'Chargement...');
@@ -100,12 +103,15 @@ export const CastController: React.FC<CastControllerProps> = ({
         if (cancelled) return;
         setTransportState(status.transportState);
         setIsPlaying(isPlayingState(status.transportState));
-        setPosition(status.positionSeconds);
-        setDuration(selectPlaybackDuration(
-          expectedDurationSeconds,
-          status.durationSeconds,
-          canSeek
-        ));
+        const reportedPosition = positionFilter.accept(status.positionSeconds, status.transportState);
+        if (reportedPosition !== undefined) setPosition(reportedPosition);
+        if (status.durationSeconds !== undefined || expectedDurationSeconds) {
+          setDuration(selectPlaybackDuration(
+            expectedDurationSeconds,
+            status.durationSeconds ?? 0,
+            canSeek
+          ));
+        }
         if (status.volume !== undefined) setVolume(status.volume);
         if (status.muted !== undefined) setIsMuted(status.muted);
         setCommandError(null);
@@ -118,11 +124,16 @@ export const CastController: React.FC<CastControllerProps> = ({
 
     void refreshDlnaStatus();
     const interval = setInterval(() => void refreshDlnaStatus(), 2_000);
+    // Timers stop while the phone is locked; refresh as soon as it is back.
+    const appState = AppState.addEventListener('change', state => {
+      if (state === 'active') void refreshDlnaStatus();
+    });
     return () => {
       cancelled = true;
       clearInterval(interval);
+      appState.remove();
     };
-  }, [canSeek, dlnaDevice, expectedDurationSeconds]);
+  }, [canSeek, dlnaDevice, expectedDurationSeconds, positionFilter]);
 
   useEffect(() => {
     if (dlnaDevice || !client) return;
@@ -198,19 +209,31 @@ export const CastController: React.FC<CastControllerProps> = ({
     }, 'Impossible d’arrêter la lecture');
   };
 
-  const seekTo = (targetPosition: number) => {
+  /** An absolute position, or a function of the TV's current position (±10 s). */
+  const seekTo = (target: number | ((current: number) => number)) => {
     if (!canSeek) {
       setCommandError('Déplacement indisponible pour ce flux HLS en DLNA');
       return;
     }
     const maximum = duration > 0 ? duration : Number.MAX_SAFE_INTEGER;
-    const nextPosition = clamp(targetPosition, 0, maximum);
     void runCommand(async () => {
+      let current = position;
+      if (typeof target === 'function') {
+        // The displayed position can be stale (phone just unlocked, missed
+        // polls): ask the TV where it really is before moving relative to it.
+        const fresh = dlnaDevice
+          ? (await dlnaController.getPositionInfo(dlnaDevice.controlUrl).catch(() => undefined))
+            ?.positionSeconds
+          : await client?.getStreamPosition().catch(() => null);
+        if (typeof fresh === 'number') current = fresh;
+      }
+      const nextPosition = clamp(typeof target === 'function' ? target(current) : target, 0, maximum);
       if (dlnaDevice) {
         await dlnaController.seek(dlnaDevice.controlUrl, nextPosition);
       } else if (client) {
         await client.seek({ position: nextPosition });
       }
+      positionFilter.set(nextPosition);
       setPosition(nextPosition);
     }, 'Ce téléviseur ne permet pas le déplacement dans la vidéo');
   };
@@ -330,7 +353,7 @@ export const CastController: React.FC<CastControllerProps> = ({
           <View style={styles.seekControls}>
             <TouchableOpacity
               style={[styles.secondaryControl, !canSeek && styles.disabled]}
-              onPress={() => seekTo(position - 10)}
+              onPress={() => seekTo(current => current - 10)}
               disabled={isCommandPending || !canSeek}
             >
               <Rewind color="#F8FAFC" size={24} />
@@ -353,7 +376,7 @@ export const CastController: React.FC<CastControllerProps> = ({
 
             <TouchableOpacity
               style={[styles.secondaryControl, !canSeek && styles.disabled]}
-              onPress={() => seekTo(position + 10)}
+              onPress={() => seekTo(current => current + 10)}
               disabled={isCommandPending || !canSeek}
             >
               <FastForward color="#F8FAFC" size={24} />
@@ -467,7 +490,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#0B0F19',
   },
   glowBg: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     backgroundColor: 'rgba(139, 92, 246, 0.1)',
   },
   scroll: {

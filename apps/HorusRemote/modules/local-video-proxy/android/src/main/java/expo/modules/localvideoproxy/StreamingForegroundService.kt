@@ -173,8 +173,8 @@ class StreamingForegroundService : Service() {
             ACTION_PLAY -> handlePlay()
             ACTION_PAUSE -> handlePause()
             ACTION_TOGGLE -> if (isPlaying) handlePause() else handlePlay()
-            ACTION_REWIND -> handleSeek(currentPositionMs() - 10_000L)
-            ACTION_FORWARD -> handleSeek(currentPositionMs() + 10_000L)
+            ACTION_REWIND -> handleRelativeSeek(-10_000L)
+            ACTION_FORWARD -> handleRelativeSeek(10_000L)
             ACTION_SEEK -> handleSeek(
                 (commandIntent.getDoubleExtra(EXTRA_POSITION_SECONDS, 0.0) * 1_000.0).toLong()
             )
@@ -289,13 +289,18 @@ class StreamingForegroundService : Service() {
         dispatchMediaControl("pause")
     }
 
-    private fun handleSeek(requestedPositionMs: Long) {
+    private fun handleSeek(requestedPositionMs: Long, action: String = "seek") {
         if (notificationMode != MODE_PLAYER || !canSeek) return
         val upperBound = durationMs.takeIf { it > 0L } ?: Long.MAX_VALUE
         positionMs = requestedPositionMs.coerceIn(0L, upperBound)
         positionUpdatedAtMs = SystemClock.elapsedRealtime()
-        dispatchMediaControl("seek", positionMs / 1_000.0)
+        dispatchMediaControl(action, positionMs / 1_000.0)
     }
+
+    // This position is only an estimate (no update while the app was asleep), so
+    // the app asks the TV for its real position and uses the estimate as fallback.
+    private fun handleRelativeSeek(deltaMs: Long) =
+        handleSeek(currentPositionMs() + deltaMs, if (deltaMs < 0) "rewind" else "forward")
 
     private fun handleStop() {
         if (notificationMode != MODE_PLAYER) return
@@ -310,12 +315,12 @@ class StreamingForegroundService : Service() {
         override fun onPause() = handleAndPublish { handlePause() }
         override fun onStop() = handleAndPublish { handleStop() }
         override fun onSeekTo(pos: Long) = handleAndPublish { handleSeek(pos) }
-        override fun onRewind() = handleAndPublish { handleSeek(currentPositionMs() - 10_000L) }
-        override fun onFastForward() = handleAndPublish { handleSeek(currentPositionMs() + 10_000L) }
+        override fun onRewind() = handleAndPublish { handleRelativeSeek(-10_000L) }
+        override fun onFastForward() = handleAndPublish { handleRelativeSeek(10_000L) }
         override fun onCustomAction(action: String, extras: android.os.Bundle?) {
             when (action) {
-                CUSTOM_REWIND -> handleAndPublish { handleSeek(currentPositionMs() - 10_000L) }
-                CUSTOM_FORWARD -> handleAndPublish { handleSeek(currentPositionMs() + 10_000L) }
+                CUSTOM_REWIND -> handleAndPublish { handleRelativeSeek(-10_000L) }
+                CUSTOM_FORWARD -> handleAndPublish { handleRelativeSeek(10_000L) }
             }
         }
     }
@@ -381,7 +386,7 @@ class StreamingForegroundService : Service() {
             .setSmallIcon(android.R.drawable.stat_sys_download)
             .setContentTitle(mediaTitle)
             .setContentText(
-                if (optimizing) "Optimisation du fichier MP4"
+                if (optimizing) "Conversion en MP4"
                 else "Téléchargement complet pour la TV"
             )
             .setCategory(Notification.CATEGORY_PROGRESS)

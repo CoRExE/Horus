@@ -7,6 +7,7 @@
     "desktop": "pnpm --filter horus-desktop tauri:d",
     "desktop:build": "pnpm --filter horus-desktop tauri:b",
     "desktop:clean": "pnpm --filter horus-desktop tauri:clean",
+    "mobile": "pnpm --filter horusremote start:go",
     "mobile:preview": "pnpm --filter horusremote build:preview",
     "mobile:clean": "pnpm --filter horusremote android:clean",
     "typecheck": "pnpm --filter @horus/core typecheck && pnpm --filter horusremote typecheck && pnpm --filter horus-api typecheck && pnpm --filter horus-desktop typecheck",

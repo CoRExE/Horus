@@ -69,7 +69,8 @@ export const isVidzyEpisodeForMedia = (episodeId: string, media: Pick<SearchResu
 };
 
 const isVidzyHost = (hostname: string) =>
-  hostname === 'vidzy.cc' || hostname.endsWith('.vidzy.cc');
+  hostname === 'vidzy.cc' || hostname.endsWith('.vidzy.cc') ||
+  hostname === 'vidzy.org' || hostname.endsWith('.vidzy.org');
 
 const isUsableVidzyHls = (candidate: string) => {
   try {

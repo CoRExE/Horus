@@ -55,7 +55,7 @@ export const HorusMediaDetailsOverlay: React.FC<HorusMediaDetailsOverlayProps> =
         animate={{ opacity: 1 }}
         transition={{ type: 'timing', duration: 150 }}
       >
-        <Pressable style={StyleSheet.absoluteFillObject} onPress={onClose} />
+        <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
       </MotiView>
 
       {/* 2. Le Panel de Détails (Focus) */}
@@ -140,11 +140,11 @@ export const HorusMediaDetailsOverlay: React.FC<HorusMediaDetailsOverlayProps> =
 
 const styles = StyleSheet.create({
   overlay: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     backgroundColor: COLOR_OVERLAY,
   },
   centerContainer: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     justifyContent: 'center',
     alignItems: 'center',
     padding: 20,

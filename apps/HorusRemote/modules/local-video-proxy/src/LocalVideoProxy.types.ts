@@ -27,7 +27,8 @@ export type CacheProgressEvent = {
 export type TvNotificationMode = 'direct' | 'preparing' | 'player';
 
 export type MediaControlEvent = {
-  action: 'play' | 'pause' | 'seek' | 'stop';
+  // rewind/forward: positionSeconds is the notification's estimate of the target.
+  action: 'play' | 'pause' | 'seek' | 'rewind' | 'forward' | 'stop';
   positionSeconds?: number;
 };
 
