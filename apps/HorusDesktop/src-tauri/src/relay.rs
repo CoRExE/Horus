@@ -187,6 +187,11 @@ fn failure(status: StatusCode, text: &str) -> Response {
         .unwrap()
 }
 
+// DLNA renderers, strict set-top boxes especially, want these flags: byte seek (OP=01),
+// no transcoding (CI=0), streaming transfer. A live MPEG-TS bridge cannot seek.
+pub const DLNA_FILE_FEATURES: &str = "DLNA.ORG_OP=01;DLNA.ORG_CI=0;DLNA.ORG_FLAGS=01700000000000000000000000000000";
+const DLNA_BRIDGE_FEATURES: &str = "DLNA.ORG_OP=00;DLNA.ORG_CI=1;DLNA.ORG_FLAGS=01700000000000000000000000000000";
+
 /// Shown to the user; the Desktop player recognises this text by its prefix
 /// (DECOY_PLAYLIST_PREFIX in src/services/playback.ts).
 pub const DECOY_PLAYLIST_ERROR: &str = "La source a envoyé un faux flux : son manifeste HLS renvoie à lui-même au lieu de mener à la vidéo. Essayez l’autre langue, ou réessayez plus tard.";
@@ -292,6 +297,18 @@ pub async fn rewrite_playlist(
     Ok(lines.join("\n") + "\n")
 }
 
+/// "host, .ext" for logs, without path, query or token.
+fn source_label(url: &str) -> String {
+    let Ok(url) = url::Url::parse(url) else { return "adresse invalide".into() };
+    let extension = std::path::Path::new(url.path())
+        .extension()
+        .and_then(|value| value.to_str())
+        .filter(|value| value.len() <= 10)
+        .map(|value| format!(", .{value}"))
+        .unwrap_or_default();
+    format!("{}{extension}", url.host_str().unwrap_or("?"))
+}
+
 async fn named_media(
     State(state): State<Relay>,
     Path((id, _name)): Path<(String, String)>,
@@ -318,11 +335,20 @@ async fn media(
     if let Some(range) = request.headers().get("range") {
         upstream = upstream.header("range", range);
     }
+    // Diagnostics name the host and file type only: URLs carry signatures and tokens.
+    let label = source_label(&resource.source.url);
     let response = match upstream.send().await {
         Ok(r) => r,
-        Err(_) => return failure(StatusCode::BAD_GATEWAY, "Source inaccessible"),
+        Err(error) => {
+            let kind = if error.is_timeout() { "délai dépassé" } else if error.is_connect() { "connexion impossible" } else { "erreur réseau" };
+            eprintln!("Horus relay: source inaccessible ({label}) : {kind}");
+            return failure(StatusCode::BAD_GATEWAY, "Source inaccessible");
+        }
     };
     let status = response.status();
+    if !status.is_success() {
+        eprintln!("Horus relay: la source a répondu HTTP {} ({label})", status.as_u16());
+    }
     let final_url = response.url().clone();
     let headers = response.headers().clone();
     let is_hls = final_url.path().ends_with(".m3u8")
@@ -356,9 +382,19 @@ async fn media(
             result = result.header(key, value);
         }
     }
+    if status.is_success() {
+        result = result
+            .header("transferMode.dlna.org", "Streaming")
+            .header("contentFeatures.dlna.org", DLNA_FILE_FEATURES);
+    }
     let mut closed = resource.closed.subscribe();
     result
-        .body(Body::from_stream(response.bytes_stream().take_until(
+        .body(Body::from_stream(response.bytes_stream().inspect(move |chunk| {
+            if let Err(error) = chunk {
+                let kind = if error.is_timeout() { "délai dépassé" } else { "connexion coupée" };
+                eprintln!("Horus relay: transfert interrompu ({label}) : {kind}");
+            }
+        }).take_until(
             async move {
                 if !*closed.borrow() {
                     let _ = closed.changed().await;
@@ -473,7 +509,9 @@ async fn transport(
             }
             tokio::select! { _ = shutdown.changed() => {}, _ = closed.changed() => {} }
         });
-    response = response.header("contentFeatures.dlna.org", "DLNA.ORG_OP=00;DLNA.ORG_CI=1");
+    response = response
+        .header("transferMode.dlna.org", "Streaming")
+        .header("contentFeatures.dlna.org", DLNA_BRIDGE_FEATURES);
     response.body(Body::from_stream(stream)).unwrap()
 }
 
@@ -494,7 +532,14 @@ async fn offline(
         return failure(StatusCode::NOT_FOUND, "Fichier indisponible");
     };
     match ServeFile::new(file).oneshot(request).await {
-        Ok(response) => response.map(Body::new),
+        Ok(mut response) => {
+            if response.status().is_success() {
+                let headers = response.headers_mut();
+                headers.insert("transferMode.dlna.org", axum::http::HeaderValue::from_static("Streaming"));
+                headers.insert("contentFeatures.dlna.org", axum::http::HeaderValue::from_static(DLNA_FILE_FEATURES));
+            }
+            response.map(Body::new)
+        }
         Err(_) => failure(StatusCode::NOT_FOUND, "Fichier indisponible"),
     }
 }
@@ -579,6 +624,9 @@ mod tests {
         assert_eq!(response.status(), 206);
         assert_eq!(response.headers()["content-range"], "bytes 1-3/6");
         assert_eq!(response.headers()["access-control-allow-origin"], "*");
+        // Strict DLNA boxes refuse Play without these flags.
+        assert_eq!(response.headers()["contentfeatures.dlna.org"], DLNA_FILE_FEATURES);
+        assert_eq!(response.headers()["transfermode.dlna.org"], "Streaming");
         assert_eq!(response.text().await.unwrap(), "bcd");
         relay.release(&id).await;
         assert_eq!(

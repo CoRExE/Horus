@@ -142,7 +142,13 @@ export async function loadDevice(
     });
     return;
   }
-  const metadata = `<DIDL-Lite xmlns="urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:upnp="urn:schemas-upnp-org:metadata-1-0/upnp/"><item id="1" parentID="0" restricted="1"><dc:title>${escapeXml(title)}</dc:title><upnp:class>object.item.videoItem</upnp:class><res protocolInfo="http-get:*:${stream.contentType}:*">${escapeXml(stream.url)}</res></item></DIDL-Lite>`;
+  // Strict boxes refuse Play without real DLNA flags: byte seek on files, none on
+  // the live MPEG-TS bridge. Same values as the relay's contentFeatures header.
+  const features =
+    stream.contentType === "video/mp2t"
+      ? "DLNA.ORG_OP=00;DLNA.ORG_CI=1;DLNA.ORG_FLAGS=01700000000000000000000000000000"
+      : "DLNA.ORG_OP=01;DLNA.ORG_CI=0;DLNA.ORG_FLAGS=01700000000000000000000000000000";
+  const metadata = `<DIDL-Lite xmlns="urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:upnp="urn:schemas-upnp-org:metadata-1-0/upnp/"><item id="1" parentID="0" restricted="1"><dc:title>${escapeXml(title)}</dc:title><upnp:class>object.item.videoItem</upnp:class><res protocolInfo="http-get:*:${stream.contentType}:${features}">${escapeXml(stream.url)}</res></item></DIDL-Lite>`;
   await soap(device, "SetAVTransportURI", {
     CurrentURI: stream.url,
     CurrentURIMetaData: metadata,
