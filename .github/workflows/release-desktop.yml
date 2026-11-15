@@ -28,13 +28,14 @@ jobs:
       version: ${{ steps.version.outputs.version }}
       commit: ${{ steps.version.outputs.commit }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           ref: ${{ inputs.tag || github.ref_name }}
           persist-credentials: false
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version-file: .nvmrc
+          package-manager-cache: false
       - id: version
         env:
           TAG: ${{ inputs.tag || github.ref_name }}
@@ -50,6 +51,7 @@ jobs:
     uses: ./.github/workflows/checks.yml
     with:
       ref: ${{ needs.version.outputs.commit }}
+      platform: desktop
 
   build:
     needs: [version, checks]
@@ -75,19 +77,19 @@ jobs:
       ARCH: ${{ matrix.arch }}
       SUFFIX: ${{ matrix.suffix }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           ref: ${{ needs.version.outputs.commit }}
           persist-credentials: false
       - uses: pnpm/action-setup@v6
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version-file: .nvmrc
           cache: pnpm
           cache-dependency-path: pnpm-lock.yaml
       - run: pnpm install --frozen-lockfile
       - run: rustup toolchain install 1.88.0 --profile minimal --target "$TARGET"
-      - uses: actions/cache@v4
+      - uses: actions/cache@v5
         with:
           path: |
             ~/.cargo/registry
@@ -95,7 +97,7 @@ jobs:
             apps/HorusDesktop/src-tauri/target
           key: release-cargo-${{ runner.arch }}-1.88-${{ hashFiles('apps/HorusDesktop/src-tauri/Cargo.lock', 'apps/HorusDesktop/src-tauri/src/**', 'apps/HorusDesktop/src-tauri/*.json') }}
           restore-keys: release-cargo-${{ runner.arch }}-1.88-
-      - uses: actions/cache@v4
+      - uses: actions/cache@v5
         with:
           path: build/ffmpeg
           key: ffmpeg-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/release/*ffmpeg*') }}
@@ -120,13 +122,13 @@ jobs:
           [[ "${#images[@]}" == 1 ]]
           bash scripts/release/verify-dmg.sh "${images[0]}" "$ARCH"
           cp "${images[0]}" "build/installers/HorusDesktop-$VERSION-macos-$SUFFIX.dmg"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: desktop-${{ matrix.suffix }}
           path: build/installers/*.dmg
           if-no-files-found: error
           retention-days: 14
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         if: failure()
         with:
           name: logs-release-desktop-${{ matrix.suffix }}
@@ -158,13 +160,13 @@ jobs:
       PLATFORM: ${{ matrix.platform }}
       BUNDLE: ${{ matrix.bundle }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           ref: ${{ needs.version.outputs.commit }}
           persist-credentials: false
       - run: mkdir -p .ci-logs
       - uses: pnpm/action-setup@v6
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version-file: .nvmrc
           cache: pnpm
@@ -188,7 +190,7 @@ jobs:
             mingw-w64-ucrt-x86_64-ffmpeg
       - run: pnpm install --frozen-lockfile
       - run: rustup toolchain install 1.88.0 --profile minimal --target "$TARGET"
-      - uses: actions/cache@v4
+      - uses: actions/cache@v5
         with:
           path: |
             ~/.cargo/registry
@@ -196,7 +198,7 @@ jobs:
             apps/HorusDesktop/src-tauri/target
           key: release-cargo-${{ runner.os }}-${{ runner.arch }}-1.88-${{ hashFiles('apps/HorusDesktop/src-tauri/Cargo.lock', 'apps/HorusDesktop/src-tauri/src/**', 'apps/HorusDesktop/src-tauri/*.json') }}
           restore-keys: release-cargo-${{ runner.os }}-${{ runner.arch }}-1.88-
-      - uses: actions/cache@v4
+      - uses: actions/cache@v5
         with:
           path: build/ffmpeg
           key: ffmpeg-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/release/*ffmpeg*') }}
@@ -225,13 +227,13 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: ./scripts/release/verify-windows.ps1
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: desktop-${{ matrix.platform }}-x64
           path: build/installers/*
           if-no-files-found: error
           retention-days: 14
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         if: failure()
         with:
           name: logs-release-desktop-${{ matrix.platform }}-x64
@@ -245,15 +247,16 @@ jobs:
       contents: write
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           ref: ${{ needs.version.outputs.commit }}
           fetch-depth: 0
           persist-credentials: false
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version-file: .nvmrc
-      - uses: actions/download-artifact@v4
+          package-manager-cache: false
+      - uses: actions/download-artifact@v7
         with:
           pattern: desktop-*
           merge-multiple: true

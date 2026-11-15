@@ -29,13 +29,14 @@ jobs:
       commit: ${{ steps.version.outputs.commit }}
       versionCode: ${{ steps.version.outputs.versionCode }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           ref: ${{ inputs.tag || github.ref_name }}
           persist-credentials: false
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version-file: .nvmrc
+          package-manager-cache: false
       - id: version
         env:
           TAG: ${{ inputs.tag || github.ref_name }}
@@ -51,6 +52,7 @@ jobs:
     uses: ./.github/workflows/checks.yml
     with:
       ref: ${{ needs.version.outputs.commit }}
+      platform: mobile
 
   build:
     needs: [version, checks]
@@ -61,17 +63,17 @@ jobs:
       EXPO_NO_DOTENV: '1'
       HORUS_ANDROID_RELEASE: '1'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           ref: ${{ needs.version.outputs.commit }}
           persist-credentials: false
       - uses: pnpm/action-setup@v6
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version-file: .nvmrc
           cache: pnpm
           cache-dependency-path: pnpm-lock.yaml
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '17'
@@ -96,7 +98,7 @@ jobs:
           "$horus_sdkmanager" --sdk_root="$horus_android_sdk" \
             'platform-tools' 'platforms;android-37.0' 'build-tools;37.0.0' \
             'ndk;27.1.12297006' 'cmake;3.22.1'
-      - uses: gradle/actions/setup-gradle@v4
+      - uses: gradle/actions/setup-gradle@v5
         with:
           cache-read-only: false
       - run: pnpm install --frozen-lockfile
@@ -140,13 +142,13 @@ jobs:
       - name: Effacer la copie temporaire de la clé
         if: always()
         run: rm -f "$RUNNER_TEMP/horus-release.jks"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: mobile-apk
           path: build/installers/*.apk
           if-no-files-found: error
           retention-days: 14
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         if: failure()
         with:
           name: logs-release-mobile
@@ -160,15 +162,16 @@ jobs:
       contents: write
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           ref: ${{ needs.version.outputs.commit }}
           fetch-depth: 0
           persist-credentials: false
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version-file: .nvmrc
-      - uses: actions/download-artifact@v4
+          package-manager-cache: false
+      - uses: actions/download-artifact@v7
         with:
           name: mobile-apk
           path: build/installers
