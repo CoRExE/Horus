@@ -117,6 +117,40 @@ export const extractVidzyHlsSource = (
   return candidates.find(isUsableVidzyHls) || null;
 };
 
+const isUsableVidzyMp4 = (candidate: string) => {
+  try {
+    const url = new URL(candidate);
+    return url.protocol === 'https:' &&
+      isVidzyHost(url.hostname.toLowerCase()) &&
+      /\.mp4$/i.test(url.pathname) &&
+      !isPromotionalMediaUrl(candidate);
+  } catch {
+    return false;
+  }
+};
+
+/**
+ * The player's media source: HLS when offered (it carries the separate audio tracks),
+ * otherwise the direct MP4 that video.js `sources` declares since 15/11/2026
+ * (`/v/…/n.mp4?t=…&e=14400`). The decoy `_fsvHls` stays rejected.
+ */
+export const extractVidzyMediaSource = (
+  embedHtml: string,
+  embedHostname: string
+): string | null => {
+  const hls = extractVidzyHlsSource(embedHtml, embedHostname);
+  if (hls) return hls;
+  const unpacked = Unpacker.unpack(embedHtml);
+  const candidates = [
+    unpacked.match(/(?:file|src)\s*:\s*["'](https?:\/\/[^"']+\.mp4[^"']*)/i)?.[1],
+    ...Array.from(
+      unpacked.matchAll(/(https?:\/\/[^"'\s]+?\.mp4[^"'\s]*)/gi),
+      match => match[1]
+    ),
+  ].filter((candidate): candidate is string => Boolean(candidate));
+  return candidates.find(isUsableVidzyMp4) || null;
+};
+
 export class VidzyProvider implements HorusProvider {
   name = 'Vidzy';
   private vidzyHttp = HttpClient.create(VIDZY_ORIGIN, 'https://api.vidzy.org/');
@@ -258,12 +292,13 @@ export class VidzyProvider implements HorusProvider {
       },
     });
     const embedHostname = new URL(iframeUrl).hostname.toLowerCase();
-    const hlsUrl = extractVidzyHlsSource(String(embedHtml), embedHostname);
-    if (!hlsUrl) throw new Error('Flux HLS Vidzy introuvable');
+    const mediaUrl = extractVidzyMediaSource(String(embedHtml), embedHostname);
+    if (!mediaUrl) throw new Error('Flux Vidzy introuvable');
+    const isHls = /\.m3u8$/i.test(new URL(mediaUrl).pathname);
 
     const session = this.resolveSession && /\bgate\.php\b/.test(String(embedHtml))
       ? await this.resolveSession(iframeUrl, wrapperUrl) : undefined;
-    const playbackUrl = new URL(hlsUrl);
+    const playbackUrl = new URL(mediaUrl);
     if (session) {
       if (!session.key || session.key.length > 4096 || /[\r\n]/.test(session.key + session.userAgent)) {
         throw new Error('Session Vidzy invalide');
@@ -276,8 +311,8 @@ export class VidzyProvider implements HorusProvider {
       language: language.toUpperCase(),
       quality: 'auto',
       server: 'Vidzy',
-      format: 'hls',
-      contentType: 'application/vnd.apple.mpegurl',
+      format: isHls ? 'hls' : 'file',
+      contentType: isHls ? 'application/vnd.apple.mpegurl' : 'video/mp4',
       headers: {
         Referer: iframeUrl,
         Origin: VIDZY_EMBED_ORIGIN,

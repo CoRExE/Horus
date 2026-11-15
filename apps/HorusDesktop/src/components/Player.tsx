@@ -154,9 +154,11 @@ export function Player({
           hls.attachMedia(element);
           hls.on(Hls.Events.ERROR, (_event, data) => {
             if (data.fatal) {
+              // hls.js error and HTTP status, e.g. "fragLoadError, HTTP 403", to tell causes apart.
+              const code = data.response?.code ? `, HTTP ${data.response.code}` : "";
               setError(
                 decoyPlaylistMessage(data.networkDetails) ??
-                  "Le flux HLS est indisponible ou incompatible. Essayez un autre serveur.",
+                  `Le flux HLS est indisponible ou incompatible. Essayez un autre serveur. (${data.details}${code})`,
               );
               element.pause();
               unbindTracks?.();

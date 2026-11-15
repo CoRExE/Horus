@@ -104,6 +104,48 @@ export async function testAnimeSamaLanguages() {
     assert.deepEqual(sparse.map(episode => episode.number), [4]);
     assert.equal(requests.some(url => new URL(url).hostname.endsWith('sibnet.ru')), false,
       'Retired sources must never trigger HTTP requests');
+
+    // Layout since 12/11/2026: inline lists of `lien:<n°>` references, resolved by /api/lien.php
+    // with the page token. Link 2 is marked deleted, link 3 is on a host without extractor.
+    const inline = 'https://anime-sama.to/catalogue/inline/';
+    const lien = (token: string, id: number) => `https://anime-sama.to/api/lien.php?j=${token}&l=${id}`;
+    pages.set(inline, 'panneauAnime("Saison 1", "saison1/vostfr");');
+    pages.set(`${inline}saison1/vostfr/`, `<script data-source="bdd">var eps1 = ["lien:1","lien:4"];
+      var eps2 = ["lien:2","lien:5"];
+      var eps3 = ["lien:3",""];
+      var epsMeta = {"1":["uqload.vc"],"2":["ansembed.net",1],"3":["derricknationtop.com"],"4":["vidmoly.biz"],"5":["sendvid.com"]};
+      var epsJeton = "tok.vostfr";
+      var epsOrdreFinal = true;</script>`);
+    pages.set(`${inline}saison1/vf/`, `<script data-source="bdd">var eps1 = ["lien:7"];
+      var epsMeta = {"7":["uqload.vc"]};
+      var epsJeton = "tok.vf";</script>`);
+    // Desktop's native transport hands JSON back as text.
+    pages.set(lien('tok.vostfr', 1), '{"u":"https://uqload.test/inline-1"}');
+    pages.set(lien('tok.vostfr', 4), '{"u":"https://vidmoly.test/inline-4"}');
+    pages.set(lien('tok.vostfr', 5), '{"u":"https://sendvid.com/inline-5"}');
+    pages.set(lien('tok.vf', 7), '{"u":"https://uqload.test/inline-7"}');
+    pages.set('https://uqload.test/inline-1', 'jwplayer("v").setup({sources:[{file:"https://cdn.test/inline-1.m3u8"}]})');
+    pages.set('https://uqload.test/inline-7', 'jwplayer("v").setup({sources:[{file:"https://cdn.test/inline-7.m3u8"}]})');
+    pages.set('https://vidmoly.test/inline-4', 'file: "https://cdn.test/inline-4.m3u8"');
+    pages.set('https://sendvid.com/inline-5', 'video_source = "https://cdn.test/inline-5.m3u8"');
+    const inlineEpisodes = await new AnimeSamaProvider().getEpisodes('/catalogue/inline/');
+    assert.deepEqual(inlineEpisodes.map(episode => episode.id), [
+      'Saison 1::lien:1|||lien:2|||lien:3',
+      'Saison 1::lien:4|||lien:5',
+    ], 'Ids keep every link reference, dead ones included, so they stay stable');
+    assert.equal(requests.some(url => url.includes('/api/lien.php')), false, 'Links are resolved only on playback');
+    const inlineFirst = await new AnimeSamaProvider().getStreams(inlineEpisodes[0].id, inlineEpisodes[0]);
+    assert.deepEqual(inlineFirst.map(stream => `${stream.language}:${stream.server}:${stream.url}`), [
+      'VOSTFR:Uqload:https://cdn.test/inline-1.m3u8',
+      'VF:Uqload:https://cdn.test/inline-7.m3u8',
+    ]);
+    assert.equal(requests.includes(lien('tok.vostfr', 2)), false, 'Deleted links are not resolved');
+    assert.equal(requests.includes(lien('tok.vostfr', 3)), false, 'Links without an extractor are not resolved');
+    const inlineSecond = await new AnimeSamaProvider().getStreams(inlineEpisodes[1].id, inlineEpisodes[1]);
+    assert.deepEqual(inlineSecond.map(stream => stream.server), ['Vidmoly', 'Sendvid'],
+      'The VF list has no second episode; the gap in eps3 keeps the numbering');
+    assert.deepEqual(await new AnimeSamaProvider().getStreams(inlineEpisodes[0].id), [],
+      'Without the season context there is no page token to resolve a reference');
   } finally {
     axios.defaults.adapter = originalAdapter;
   }
