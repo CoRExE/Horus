@@ -3,6 +3,15 @@ import * as cheerio from 'cheerio';
 import { HorusProvider, SearchResult, Episode, Stream } from '../types';
 import { Unpacker } from '../utils/Unpacker';
 
+interface EpisodeLists {
+  /** One array per player, indexed by episode: embed URL, `lien:<n°>` reference or '' for a gap. */
+  arrays: string[][];
+  /** Page token for /api/lien.php (valid about 24 h). */
+  token?: string;
+  /** Per link number: host and, when the host deleted the video, state 1 or 2. */
+  meta: Record<string, [string, number?]>;
+}
+
 export class AnimeSamaProvider implements HorusProvider {
   name = 'Anime-Sama';
   private baseUrl = 'https://anime-sama.to';
@@ -74,13 +83,14 @@ export class AnimeSamaProvider implements HorusProvider {
 
           try {
               const { data: seasonHtml } = await axios.get(seasonUrl, { headers: this.headers, timeout: 15_000 });
-              const allProviderArrays = await this.readEpisodeArrays(seasonUrl, seasonHtml);
+              const { arrays: allProviderArrays } = await this.readEpisodeLists(seasonUrl, String(seasonHtml));
               const maxEps = Math.max(0, ...allProviderArrays.map(a => a.length));
               for (let i = 0; i < maxEps; i++) {
                   const urlsForEp = allProviderArrays.map(arr => arr[i]).filter(Boolean);
                   if (!urlsForEp.length) continue;
                   allEpisodes.push({
-                      // Keep all source URLs in ids, including retired hosts, to preserve playback history.
+                      // Keep every source reference in ids, including retired hosts: older ids hold
+                      // embed URLs, ids since the 12/11/2026 layout hold `lien:<n°>` references.
                       id: `${season.name}::${urlsForEp.join('|||')}`,
                       number: i + 1,
                       title: `${season.name} - Épisode ${i + 1}`,
@@ -95,29 +105,74 @@ export class AnimeSamaProvider implements HorusProvider {
       return allEpisodes;
   }
 
-  private async readEpisodeArrays(seasonUrl: string, html?: string): Promise<string[][]> {
+  /**
+   * Read a season page's episode lists. Since 12/11/2026 they are inline (`var eps1 = ["lien:2433", …]`)
+   * with `epsMeta` (host and state per link) and `epsJeton`, the page token that /api/lien.php needs
+   * to return a link's embed URL. Older pages load the same arrays, with full URLs, from episodes.js.
+   */
+  private async readEpisodeLists(seasonUrl: string, html?: string): Promise<EpisodeLists> {
       if (html === undefined) {
           const response = await axios.get(seasonUrl, { headers: this.headers, timeout: 8_000 });
-          html = response.data;
+          html = String(response.data);
       }
-      const $ = cheerio.load(html!);
+      if (/\bvar\s+eps\d+\s*=\s*\[/.test(html)) {
+          let meta: EpisodeLists['meta'] = {};
+          try {
+              const json = /\bvar\s+epsMeta\s*=\s*(\{.*?\})\s*;/s.exec(html)?.[1];
+              if (json) meta = JSON.parse(json);
+          } catch {
+          }
+          return {
+              arrays: this.parseEpisodeArrays(html),
+              token: /\bvar\s+epsJeton\s*=\s*["']([^"']+)["']/.exec(html)?.[1],
+              meta,
+          };
+      }
+      const $ = cheerio.load(html);
       const src = $('script[src]').toArray()
           .map(el => $(el).attr('src')!)
           .find(src => /^episodes\.js(?:\?|$)/.test(src));
-      if (!src) return [];
+      if (!src) return { arrays: [], meta: {} };
       const { data } = await axios.get(new URL(src, seasonUrl).href, {
           headers: this.headers, timeout: 8_000,
       });
-      return [...String(data).matchAll(/var\s+eps\d+\s*=\s*\[(.*?)\];/gs)].map(match => {
+      return { arrays: this.parseEpisodeArrays(String(data)), meta: {} };
+  }
+
+  private parseEpisodeArrays(script: string): string[][] {
+      return [...script.matchAll(/var\s+eps\d+\s*=\s*\[(.*?)\];/gs)].map(match => {
           // Preserve missing slots so a later episode never becomes the VF of an earlier one.
           const values = [...match[1].replace(/\/\*.*?\*\//gs, '').matchAll(
               /\s*(?:'((?:\\.|[^'\\])*)'|"((?:\\.|[^"\\])*)"|([^,]*))\s*(?:,|$)/g
           )].filter(value => value[0].length > 0);
           return values.map(value => {
               const link = (value[1] ?? value[2] ?? '').replace(/\\\//g, '/');
-              return /^https?:\/\//.test(link) ? link : '';
+              return /^https?:\/\//.test(link) || /^lien:\d+$/.test(link) ? link : '';
           });
       });
+  }
+
+  /** Whether an embed host has an extractor; other links are not even resolved. */
+  private isSupportedHost(host: string): boolean {
+      const name = host.toLowerCase();
+      return name.includes('sendvid') || this.jwPlayerHosts.some(item => name.includes(item.match));
+  }
+
+  /** Turn a `lien:<n°>` reference into its embed URL with the page token, skipping dead or unsupported links. */
+  private async resolveLink(reference: string, lists: EpisodeLists, refererUrl: string): Promise<string | undefined> {
+      if (/^https?:\/\//.test(reference)) return reference;
+      const id = /^lien:(\d+)$/.exec(reference)?.[1];
+      if (!id || !lists.token) return undefined;
+      const [host, state] = lists.meta[id] ?? [];
+      // State 1 or 2: the host deleted the video.
+      if (state === 1 || state === 2 || (host && !this.isSupportedHost(host))) return undefined;
+      const query = new URLSearchParams({ j: lists.token, l: id });
+      const { data } = await axios.get(`${this.baseUrl}/api/lien.php?${query}`, {
+          headers: { ...this.headers, referer: refererUrl, accept: 'application/json' }, timeout: 8_000,
+      });
+      const answer = typeof data === 'string' ? JSON.parse(data) : data;
+      const url = typeof answer?.u === 'string' ? answer.u : '';
+      return /^https?:\/\//.test(url) ? url : undefined;
   }
 
   private jwPlayerHosts = [
@@ -189,24 +244,32 @@ export class AnimeSamaProvider implements HorusProvider {
       if (parts.length < 2) return [];
       const context = episode?.id === episodeId ? episode.sourceContext : undefined;
       const primaryLanguage = context && /\/vf[12]?\/$/.test(context.seasonUrl) ? 'VF' : 'VOSTFR';
-      const sources = parts.slice(1).join('::').split('|||')
-          .filter(Boolean).map(url => ({ url, language: primaryLanguage }));
+      const references = parts.slice(1).join('::').split('|||').filter(Boolean);
+      // Embed URLs (ids before 12/11/2026) are used as they are; `lien:` references need a page token.
+      const sources = references.filter(url => /^https?:\/\//.test(url))
+          .map(url => ({ url, language: primaryLanguage }));
 
-      // Fetch alternate lists only for the selected episode, not for every season in the catalogue.
+      // Read the season pages only for the selected episode, not for every season in the catalogue.
       if (context && Number.isInteger(context.episodeIndex) && context.episodeIndex >= 0) {
           const seasonUrl = new URL(context.seasonUrl);
+          const pages = [{ url: seasonUrl.href, language: primaryLanguage }];
           if (seasonUrl.origin === this.baseUrl && /\/(?:vostfr|vf[12]?)\/$/.test(seasonUrl.pathname)) {
-              const variants = ['vostfr', 'vf', 'vf1', 'vf2']
+              pages.push(...['vostfr', 'vf', 'vf1', 'vf2']
                   .map(lang => ({ url: new URL(`../${lang}/`, seasonUrl).href, language: lang === 'vostfr' ? 'VOSTFR' : 'VF' }))
-                  .filter(variant => variant.url !== seasonUrl.href);
-              const results = await Promise.allSettled(variants.map(async variant => {
-                  const arrays = await this.readEpisodeArrays(variant.url);
-                  return arrays.map(array => array[context.episodeIndex]).filter(Boolean)
-                      .map(url => ({ url, language: variant.language }));
-              }));
-              for (const result of results) {
-                  if (result.status === 'fulfilled') sources.push(...result.value);
-              }
+                  .filter(variant => variant.url !== seasonUrl.href));
+          }
+          // The original page is needed only when the id holds references; the URLs above already cover it.
+          const toRead = references.some(reference => reference.startsWith('lien:')) ? pages : pages.slice(1);
+          const results = await Promise.allSettled(toRead.map(async page => {
+              const lists = await this.readEpisodeLists(page.url);
+              const links = await Promise.allSettled(lists.arrays
+                  .map(array => array[context.episodeIndex]).filter(Boolean)
+                  .map(reference => this.resolveLink(reference, lists, page.url)));
+              return links.flatMap(link => link.status === 'fulfilled' && link.value
+                  ? [{ url: link.value, language: page.language }] : []);
+          }));
+          for (const result of results) {
+              if (result.status === 'fulfilled') sources.push(...result.value);
           }
       }
       const uniqueSources = sources.filter((source, index) => sources.findIndex(
