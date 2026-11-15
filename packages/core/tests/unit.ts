@@ -21,6 +21,7 @@ import {
 } from '../src/utils/FsvidExtractor';
 import {
   extractVidzyHlsSource,
+  extractVidzyMediaSource,
   extractVidzyIframeUrl,
 } from '../src/providers/Vidzy';
 
@@ -345,6 +346,26 @@ assert.equal(
     'vidzy.cc'
   ),
   null
+);
+
+// Since 15/11/2026 the player declares a direct MP4 next to the plain-text HLS decoy.
+const vidzyMp4 = 'https://u14.vidzy.org/v/08/00013/abc_n/n.mp4?t=sig&s=1794705951&e=14400&f=66376&sp=200&i=0.0';
+const mp4Player = `var _fsvHls="https://s1.fsvid.lol/troll/master.m3u8";player = videojs('vjsplayer', {` +
+  `sources: [{src: "${vidzyMp4}", type: "video/mp4"}] });`;
+assert.equal(extractVidzyHlsSource(mp4Player, 'vidzy.cc'), null, 'The decoy is never an HLS source');
+assert.equal(extractVidzyMediaSource(mp4Player, 'vidzy.cc'), vidzyMp4);
+assert.equal(
+  extractVidzyMediaSource(mp4Player.replace('u14.vidzy.org', 'u14.vidzy.org.evil.test'), 'vidzy.cc'),
+  null,
+  'An MP4 outside Vidzy is rejected'
+);
+assert.equal(
+  extractVidzyMediaSource(
+    `videojs('v',{sources:[{src:"${vidzyHlsUrl}",type:"application/x-mpegURL"},{src:"${vidzyMp4}",type:"video/mp4"}]})`,
+    'vidzy.cc'
+  ),
+  vidzyHlsUrl,
+  'HLS is preferred: it carries the separate audio tracks'
 );
 
 testAnimeSamaLanguages().then(testVidzyMediaTypes).then(() => {

@@ -135,6 +135,26 @@ export async function testVidzyMediaTypes() {
     assert.equal(validations, 2, 'Session resolves for vidzy.org HLS hosts');
     assert.ok(orgStreams.every(stream => stream.url.includes('u14.vidzy.org')), 'HLS URL uses vidzy.org host');
 
+    // Vidzy may alternate between HLS and a direct MP4 (15/11/2026), even between languages of one film.
+    const mp4 = (key: string) => `https://u14.vidzy.org/v/08/00013/${key}_n/n.mp4?t=sig&e=14400`;
+    pages.set('https://vidzy.cc/embed-film-1399-vf.html',
+      `var _fsvHls="https://s1.fsvid.lol/troll/master.m3u8";videojs('v',{sources:[{src:"${mp4('film-1399-vf')}",type:"video/mp4"}]})` +
+      '<script>fetch("https://v6.vidzy.cc/gate.php?v=p1")</script>');
+    const mixed = await sessionProvider.getStreams('vidzy::movie::1399');
+    const byLanguage = Object.fromEntries(mixed.map(stream => [stream.language, stream]));
+    assert.equal(byLanguage.VF.format, 'file', 'A direct MP4 is played as a file');
+    assert.equal(byLanguage.VF.contentType, 'video/mp4');
+    assert.equal(new URL(byLanguage.VF.url).pathname, '/v/08/00013/film-1399-vf_n/n.mp4');
+    assert.equal(new URL(byLanguage.VF.url).searchParams.get('gk'), 'signed+token/value=', 'The session token also covers MP4 files');
+    assert.equal(byLanguage.VOSTFR.format, 'hls', 'HLS keeps working on the other language');
+    assert.equal(byLanguage.VOSTFR.contentType, 'application/vnd.apple.mpegurl');
+    // And back to HLS when Vidzy offers both: HLS carries the separate audio tracks.
+    pages.set('https://vidzy.cc/embed-film-1399-vf.html',
+      `videojs('v',{sources:[{src:"https://u14.vidzy.org/hls2/film-1399-vf/master.m3u8",type:"application/x-mpegURL"},` +
+      `{src:"${mp4('film-1399-vf')}",type:"video/mp4"}]})`);
+    const back = await sessionProvider.getStreams('vidzy::movie::1399');
+    assert.ok(back.every(stream => stream.format === 'hls'));
+
     failures.set(`${origin}/serie/1396/2/1`, 503);
     await assert.rejects(provider.getEpisodes('vidzy::1396', { type: 'series' }), /Fixture HTTP error/,
       'Do not silently truncate the season list on network or server errors');
