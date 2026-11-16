@@ -28,6 +28,39 @@ fn validate(embed: &str, referer: &str) -> Result<url::Url, String> {
     Ok(url)
 }
 
+// Runs before the embed's own scripts. The session window must only compute
+// the gate token: like the Android validator, it never loads media. Otherwise
+// a Chromium webview (WebView2 on Windows) lets video.js fetch the manifest,
+// with the fresh token, before the relay does; Windows then received Vidzy's
+// decoy manifest while macOS (WebKit) played.
+const SESSION_SCRIPT: &str = r#"(() => {
+  window.open = () => null;
+  try {
+    Object.defineProperty(window, 'videojs', { get: () => undefined, set: () => {}, configurable: false });
+  } catch (_) {}
+  const media = (value) => {
+    try {
+      const path = new URL(String(value), location.href).pathname;
+      return /^\/(hls2|v)\//.test(path) || /\.(m3u8|ts|m4s|mp4)$/i.test(path);
+    } catch (_) { return false; }
+  };
+  const fetch = window.fetch;
+  window.fetch = function (input, init) {
+    const url = input && typeof input === 'object' && 'url' in input ? input.url : input;
+    return media(url) ? Promise.reject(new TypeError('media blocked')) : fetch.call(this, input, init);
+  };
+  const open = XMLHttpRequest.prototype.open;
+  XMLHttpRequest.prototype.open = function (method, url, ...rest) {
+    return open.call(this, method, media(url) ? 'data:text/plain,' : url, ...rest);
+  };
+  const source = Object.getOwnPropertyDescriptor(HTMLMediaElement.prototype, 'src');
+  Object.defineProperty(HTMLMediaElement.prototype, 'src', {
+    get() { return source.get.call(this); },
+    set(value) { if (!media(value)) source.set.call(this, value); },
+  });
+  HTMLMediaElement.prototype.play = () => Promise.resolve();
+})();"#;
+
 // Closing on every return also covers a dropped/cancelled command future.
 struct SessionWindow(tauri::WebviewWindow);
 impl Drop for SessionWindow {
@@ -44,7 +77,7 @@ pub async fn resolve_vidzy_session(app: tauri::AppHandle, embed: String, referer
         &app, format!("vidzy-{}", uuid::Uuid::new_v4()), tauri::WebviewUrl::External(url))
         .visible(false).focused(false).incognito(true)
         .on_new_window(|_, _| tauri::webview::NewWindowResponse::Deny)
-        .initialization_script("window.open = () => null;")
+        .initialization_script(SESSION_SCRIPT)
         .on_navigation(move |target| target == &allowed)
         .build().map_err(|_| "Impossible d’ouvrir la session Vidzy")?;
     let window = SessionWindow(browser);
