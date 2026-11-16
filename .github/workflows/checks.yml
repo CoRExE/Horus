@@ -11,6 +11,11 @@ on:
         description: Commit ou tag exact à vérifier pour une release
         required: false
         type: string
+      platform:
+        description: "Plateforme publiée : desktop (tous les jobs) ou mobile (sans le job macOS)"
+        required: false
+        type: string
+        default: desktop
 
 permissions:
   contents: read
@@ -24,17 +29,56 @@ defaults:
     shell: bash
 
 jobs:
+  scope:
+    name: Choisir les vérifications
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      desktop: ${{ steps.scope.outputs.desktop }}
+    steps:
+      - uses: actions/checkout@v5
+        if: github.event_name == 'pull_request' && !inputs.ref
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - id: scope
+        env:
+          REF: ${{ inputs.ref }}
+          PLATFORM: ${{ inputs.platform }}
+          EVENT: ${{ github.event_name }}
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          if [[ -n "$REF" ]]; then
+            # Release : la release Android n'a pas besoin du job Desktop macOS.
+            [[ "$PLATFORM" == mobile ]] && desktop=false || desktop=true
+          elif [[ "$EVENT" == pull_request ]]; then
+            # PR : le job macOS ne tourne que si Desktop, le core partagé,
+            # les dépendances ou la CI changent.
+            git diff --name-only "$BASE...$HEAD" > changed.txt
+            cat changed.txt
+            if grep -qE '^(apps/HorusDesktop/|packages/core/|pnpm-lock\.yaml$|pnpm-workspace\.yaml$|package\.json$|\.nvmrc$|\.github/workflows/)' changed.txt; then
+              desktop=true
+            else
+              desktop=false
+            fi
+          else
+            desktop=true
+          fi
+          echo "desktop=$desktop" | tee -a "$GITHUB_OUTPUT"
+
   monorepo:
     name: TypeScript et tests du monorepo
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           ref: ${{ inputs.ref || github.sha }}
       - uses: pnpm/action-setup@v6
         # Version lue dans package.json ; pas d'installation implicite.
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version-file: .nvmrc
           cache: pnpm
@@ -50,7 +94,7 @@ jobs:
         run: node --test scripts/release/tests/*.test.mjs 2>&1 | tee .ci-logs/release-tests.log
       - name: Conserver les journaux en cas d'échec
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: logs-monorepo
           path: .ci-logs/
@@ -59,6 +103,8 @@ jobs:
 
   desktop:
     name: Desktop macOS et média FFmpeg
+    needs: scope
+    if: needs.scope.outputs.desktop == 'true'
     runs-on: macos-15
     timeout-minutes: 40
     env:
@@ -66,11 +112,11 @@ jobs:
       CARGO_TERM_COLOR: never
       RUST_BACKTRACE: 1
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           ref: ${{ inputs.ref || github.sha }}
       - uses: pnpm/action-setup@v6
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version-file: .nvmrc
           cache: pnpm
@@ -80,7 +126,7 @@ jobs:
         run: pnpm install --frozen-lockfile 2>&1 | tee .ci-logs/install.log
       - name: Installer Rust
         run: rustup toolchain install 1.88.0 --profile minimal 2>&1 | tee .ci-logs/rust-setup.log
-      - uses: actions/cache@v4
+      - uses: actions/cache@v5
         with:
           path: |
             ~/.cargo/registry/index
@@ -104,7 +150,7 @@ jobs:
         run: pnpm --filter horus-desktop test:media 2>&1 | tee .ci-logs/media.log
       - name: Conserver les journaux en cas d'échec
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: logs-desktop-macos
           path: .ci-logs/

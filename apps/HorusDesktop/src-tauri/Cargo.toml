@@ -1,6 +1,6 @@
 [package]
 name = "horus-desktop"
-version = "0.1.15"
+version = "0.1.16"
 description = "Horus desktop media client"
 edition = "2021"
 rust-version = "1.88"
