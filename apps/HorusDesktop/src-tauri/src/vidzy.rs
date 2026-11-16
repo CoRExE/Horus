@@ -1,11 +1,24 @@
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use std::time::Duration;
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BrowserSession {
     key: String,
     user_agent: String,
+}
+
+// The relay's HTTP client is not a browser, so media requests say what they
+// are. Vidzy serves its decoy manifest and junk segments to clients that claim
+// a Chromium user agent without being Chromium: forwarding the WebView2 agent
+// (Edge) broke Windows, while the WebKit agents of macOS and Linux passed.
+// The gate token is not tied to the agent that obtained it.
+fn relay_user_agent(version: &str) -> String {
+    format!("HorusDesktop/{version}")
+}
+
+fn valid_key(key: &str) -> bool {
+    !key.is_empty() && key.len() <= 4096 && !key.chars().any(char::is_control)
 }
 
 fn is_vidzy_host(host: &str) -> bool {
@@ -28,11 +41,9 @@ fn validate(embed: &str, referer: &str) -> Result<url::Url, String> {
     Ok(url)
 }
 
-// Runs before the embed's own scripts. The session window must only compute
-// the gate token: like the Android validator, it never loads media. Otherwise
-// a Chromium webview (WebView2 on Windows) lets video.js fetch the manifest,
-// with the fresh token, before the relay does; Windows then received Vidzy's
-// decoy manifest while macOS (WebKit) played.
+// Runs before the embed's own scripts. Like the Android validator, the session
+// window only computes the gate token and never loads media: on Chromium
+// webviews (WebView2) video.js would otherwise preload the stream for nothing.
 const SESSION_SCRIPT: &str = r#"(() => {
   window.open = () => null;
   try {
@@ -87,16 +98,14 @@ pub async fn resolve_vidzy_session(app: tauri::AppHandle, embed: String, referer
         // The callback API is Fn, so protect the single-use sender.
         let sender = std::sync::Mutex::new(Some(send));
         window.0.eval_with_callback(
-            "({key: typeof window.__vzgk === 'string' ? window.__vzgk : '', userAgent: navigator.userAgent})",
+            "typeof window.__vzgk === 'string' ? window.__vzgk : ''",
             move |value| { if let Some(send) = sender.lock().unwrap().take() { let _ = send.send(value); } }
         ).map_err(|_| "Impossible de lire la validation Vidzy")?;
         if let Ok(Ok(value)) = tokio::time::timeout(Duration::from_secs(1), receive).await {
-            if let Ok(session) = serde_json::from_str::<BrowserSession>(&value) {
-                if !session.key.is_empty() && session.key.len() <= 4096 &&
-                    !session.key.chars().any(char::is_control) &&
-                    !session.user_agent.is_empty() && session.user_agent.len() <= 2048 &&
-                    !session.user_agent.chars().any(char::is_control) {
-                    return Ok(session);
+            if let Ok(key) = serde_json::from_str::<String>(&value) {
+                if valid_key(&key) {
+                    let version = app.package_info().version.to_string();
+                    return Ok(BrowserSession { key, user_agent: relay_user_agent(&version) });
                 }
             }
         }
@@ -108,6 +117,14 @@ pub async fn resolve_vidzy_session(app: tauri::AppHandle, embed: String, referer
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn relay_names_itself_instead_of_a_browser() {
+        assert_eq!(relay_user_agent("0.1.17"), "HorusDesktop/0.1.17");
+        assert!(!relay_user_agent("0.1.17").contains("Chrome"));
+        assert!(valid_key("abc.1794841264.86400"));
+        assert!(!valid_key("") && !valid_key("a\nb") && !valid_key(&"a".repeat(4097)));
+    }
+
     #[test]
     fn only_vidzy_embeds_can_open_a_session() {
         assert!(validate("https://vidzy.cc/embed-abc123.html", "https://vidzy.org/movie/550/vf").is_ok());

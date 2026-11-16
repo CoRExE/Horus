@@ -33,6 +33,14 @@ const BROWSER_USER_AGENT =
 const WRAPPER_HEADERS = { 'User-Agent': BROWSER_USER_AGENT, Referer: 'https://api.vidzy.org/' };
 const MAX_FALLBACK_SEASONS = 100;
 
+const platformHint = (userAgent: string): Record<string, string> => {
+  const platform = userAgent.includes('Android') ? '"Android"'
+    : userAgent.includes('Macintosh') ? '"macOS"'
+    : userAgent.includes('Linux') ? '"Linux"'
+    : userAgent.includes('Windows') ? '"Windows"' : undefined;
+  return platform ? { 'Sec-CH-UA-Platform': platform } : {};
+};
+
 const encodeMediaId = (tmdbId: string) => `vidzy::${tmdbId}`;
 
 const parseMediaId = (mediaId: string) => {
@@ -318,11 +326,10 @@ export class VidzyProvider implements HorusProvider {
         Origin: VIDZY_EMBED_ORIGIN,
         Accept: '*/*',
         'User-Agent': session?.userAgent || BROWSER_USER_AGENT,
-        // Keep the platform hint consistent with the browser that validated
-        // the session; legacy extraction uses the Windows browser headers.
-        'Sec-CH-UA-Platform': session?.userAgent.includes('Android') ? '"Android"'
-          : session?.userAgent.includes('Macintosh') ? '"macOS"'
-          : session?.userAgent.includes('Linux') ? '"Linux"' : '"Windows"',
+        // Keep the platform hint consistent with the agent sent; legacy
+        // extraction uses the Windows browser headers. An agent that names no
+        // platform (the Desktop relay) gets no hint.
+        ...platformHint(session?.userAgent ?? BROWSER_USER_AGENT),
       },
     };
   }

@@ -117,6 +117,14 @@ export async function testVidzyMediaTypes() {
       assert.equal(stream.headers?.['Sec-CH-UA-Platform'], '"Android"');
       assert.ok(stream.headers?.['User-Agent'].includes('Android'));
     }
+    // The Desktop relay names itself: no browser agent, no platform hint.
+    const desktop = await new VidzyProvider({
+      resolveSession: async () => ({ key: 'desktop-token', userAgent: 'HorusDesktop/0.1.17' }),
+    }).getStreams('vidzy::movie::1399');
+    for (const stream of desktop) {
+      assert.equal(stream.headers?.['User-Agent'], 'HorusDesktop/0.1.17');
+      assert.equal(stream.headers?.['Sec-CH-UA-Platform'], undefined);
+    }
     await assert.rejects(new VidzyProvider({ resolveSession: async () => {
       throw new Error('Validation failed');
     } }).getStreams('vidzy::movie::1399'), /Aucun flux/);
